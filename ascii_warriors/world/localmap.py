@@ -176,18 +176,29 @@ class LocalMap:
         """
         cx, cy = self.width // 2, self.height // 2
         best: Optional[Tuple[int, int, int]] = None
-        best_d = 1 << 30
+        best_score = None
         for y in range(self.height):
             for x in range(self.width):
                 z = self.surface_z(x, y)
                 if not self.walkable(x, y, z):
                     continue
                 t = tile_data.get(self.tile(x, y, z))
-                if t.has("WATER") or t.has("FURNITURE"):
+                if t.has("WATER") or t.has("FURNITURE") or t.has("DOOR"):
                     continue
-                d = (x - cx) ** 2 + (y - cy) ** 2
-                if d < best_d:
-                    best, best_d = (x, y, z), d
+                # Arrive in the open, ideally on a road, not inside someone's
+                # bedroom with a wall in your face.
+                open_sides = sum(
+                    1 for dx, dy in ((0, -1), (1, 0), (0, 1), (-1, 0))
+                    if self.walkable(x + dx, y + dy, z)
+                    and not tile_data.get(self.tile(x + dx, y + dy, z)).has("WALL")
+                )
+                score = (
+                    (x - cx) ** 2 + (y - cy) ** 2
+                    - (400 if t.id == "road" else 0)
+                    - open_sides * 40
+                )
+                if best_score is None or score < best_score:
+                    best, best_score = (x, y, z), score
         return best if best is not None else self.random_open(rng)
 
     def edge_entry(self, rng: RNG, side: str) -> Tuple[int, int, int]:
@@ -547,9 +558,9 @@ def generate_local(
     lm.soil = biome_data.get(here.biome).soil
     lm.site_id = site.id if site is not None else None
 
-    # People build on level ground: sites get far gentler relief so their
-    # streets, halls and gates actually connect to each other.
-    flatten = 0.18 if site is not None else 1.0
+    # People build on level ground. Sites get a perfectly flat surface at z=0
+    # so streets, halls, gates and the people in them all share one level.
+    flatten = 0.0 if site is not None else 1.0
     lm.surface = _build_heightmap(
         world, wx, wy, rng, LOCAL_W, LOCAL_H, zmin, zmax, flatten=flatten
     )

@@ -60,9 +60,9 @@ class WorldTile:
     def to_dict(self) -> Dict[str, Any]:
         """Serialise the tile compactly."""
         return {
-            "e": round(self.elevation, 4), "r": round(self.rainfall, 4),
-            "t": round(self.temperature, 2), "d": round(self.drainage, 4),
-            "v": round(self.volcanism, 3), "s": self.savagery, "ev": self.evil,
+            "e": round(self.elevation, 6), "r": round(self.rainfall, 6),
+            "t": round(self.temperature, 4), "d": round(self.drainage, 6),
+            "v": round(self.volcanism, 4), "s": self.savagery, "ev": self.evil,
             "b": self.biome, "rv": self.river, "rd": self.river_dir,
             "o": self.is_ocean, "l": self.is_lake, "rg": self.region_id,
             "si": self.site_id, "ci": self.civ_id, "x": self.explored,
@@ -613,7 +613,12 @@ def world_hash(world: World) -> str:
     h = hashlib.blake2b(digest_size=8)
     for row in world.tiles:
         for t in row:
-            h.update(("%s%d%d" % (t.biome, int(t.elevation * 1000), t.river)).encode())
+            # Round rather than truncate: truncation turns a 1e-9 serialisation
+            # difference into a whole-unit difference in the digest.
+            h.update(
+                ("%s%d%d" % (t.biome, int(round(t.elevation * 1000)), t.river))
+                .encode()
+            )
     return h.hexdigest()
 
 

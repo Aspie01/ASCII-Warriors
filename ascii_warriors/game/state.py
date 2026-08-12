@@ -240,7 +240,14 @@ class Game:
         options = [c for c in options if not c.intelligent or c.has("EVIL")]
         if not options:
             return
-        count = n if n is not None else self.rng.randint(WILDLIFE_MIN, WILDLIFE_MAX)
+        if n is not None:
+            count = n
+        else:
+            count = self.rng.randint(WILDLIFE_MIN, WILDLIFE_MAX)
+            site = self.world.site_at(self.local.wx, self.local.wy)
+            if site is not None and site.is_settlement:
+                # Guards keep most of the wildlife out of an inhabited place.
+                count = max(0, count // 3)
         weights = {c.id: float(c.frequency) for c in options}
         for _ in range(count):
             cid = self.rng.weighted(weights)

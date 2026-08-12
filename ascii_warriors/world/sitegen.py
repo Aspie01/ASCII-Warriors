@@ -209,14 +209,23 @@ def build_town(lm, world, site, rng: RNG) -> List[PopSpec]:
                 pop.append(_pop(race, p.x, p.y, z, faction=faction,
                                 profession="peasant", role="citizen"))
 
-    # A few people out in the streets.
-    for _ in range(rng.randint(2, 6)):
-        x, y, zz = lm.random_open(rng)
-        pop.append(_pop(race, x, y, zz, faction=faction, profession="peasant",
+    # A few people out in the streets, where the player will actually meet them.
+    streets = [
+        (x, y) for y in range(lm.height) for x in range(lm.width)
+        if lm.tile(x, y, z) == "road"
+    ]
+    if not streets:
+        streets = [
+            (x, y) for y in range(lm.height) for x in range(lm.width)
+            if lm.walkable(x, y, z)
+            and abs(x - center.x) < 16 and abs(y - center.y) < 12
+        ]
+    rng.shuffle(streets)
+    for x, y in streets[: rng.randint(3, 7)]:
+        pop.append(_pop(race, x, y, z, faction=faction, profession="peasant",
                         role="citizen"))
-    for _ in range(rng.randint(1, 3)):
-        x, y, zz = lm.random_open(rng)
-        pop.append(_pop("guard", x, y, zz, faction=faction, profession="guard",
+    for x, y in streets[7: 7 + rng.randint(1, 3)]:
+        pop.append(_pop("guard", x, y, z, faction=faction, profession="guard",
                         role="guard", level=1))
     return pop
 
