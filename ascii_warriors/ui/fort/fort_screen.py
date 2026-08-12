@@ -219,6 +219,12 @@ class FortScene(Scene):
 
             name = "%s %s" % (mat_data.get(vein).adjective, name)
         lines: List = [Frag(name, colors.UI["title"])]
+        if fort.magma.at(*cell):
+            lines.append(Frag("magma, %d deep" % fort.magma.at(*cell),
+                              colors.Color(240, 120, 50)))
+        elif fort.water.at(*cell):
+            lines.append(Frag("water, %d deep" % fort.water.at(*cell),
+                              colors.Color(120, 175, 225)))
         b = fort.building_at(*cell)
         if b is not None:
             lines.append("%s (%s)" % (

@@ -61,13 +61,21 @@ def _open_spot(fort, kind: str):
 
 
 def dig_room(fort, radius: int = 6) -> int:
-    """Designate a block of digging around the dwarves."""
+    """Designate a block of digging near the dwarves, wherever the rock is.
+
+    Painting a fixed pair of levels under the wagon only works when the wagon
+    happens to be standing on rock. Embark on a valley floor with a cavern
+    under it and the same rectangle paints nothing, and every digging test
+    quietly stops testing anything.
+    """
     d = fort.dwarves()[0]
     total = 0
-    for z in (fort.z, fort.z - 1):
+    for z in range(fort.z, max(fort.local.zmin, fort.z - 8) - 1, -1):
         total += fort.designations.paint_rect(
             fort.local, d.x - radius, d.y - radius, d.x + radius,
             d.y + radius, z, "dig")
+        if total:
+            break
     return total
 
 
@@ -692,7 +700,8 @@ class TestIndustry(unittest.TestCase):
         for cell, material in fort.local.veins.items():
             self.assertIn(material, self.mats.MATERIALS, str(cell))
             self.assertIn(fort.local.tile(*cell),
-                          ("ore_vein", "gem_vein", "coal_seam"), str(cell))
+                          ("ore_vein", "gem_vein", "coal_seam",
+                           "adamantine_vein"), str(cell))
 
     def test_a_vein_is_the_same_metal_all_the_way_through(self):
         """You dig towards the iron and you get iron, not a lottery ticket."""
@@ -873,6 +882,267 @@ class TestIndustry(unittest.TestCase):
         self.assertFalse(pile.accepts(self.Item("meat", "meat")))
         stone = Stockpile("stone", 0, 0, 0, 3, 3)
         self.assertFalse(stone.accepts(self.Item("ore", "iron")))
+
+
+class TestTheDeep(unittest.TestCase):
+    """Magma, adamantine, and what is under the adamantine."""
+
+    def setUp(self):
+        from ascii_warriors.world import fluids
+
+        self.fluids = fluids
+        self.fort = embark("thedeep")
+
+    def _tube_cells(self, fort):
+        """The magma pipe: everything molten above the sea."""
+        return {c for c in fort.magma.depth if c[2] > fort.magma_floor}
+
+    def _wall_beside(self, fort, cells):
+        """A rock cell touching one of these, to mine through."""
+        lm = fort.local
+        for x, y, z in sorted(cells):
+            for dx, dy in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+                side = (x + dx, y + dy, z)
+                if side in cells:
+                    continue
+                if not self.fluids.can_hold(lm, side) and lm.in_bounds(*side):
+                    return side
+        return None
+
+    # -- the shape of the world -------------------------------------------- #
+
+    def test_there_is_a_sea_at_the_bottom_and_stone_that_says_so(self):
+        """The warning has to be there before the mistake is possible."""
+        fort = self.fort
+        lm = fort.local
+        self.assertGreater(fort.magma.total(), 0, "no magma anywhere")
+        sea = [c for c in fort.magma.depth if c[2] <= fort.magma_floor]
+        self.assertGreater(len(sea), 1000, "the sea is a puddle")
+        warm = sum(1 for y in range(lm.height) for x in range(lm.width)
+                   if lm.tile(x, y, fort.magma_floor + 1) == "warm_stone")
+        self.assertGreater(warm, 100, "nothing warns you about the sea")
+
+    def test_a_pipe_of_magma_reaches_the_working_levels(self):
+        """A sea at the bottom of the world nobody can reach is scenery."""
+        tube = self._tube_cells(self.fort)
+        self.assertTrue(tube, "no magma above the sea at all")
+        self.assertGreater(max(c[2] for c in tube), self.fort.magma_floor + 3,
+                           "the pipe does not come up far enough to matter")
+
+    def test_the_spire_is_adamantine_and_hollow(self):
+        """The last mistake a fortress makes has to be there to be made."""
+        fort = self.fort
+        ada = [c for c, m in fort.local.veins.items() if m == "adamantine"]
+        self.assertTrue(ada, "no adamantine in the world")
+        self.assertTrue(fort.hollow, "the spire is solid: nothing to breach")
+        for cell in fort.hollow:
+            self.assertEqual(fort.local.veins.get(cell), "adamantine")
+
+    def test_mining_adamantine_gives_adamantine(self):
+        """It is ore like any other, until you smelt it."""
+        fort = self.fort
+        cell = next(c for c, m in fort.local.veins.items()
+                    if m == "adamantine")
+        item = fort._mined_item(cell, fort._stone_here(cell))
+        self.assertEqual(item.def_id, "ore")
+        self.assertEqual(item.material, "adamantine")
+
+    # -- magma behaving like magma ----------------------------------------- #
+
+    def test_the_sea_stays_where_it_is(self):
+        """Left alone, the deep is quiet. It is also cheap."""
+        fort = self.fort
+        before = fort.magma.total()
+        for _ in range(200):
+            fort.magma.step(fort.local)
+        self.assertEqual(fort.magma.total(), before,
+                         "the magma sea climbed out on its own")
+
+    def test_the_deep_does_not_cost_the_game_anything(self):
+        """Ten thousand cells of magma must not slow the fortress down."""
+        import time
+
+        fort = self.fort
+        for _ in range(20):
+            sim.step(fort)
+        start = time.time()
+        for _ in range(200):
+            sim.step(fort)
+        per_step = (time.time() - start) * 1000 / 200
+        self.assertLess(per_step, 5.0,
+                        "%.2f ms a step with a magma sea is too slow"
+                        % per_step)
+
+    def test_mining_into_the_pipe_lets_it_out(self):
+        """The whole danger of the thing."""
+        fort = self.fort
+        tube = self._tube_cells(fort)
+        wall = self._wall_beside(fort, tube)
+        self.assertIsNotNone(wall, "the pipe has no rock around it")
+        fort.dig_out(wall, "floor")
+        for _ in range(300):
+            sim.step(fort)
+        loose = [c for c in fort.magma.depth
+                 if c not in tube and c[2] > fort.magma_floor]
+        self.assertTrue(loose, "digging into a magma pipe did nothing")
+        self.assertTrue(fort.magma.flooded)
+
+    def test_a_sealed_pipe_is_not_a_reason_to_run(self):
+        """A corridor beside the pipe has magma one tile away all the way.
+
+        Treating that as a threat makes every dwarf who walks down it turn
+        round, walk back, turn round again, and die of thirst next to a
+        barrel of ale. Only loose magma is worth running from.
+        """
+        fort = self.fort
+        tube = self._tube_cells(fort)
+        self.assertTrue(tube)
+        beside = None
+        for x, y, z in sorted(tube):
+            for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                cand = (x + dx, y + dy, z)
+                if cand not in tube and fort.magma.at(*cand) == 0:
+                    beside = cand
+                    break
+            if beside:
+                break
+        self.assertIsNotNone(beside)
+        self.assertFalse(dwarf_mod._magma_near(fort, beside),
+                         "a sealed pipe next door counts as an emergency")
+        fort.magma.set(beside, 0)
+        loose = (beside[0], beside[1] + 1, beside[2])
+        fort.magma.set(loose, 2)
+        self.assertTrue(dwarf_mod._magma_near(fort, beside),
+                        "loose magma next door does not count as one")
+
+    def test_nothing_walkable_touches_the_magma(self):
+        """Not even diagonally.
+
+        Open magma beside a floor is held back by bookkeeping the player
+        cannot see, and it makes a nonsense of both the map and the dwarves
+        standing on it.
+        """
+        fort = self.fort
+        lm = fort.local
+        for (x, y, z) in fort.magma.depth:
+            for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1),
+                           (-1, 1), (-1, -1)):
+                side = (x + dx, y + dy, z)
+                if not lm.in_bounds(*side) or fort.magma.at(*side) > 0:
+                    continue
+                self.assertFalse(lm.walkable(*side),
+                                 "%s is walkable and touches magma at %s"
+                                 % (side, (x, y, z)))
+
+    def test_magma_kills_what_stands_in_it(self):
+        """Wading is not an option at any depth."""
+        fort = self.fort
+        d = fort.dwarves()[0]
+        fort.magma.set((d.x, d.y, d.z), 2)
+        sim.step(fort)
+        self.assertTrue(d.body.dead)
+        self.assertEqual(d.body.death_cause, "burned to death")
+
+    def test_dwarves_will_not_path_through_magma(self):
+        """Not even a puddle of it."""
+        fort = self.fort
+        d = fort.dwarves()[0]
+        here = (d.x, d.y, d.z)
+        first = [c for c, _cost in fort.path_neighbours(here)]
+        self.assertTrue(first)
+        fort.magma.set(first[0], 1)
+        again = [c for c, _cost in fort.path_neighbours(here)]
+        self.assertNotIn(first[0], again)
+
+    def test_magma_and_water_make_obsidian(self):
+        """The oldest trick in the fortress."""
+        fort = self.fort
+        d = fort.dwarves()[0]
+        cell = (d.x + 2, d.y, d.z)
+        fort.magma.set(cell, 5)
+        fort.water.set((cell[0] + 1, cell[1], cell[2]), 5)
+        cast = self.fluids.quench(fort.magma, fort.water, fort.local)
+        self.assertIn(cell, cast)
+        self.assertEqual(fort.local.tile(*cell), "obsidian_wall")
+        self.assertEqual(fort.magma.at(*cell), 0)
+
+    def test_goods_in_magma_burn_except_the_one_thing(self):
+        """Adamantine is the exception to most things."""
+        from ascii_warriors.game.item import Item
+
+        fort = self.fort
+        d = fort.dwarves()[0]
+        cell = (d.x + 3, d.y, d.z)
+        fort.drop_item(Item("boulder", "granite"), *cell)
+        fort.drop_item(Item("bar", "adamantine"), *cell)
+        fort.magma.set(cell, 4)
+        sim._burn_items(fort)
+        left = [i.def_id for i in fort.items_at(*cell)]
+        self.assertEqual(left, ["bar"])
+
+    # -- the industry it pays for ------------------------------------------ #
+
+    def test_a_magma_workshop_needs_magma_under_it(self):
+        """That is the entire engineering problem, in one rule."""
+        fort = self.fort
+        d = fort.dwarves()[0]
+        ok, why = building_mod.can_place(fort.local, "magma_smelter",
+                                         d.x, d.y, d.z, fort.buildings,
+                                         fort.magma)
+        self.assertFalse(ok)
+        self.assertIn("magma", why.lower())
+
+    def test_magma_workshops_work_without_fuel(self):
+        """The reward for getting the magma where you wanted it."""
+        smelt = production.RECIPES["magma_smelt_ore"]
+        self.assertEqual(smelt.workshop, "magma_smelter")
+        self.assertNotIn("FUEL", [req for req, _n in smelt.inputs])
+        forge = production.RECIPES["magma_iron_axe"]
+        self.assertEqual(forge.workshop, "magma_forge")
+        self.assertNotIn("FUEL", [req for req, _n in forge.inputs])
+
+    # -- and what is under it ---------------------------------------------- #
+
+    def test_breaching_the_spire_lets_them_out(self):
+        """Dig too greedily and too deep."""
+        fort = self.fort
+        cell = sorted(fort.hollow)[0]
+        before = len(fort.hostiles())
+        fort.dig_out(cell, "floor")
+        self.assertTrue(fort.breached)
+        demons = [c for c in fort.hostiles() if c.defn.id == "demon"]
+        self.assertGreater(len(demons), before)
+        self.assertTrue(any("hollow" in m.text.lower()
+                            for m in fort.log.all()))
+
+    def test_the_world_hears_about_the_pit(self):
+        """It is the last thing that happens, so it goes in the legends."""
+        fort = self.fort
+        before = len(fort.world.events)
+        fort.dig_out(sorted(fort.hollow)[0], "floor")
+        told = [e for e in fort.world.events[before:]
+                if "demons" in e.text.lower()]
+        self.assertTrue(told)
+
+    def test_the_pit_keeps_giving(self):
+        """There is no closing it, which is the point of the adamantine."""
+        fort = self.fort
+        fort.dig_out(sorted(fort.hollow)[0], "floor")
+        first = len([c for c in fort.hostiles() if c.defn.id == "demon"])
+        sim.spawn_demons(fort, fort.breach_cell, wave=2)
+        self.assertGreater(
+            len([c for c in fort.hostiles() if c.defn.id == "demon"]), first)
+
+    def test_the_deep_survives_a_save(self):
+        """Magma, the pit and the hollow all have to come back."""
+        fort = self.fort
+        fort.magma.set((fort.dwarves()[0].x + 4, fort.dwarves()[0].y,
+                        fort.dwarves()[0].z), 3)
+        again = Fortress.from_dict(fort.to_dict())
+        self.assertEqual(again.magma.total(), fort.magma.total())
+        self.assertEqual(again.hollow, fort.hollow)
+        self.assertEqual(again.magma_floor, fort.magma_floor)
+        self.assertEqual(again.breached, fort.breached)
 
 
 class TestLivingWorld(unittest.TestCase):

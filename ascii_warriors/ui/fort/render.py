@@ -79,6 +79,7 @@ def draw_map(
             scr.put(ox + sx, oy + sy, glyph, fg, bg)
 
     _draw_water(scr, fort, ox, oy, w, h, cam_x, cam_y)
+    _draw_magma(scr, fort, ox, oy, w, h, cam_x, cam_y)
     _draw_zones(scr, fort, ox, oy, w, h, cam_x, cam_y)
     _draw_designations(scr, fort, ox, oy, w, h, cam_x, cam_y)
     _draw_buildings(scr, fort, ox, oy, w, h, cam_x, cam_y)
@@ -128,6 +129,30 @@ def _draw_water(scr, fort, ox, oy, w, h, cam_x, cam_y) -> None:
             scr.put(ox + sx, oy + sy, "~", colors.Color(120, 175, 225), bg)
         else:
             scr.put(ox + sx, oy + sy, ch, fg, bg)
+
+
+#: Background shades for magma one to seven deep. There is no safe depth.
+MAGMA_SHADES = (
+    colors.Color(78, 22, 10), colors.Color(96, 28, 10),
+    colors.Color(118, 36, 10), colors.Color(142, 46, 10),
+    colors.Color(168, 58, 10), colors.Color(194, 72, 12),
+    colors.Color(220, 88, 14),
+)
+
+
+def _draw_magma(scr, fort, ox, oy, w, h, cam_x, cam_y) -> None:
+    """Magma, over the top of everything else on the level."""
+    magma = getattr(fort, "magma", None)
+    if magma is None:
+        return
+    for (wx, wy, wz), depth in magma.depth.items():
+        if wz != fort.z or depth <= 0:
+            continue
+        sx, sy = wx - cam_x, wy - cam_y
+        if not (0 <= sx < w and 0 <= sy < h):
+            continue
+        scr.put(ox + sx, oy + sy, "~", colors.Color(255, 210, 120),
+                MAGMA_SHADES[min(depth, 7) - 1])
 
 
 def _draw_zones(scr, fort, ox, oy, w, h, cam_x, cam_y) -> None:

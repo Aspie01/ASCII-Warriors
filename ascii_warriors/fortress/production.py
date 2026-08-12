@@ -144,6 +144,17 @@ _r("cook_biscuits", "Bake biscuits", "kitchen", "cooking", (("PLANT", 2),),
 _r("butcher_corpse", "Butcher a corpse", "butcher", "butchery",
    (("corpse", 1),), "meat", 6, 200)
 
+# -- magma workshops --------------------------------------------------------- #
+# The same work with the fuel line struck out. That is the whole reward for
+# bringing magma to where you wanted it.
+for _rid, _rec in list(RECIPES.items()):
+    if _rec.workshop not in ("smelter", "smith"):
+        continue
+    _shop = "magma_smelter" if _rec.workshop == "smelter" else "magma_forge"
+    _inputs = tuple((req, n) for req, n in _rec.inputs if req != "FUEL")
+    _r("magma_" + _rid, _rec.name, _shop, _rec.skill, _inputs, _rec.output,
+       _rec.out_count, _rec.work, _rec.description, _rec.out_material)
+
 #: Material class -> the item definitions that satisfy it.
 CLASS_ITEMS: Dict[str, Tuple[str, ...]] = {
     "STONE": ("boulder",),

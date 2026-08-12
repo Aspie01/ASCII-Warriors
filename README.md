@@ -272,6 +272,21 @@ medical dwarf, a sheriff and eventually a mayor, who will demand things.
 Ignore enough of it and dwarves start breaking furniture, and then each
 other.
 
+**The deep.** Under the caverns is a sea of magma, capped by warm stone that
+warns you, with a pipe standing up out of it into the working levels. Magma is
+the same fluid simulation as water with three constants changed: thicker, never
+drying, and fatal at any depth. It burns what it touches, dwarves refuse to
+walk through it, and where it meets water both are spent and you get a wall of
+obsidian — which is how a careful fortress casts one deliberately.
+
+A magma smelter and a magma forge do everything the ordinary ones do with no
+fuel at all, and must be built with magma directly beneath them: getting it
+there is the engineering problem the whole layer exists for.
+
+And there is a spire of adamantine standing in the sea, worth more than
+everything else you own. It is hollow. What is inside has been waiting since
+before the first fortress, and once the wall is open there is no closing it.
+
 **A world that keeps going.** History does not stop when the game starts. Every
 season, wherever you are, beasts wake and sack towns, heroes make names for
 themselves, wars are declared and settled, plagues pass through, smiths forge

@@ -72,6 +72,7 @@ WORKSHOP_LABOR: Dict[str, str] = {
     "carpenter": "carpentry", "mason": "masonry", "craftsdwarf": "crafting",
     "smith": "smithing", "still": "brewing", "kitchen": "cooking",
     "butcher": "butchery", "smelter": "smelting", "wood_furnace": "smelting",
+    "magma_smelter": "smelting", "magma_forge": "smithing",
 }
 
 #: Odds per step of a dwarf being seized. About one mood every three months —
@@ -84,6 +85,11 @@ BEAST_WEALTH = 4000
 
 #: Odds per season once you are worth the walk, before wealth is counted.
 BEAST_ODDS = 0.06
+
+#: How many demons come up when the spire is first opened, and how many follow
+#: every season afterwards. There is no upper bound on how long that goes on.
+DEMON_FIRST_WAVE = 6
+DEMON_WAVE = 3
 
 #: What a strange mood produces, by the workshop the moody dwarf seizes.
 MOOD_OUTPUT: Dict[str, Tuple[str, ...]] = {
@@ -156,6 +162,7 @@ def _flow(fort, ticks: int) -> None:
 
     water = fort.water
     water.step(fort.local)
+    _magma(fort, ticks)
 
     for c in list(fort.creatures.values()):
         if c.body.dead:
@@ -191,6 +198,62 @@ def _flow(fort, ticks: int) -> None:
     if water.total() > fort._water_mark + FLOOD_WARN and not water.flooded:
         water.flooded = True
         fort.log.bad("The fortress is flooding!")
+
+
+def _magma(fort, ticks: int) -> None:
+    """Move the magma, burn what it reaches, and cast what meets water."""
+    from ..world import fluids
+
+    magma = fort.magma
+    before = magma.total()
+    magma.step(fort.local)
+
+    # Burning comes before casting: a dwarf standing in magma dies of the
+    # magma, not of the wall somebody made out of it a moment later.
+    for c in list(fort.creatures.values()):
+        if c.body.dead or magma.at(c.x, c.y, c.z) < fluids.BURN_DEPTH:
+            continue
+        if c.defn.has("FIREIMMUNE"):
+            continue
+        c.body.dead = True
+        c.body.death_cause = "burned to death"
+        fort.kill_creature(c)
+
+    cast = fluids.quench(magma, fort.water, fort.local)
+    if cast:
+        fort._water_cache = None
+        fort.warn_once("obsidian",
+                       "Water meets magma. It is turning to obsidian.")
+        for cell in cast:
+            for c in list(fort.creatures.values()):
+                if c.body.dead or (c.x, c.y, c.z) != cell:
+                    continue
+                c.body.dead = True
+                c.body.death_cause = "encased in obsidian"
+                fort.kill_creature(c)
+
+    if magma.total() > fort._magma_mark and not magma.flooded:
+        magma.flooded = True
+        fort.log.bad("Magma is loose in the fortress!")
+
+    if magma.total() != before or cast:
+        _burn_items(fort)
+
+
+def _burn_items(fort) -> None:
+    """Anything lying in magma is gone, except the one thing that is not."""
+    magma = fort.magma
+    for cell in magma.moving():
+        if magma.depth.get(cell, 0) <= 0 or cell not in fort.items_on_ground:
+            continue
+        pile = fort.items_on_ground.get(cell) or []
+        keep = [i for i in pile if i.material == "adamantine"]
+        if len(keep) != len(pile):
+            fort.warn_once("burned", "Goods are burning in the magma.")
+        if keep:
+            fort.items_on_ground[cell] = keep
+        else:
+            fort.items_on_ground.pop(cell, None)
 
 
 def _bodies(fort, ticks: int) -> None:
@@ -814,6 +877,8 @@ def _calendar(fort) -> None:
     _appointments(fort)
 
     _world_turns(fort)
+    if fort.breached and fort.breach_cell and fort.rng.chance(0.5):
+        spawn_demons(fort, fort.breach_cell, wave=2)
 
     if fort.time.season == "Spring" or fort.time.season == "Autumn":
         _maybe_migrants(fort)
@@ -1156,6 +1221,38 @@ def _maybe_attack(fort) -> None:
     else:
         fort.log.bad("A goblin siege has arrived at %s." % fort.name)
         fort.log.warn("They number %d. Get everyone inside." % len(attackers))
+
+
+def spawn_demons(fort, cell, wave: int = 1) -> List:
+    """Everything that was under the adamantine comes up out of the hole.
+
+    The first wave is the one that ends most fortresses. The rest arrive at
+    their leisure, because nothing can be done about the hole.
+    """
+    from ..world import history as history_mod
+
+    count = DEMON_FIRST_WAVE if wave == 1 else DEMON_WAVE
+    out = []
+    for i in range(count):
+        foe = make_creature(fort.rng, "demon", faction="hostile", level=5)
+        foe.name = name_data.beast_name(fort.rng)
+        foe.x, foe.y, foe.z = fort._free_spot(cell, i)
+        foe.wx, foe.wy = fort.wx, fort.wy
+        fort.add_creature(foe)
+        out.append(foe)
+    fort.military.alert = "danger"
+    fort.breach_cell = cell
+    if wave == 1:
+        fort.log.bad("Demons pour out of the pit. There are %d of them."
+                     % len(out))
+        history_mod.record(
+            fort.world, fort.time.year, "beast_attack",
+            "The demons of the underworld came forth at %s." % fort.name,
+            [], [fort.site_id] if fort.site_id else [],
+        )
+    else:
+        fort.log.bad("More of them come up out of the pit.")
+    return out
 
 
 def spawn_attack(fort, strength: int) -> List:

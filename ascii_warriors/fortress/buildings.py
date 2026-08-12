@@ -71,6 +71,14 @@ KINDS: Dict[str, BuildingKind] = {
            3, 3, ("STONE",), 1, 220, "building", "smelting",
            "floor_constructed", "Workshops", True,
            "Burns logs into charcoal, which is what everything else burns."),
+        _b("magma_smelter", "Magma smelter", "&", colors.Color(240, 110, 50),
+           3, 3, ("STONE",), 1, 300, "building", "smelting",
+           "floor_constructed", "Workshops", True,
+           "Smelts without fuel. Must be built over magma."),
+        _b("magma_forge", "Magma forge", "F", colors.Color(240, 90, 40),
+           3, 3, ("STONE",), 1, 320, "building", "smithing",
+           "floor_constructed", "Workshops", True,
+           "Forges without fuel. Must be built over magma."),
         _b("still", "Still", "S", colors.Color(180, 140, 90), 3, 3,
            ("WOOD", "STONE"), 1, 180, "building", "brewing",
            "floor_constructed", "Workshops", True,
@@ -186,8 +194,11 @@ GATE_TILES: Dict[str, Tuple[str, str]] = {
 
 WORKSHOP_KINDS: Tuple[str, ...] = (
     "carpenter", "mason", "craftsdwarf", "smith", "smelter", "wood_furnace",
-    "still", "kitchen", "butcher",
+    "magma_smelter", "magma_forge", "still", "kitchen", "butcher",
 )
+
+#: Workshops that burn magma instead of fuel, and so have to sit on top of it.
+MAGMA_KINDS: Tuple[str, ...] = ("magma_smelter", "magma_forge")
 
 BUILD_CATEGORIES: Tuple[str, ...] = (
     "Workshops", "Furniture", "Construction", "Defence",
@@ -409,7 +420,8 @@ class Stockpile:
             self.kind, self.w, self.h, self.x, self.y, self.z)
 
 
-def can_place(lm, kind: str, x: int, y: int, z: int, buildings) -> Tuple[bool, str]:
+def can_place(lm, kind: str, x: int, y: int, z: int, buildings,
+              magma=None) -> Tuple[bool, str]:
     """Whether a building fits here. Returns ``(ok, why not)``."""
     k = KINDS.get(kind)
     if k is None:
@@ -419,6 +431,12 @@ def can_place(lm, kind: str, x: int, y: int, z: int, buildings) -> Tuple[bool, s
             cx, cy = x + dx, y + dy
             if not lm.in_bounds(cx, cy, z):
                 return (False, "That is off the edge of the map.")
+            if kind in MAGMA_KINDS and magma is not None \
+                    and magma.at(cx, cy, z - 1) <= 0:
+                # The whole point of it: you have to bring the magma to the
+                # workshop, which is an afternoon's engineering and a very
+                # bad afternoon if you get it wrong.
+                return (False, "It needs magma directly underneath it.")
             tile = tile_data.get(lm.tile(cx, cy, z))
             if kind in ("wall", "floor", "up_stair", "down_stair",
                         "fortification", "bridge"):

@@ -7,7 +7,8 @@ and valleys are real terrain you climb rather than paint.
 
 from __future__ import annotations
 
-from typing import Any, Dict, Iterator, List, Mapping, Optional, Sequence, Tuple
+from typing import (Any, Dict, Iterator, List, Mapping, Optional, Sequence,
+                    Set, Tuple)
 
 from ..data import biomes as biome_data
 from ..data import materials as mat_data
@@ -19,6 +20,11 @@ LOCAL_W = 64
 LOCAL_H = 48
 Z_BELOW = 6
 Z_ABOVE = 4
+
+#: How far the ground may sink below level zero, whatever the map's depth.
+#: Tying this to ``zmin`` instead means digging the map deeper also digs the
+#: valleys deeper, and a fortress embarks at the bottom of a new canyon.
+SURFACE_DROP = 8
 
 
 class LocalMap:
@@ -361,7 +367,8 @@ def _build_heightmap(
             e = top * (1 - fy) + bot * fy
             detail = noise.fbm(x * 0.12, y * 0.12, 4) * 0.5 + 0.5
             local = ((e - base) * 40.0) * flatten + (detail - 0.5) * relief * 1.8
-            heights[y * w + x] = max(zmin + 2, min(zmax - 2, int(round(local))))
+            floor_z = max(zmin + 2, -SURFACE_DROP)
+            heights[y * w + x] = max(floor_z, min(zmax - 2, int(round(local))))
     return heights
 
 
@@ -596,6 +603,110 @@ def _add_ore(lm: LocalMap, rng: RNG) -> None:
 _DIRS8: Tuple[Tuple[int, int], ...] = (
     (0, -1), (1, -1), (1, 0), (1, 1), (0, 1), (-1, 1), (-1, 0), (-1, -1),
 )
+
+
+def carve_deep(lm: LocalMap, rng: RNG) -> Dict[str, Any]:
+    """Hollow out the bottom of the world: a magma sea, and what is in it.
+
+    The bottom two levels become open space for the magma to sit in, the level
+    above them is warm stone that says so, and a spire of adamantine runs up
+    out of the sea. The spire is hollow, which is the only warning anybody
+    gets.
+
+    Returns ``{"floor": z, "hollow": {cells}, "spire": (x, y)}``.
+    """
+    floor = lm.zmin + 1
+    for z in range(lm.zmin, floor + 1):
+        for y in range(lm.height):
+            for x in range(lm.width):
+                lm.set_tile(x, y, z, "air" if z > lm.zmin else "stone_floor")
+                # Any ore that was down here went into the sea with the rock.
+                lm.veins.pop((x, y, z), None)
+    # The whole cap, not just the parts that were already rock: a cavern floor
+    # left open above the sea is open magma beside a walkable tile, held back
+    # by nothing but bookkeeping.
+    cap = floor + 1
+    for y in range(lm.height):
+        for x in range(lm.width):
+            lm.set_tile(x, y, cap, "warm_stone")
+            lm.veins.pop((x, y, cap), None)
+
+    out = _adamantine_spire(lm, rng, floor)
+    out["tube"] = _magma_tube(lm, rng, floor)
+    return out
+
+
+def _magma_tube(lm: LocalMap, rng: RNG, floor: int) -> Set[Tuple[int, int, int]]:
+    """A pipe of magma standing up out of the sea into the working levels.
+
+    The sea is at the bottom of the world and magma does not climb, so without
+    this there is no way to get burned by it and no way to use it either. The
+    pipe is sealed rock until somebody mines into the side of it, and then it
+    is not.
+    """
+    top = min(lm.zmax - 2, floor + rng.randint(6, 9))
+    cx = rng.randint(10, max(11, lm.width - 11))
+    cy = rng.randint(10, max(11, lm.height - 11))
+    cells: Set[Tuple[int, int, int]] = set()
+    for z in range(floor, top + 1):
+        wobble = rng.randint(-1, 1)
+        cx = max(6, min(lm.width - 7, cx + wobble))
+        cy = max(6, min(lm.height - 7, cy + rng.randint(-1, 1)))
+        for dy in range(-1, 2):
+            for dx in range(-1, 2):
+                cell = (cx + dx, cy + dy, z)
+                if not lm.in_bounds(*cell):
+                    continue
+                lm.set_tile(*cell, "air" if z > floor else "stone_floor")
+                lm.veins.pop(cell, None)
+                cells.add(cell)
+    _wall_off(lm, cells)
+    return cells
+
+
+def _wall_off(lm: LocalMap, cells: Set[Tuple[int, int, int]]) -> None:
+    """Put warm stone around a body of magma that runs through open ground.
+
+    A pipe of magma that comes up through a cavern leaves open magma next to
+    a walkable floor, held back by nothing the player can see, and dwarves
+    quite reasonably spend the rest of their lives running away from it.
+    """
+    around = [(dx, dy, 0) for dx, dy in _DIRS8] + [(0, 0, 1), (0, 0, -1)]
+    for x, y, z in list(cells):
+        for dx, dy, dz in around:
+            side = (x + dx, y + dy, z + dz)
+            if side in cells or not lm.in_bounds(*side):
+                continue
+            t = tile_data.get(lm.tile(*side))
+            if t.walk or t.has("OPEN"):
+                lm.set_tile(*side, "warm_stone")
+                lm.veins.pop(side, None)
+
+
+def _adamantine_spire(lm: LocalMap, rng: RNG, floor: int) -> Dict[str, Any]:
+    """One spire of adamantine, rooted in the magma and hollow inside."""
+    top = min(lm.zmax - 1, floor + rng.randint(5, 8))
+    cx = rng.randint(8, max(9, lm.width - 9))
+    cy = rng.randint(8, max(9, lm.height - 9))
+    hollow = set()
+    for z in range(floor, top + 1):
+        for dy in range(-2, 3):
+            for dx in range(-2, 3):
+                if abs(dx) + abs(dy) > 2:
+                    continue
+                cell = (cx + dx, cy + dy, z)
+                if not lm.in_bounds(*cell):
+                    continue
+                if dx == 0 and dy == 0 and z > floor:
+                    # The inside of the spire. Nothing is holding this shut
+                    # but the wall you are about to mine through.
+                    lm.set_tile(*cell, "adamantine_vein")
+                    lm.veins[cell] = "adamantine"
+                    hollow.add(cell)
+                    continue
+                lm.set_tile(*cell, "adamantine_vein")
+                lm.veins[cell] = "adamantine"
+    return {"floor": floor, "hollow": hollow, "spire": (cx, cy)}
 
 
 def _rock_cell(lm: LocalMap, rng: RNG) -> Optional[Tuple[int, int, int]]:

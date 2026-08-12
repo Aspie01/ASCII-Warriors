@@ -66,7 +66,8 @@ class BuildScene(CursorScene):
             return []
         ok, why = building_mod.can_place(self.fort.local, self.kind, self.cx,
                                          self.cy, self.fort.z,
-                                         self.fort.buildings)
+                                         self.fort.buildings,
+                                         self.fort.magma)
         out = [Frag(d.name + "  ", d.color)]
         if ok:
             out.append(Frag("place with Enter", colors.UI["good"]))
@@ -92,7 +93,7 @@ class BuildScene(CursorScene):
         """Plan the building here."""
         fort = self.fort
         ok, why = building_mod.can_place(fort.local, self.kind, x0, y0, fort.z,
-                                         fort.buildings)
+                                         fort.buildings, fort.magma)
         if not ok:
             fort.log.warn(why)
             return

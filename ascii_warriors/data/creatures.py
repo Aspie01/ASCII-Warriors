@@ -522,6 +522,17 @@ _c("forgotten_beast", "forgotten beast", "F", colors.Color(180, 90, 180),
    desc="It has waited in the deep places since before the first fortress.")
 
 
+_c("demon", "demon", "&", colors.Color(220, 70, 60), "giant_humanoid",
+   900000, 5, UNDERGROUND,
+   ("EVIL", "MEGABEAST", "SUBTERRANEAN", "NO_FEAR", "NO_EAT", "NO_DRINK",
+    "NO_SLEEP", "FIREIMMUNE", "OPPOSED_TO_LIFE", "INTELLIGENT", "FLIER"),
+   HUMANOID_ATTACKS, plural="demons",
+   attributes={"strength": 3400, "toughness": 3200, "agility": 2400},
+   skills={"fighter": 10, "wrestling": 8, "dodging": 6}, speed=130,
+   blood="", lifespan=(100000, 100000), armor=4, frequency=0,
+   desc="It was under the adamantine, and now it is not.")
+
+
 _FB_PLANS = ("quadruped", "serpent", "insect", "blob", "dragon", "giant_humanoid")
 _FB_MATERIALS = (
     ("of iron", colors.IRON, 5), ("of stone", colors.STONE, 4),

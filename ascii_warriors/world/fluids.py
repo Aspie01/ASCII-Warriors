@@ -1,12 +1,18 @@
-"""Water that moves.
+"""Fluids that move: water, and the other one.
 
-Water is stored as a depth from 1 to 7 on the cells that have any, separate
+A fluid is stored as a depth from 1 to 7 on the cells that have any, separate
 from the terrain. It falls into whatever is below it, spreads sideways into
-anything shallower, and evaporates when there is almost none left.
+anything shallower, and — if it is the kind that does — evaporates when there
+is almost none left.
 
-Only cells that have water, and their neighbours, are ever looked at. A river
+Only cells that have fluid, and their neighbours, are ever looked at. A river
 of five hundred tiles costs five hundred cells of work per step, not eighty
 thousand.
+
+Magma is the same simulation with three constants changed: it is thicker, so
+it moves on one step in three; it never dries up; and it kills whatever it
+touches. Everything else about it — reservoirs, sealed banks, pressure from a
+source — is water's machinery, which had already been debugged the hard way.
 """
 
 from __future__ import annotations
@@ -52,6 +58,13 @@ def can_hold(lm, cell: Cell) -> bool:
 class Water:
     """The water on one local map."""
 
+    #: What this is, for messages and saves.
+    NAME = "water"
+    #: Puddles of this dry up outdoors. Magma does not.
+    EVAPORATES = True
+    #: Steps between moves. Water moves every step; magma is thicker.
+    VISCOSITY = 1
+
     def __init__(self) -> None:
         #: cell -> depth, 1..7. Cells with no water are absent.
         self.depth: Dict[Cell, int] = {}
@@ -63,12 +76,19 @@ class Water:
         self.infinite: Dict[Cell, int] = {}
         #: Open cells beside a natural body that are its bed or its bank.
         self.sealed: Set[Cell] = set()
-        #: Natural cells that border anything else, refreshed when that changes.
+        #: Natural cells that border anything else, refreshed when that
+        #: changes, with a set beside it so patching stays cheap.
         self._shore: List[Cell] = []
+        self._shore_set: Set[Cell] = set()
         #: Cells worth looking at next step.
         self._active: Set[Cell] = set()
         #: Rising water is worth telling the player about, once.
         self.flooded = False
+        #: Steps taken, so a thick fluid can sit still on most of them.
+        self.ticks = 0
+        #: Set when something was dug: the shore is worked out again on the
+        #: next step, when there is a map to hand.
+        self._shore_dirty = True
 
     # -- queries ------------------------------------------------------------ #
 
@@ -126,7 +146,13 @@ class Water:
         return can_hold(lm, cell)
 
     def step(self, lm) -> None:
-        """Move the water one step."""
+        """Move the fluid one step."""
+        self.ticks += 1
+        if self.VISCOSITY > 1 and self.ticks % self.VISCOSITY:
+            # Thick fluid: it is still going, just not this step.
+            return
+        if self._shore_dirty:
+            self.rebuild_shore(lm)
         for cell, rate in self.sources.items():
             if self._passable(lm, cell) and self.at(*cell) < MAX_DEPTH:
                 self.depth[cell] = min(MAX_DEPTH, self.at(*cell) + rate)
@@ -235,36 +261,64 @@ class Water:
                     continue
                 if self._passable(lm, side):
                     self.sealed.add(side)
-        self.rebuild_shore()
+        self.rebuild_shore(lm)
 
     def unseal(self, cell: Cell) -> None:
-        """Somebody dug here. Whatever it held back, it no longer does."""
+        """Somebody dug here. Whatever it held back, it no longer does.
+
+        Two things can have been holding the fluid: a sealed bank, or plain
+        rock. Opening either one puts the reservoir cell next door on the
+        shore, and the shore is what gets simulated. Rebuilding the whole
+        shore here would cost ten milliseconds a pick swing on a map with a
+        magma sea in it, so it is patched in place instead.
+        """
         x, y, z = cell
-        touched = False
-        for probe in ((x, y, z), (x, y, z + 1), (x - 1, y, z), (x + 1, y, z),
+        for probe in ((x, y, z), (x, y, z + 1), (x, y, z - 1),
+                      (x - 1, y, z), (x + 1, y, z),
                       (x, y - 1, z), (x, y + 1, z)):
-            if probe in self.sealed:
-                self.sealed.discard(probe)
-                touched = True
-        if touched:
-            self.rebuild_shore()
+            was_sealed = probe in self.sealed
+            self.sealed.discard(probe)
+            self._add_shore(probe)
+            if was_sealed:
+                # That cell was the bank. Whatever it was holding back is now
+                # looking at open ground.
+                px, py, pz = probe
+                for side in ((px, py, pz + 1), (px, py, pz - 1),
+                             (px - 1, py, pz), (px + 1, py, pz),
+                             (px, py - 1, pz), (px, py + 1, pz)):
+                    self._add_shore(side)
         self._wake(cell)
 
-    def rebuild_shore(self) -> None:
-        """Work out which natural cells actually border something else.
+    def _add_shore(self, cell: Cell) -> None:
+        """Put a reservoir cell on the list of ones worth simulating."""
+        if cell in self.infinite and cell not in self._shore_set:
+            self._shore.append(cell)
+            self._shore_set.add(cell)
 
-        A river cell in the middle of the river has nowhere to send anything;
-        only the edges are worth looking at every step.
+    def rebuild_shore(self, lm=None) -> None:
+        """Work out which natural cells actually border something they can
+        pour into.
+
+        A river cell in the middle of the river has nowhere to send anything,
+        and neither has a magma sea walled in by a mile of rock: only the
+        edges that touch somewhere a fluid could go are worth looking at every
+        step. Without the rock check the whole surface of the sea counts as
+        shore, and the fortress spends ten milliseconds a step on it.
         """
         shore = []
         for cell in self.infinite:
             x, y, z = cell
             for side in ((x, y, z - 1), (x - 1, y, z), (x + 1, y, z),
                          (x, y - 1, z), (x, y + 1, z)):
-                if side not in self.infinite and side not in self.sealed:
-                    shore.append(cell)
-                    break
+                if side in self.infinite or side in self.sealed:
+                    continue
+                if lm is not None and not can_hold(lm, side):
+                    continue
+                shore.append(cell)
+                break
         self._shore = shore
+        self._shore_set = set(shore)
+        self._shore_dirty = False
 
     def _fall(self, lm, cell: Cell, depth: int) -> int:
         """Drop water into the cell below. Returns what is left."""
@@ -291,7 +345,8 @@ class Water:
             # A puddle under the open sky dries up rather than wandering the
             # map for ever. Water underground stays where you put it, or a
             # flooded room quietly empties itself and the flood means nothing.
-            if lm.is_outside(*cell) and not self._standing(lm, cell):
+            if self.EVAPORATES and lm.is_outside(*cell) \
+                    and not self._standing(lm, cell):
                 self.depth.pop(cell, None)
             return
         x, y, z = cell
@@ -327,6 +382,14 @@ class Water:
             if self._passable(lm, side) and self.at(*side) == 0:
                 return False
         return True
+
+    def moving(self) -> Set[Cell]:
+        """Cells that changed this step, and their neighbours.
+
+        Anything interested in where the fluid has just been — obsidian
+        casting, burning goods — looks here rather than at the whole body.
+        """
+        return set(self._active)
 
     def wake_all(self) -> None:
         """Mark everything wet as worth simulating, after a load or a dig."""
@@ -366,13 +429,90 @@ class Water:
             tuple(int(v) for v in k.split(",")) for k in d.get("sealed", [])
         }
         w.flooded = bool(d.get("flooded", False))
-        w.rebuild_shore()
+        # The shore needs the map, which a save does not carry: the first step
+        # after loading works it out.
+        w._shore_dirty = True
         w.wake_all()
         return w
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
         return "Water(%d wet cells, %d sources, %d natural)" % (
             len(self.depth), len(self.sources), len(self.infinite))
+
+
+class Magma(Water):
+    """Molten rock. The same physics with worse manners.
+
+    Thicker than water, so it creeps; it never dries up, because nothing
+    underground is going to cool it; and standing in it is not a wetting.
+    """
+
+    NAME = "magma"
+    EVAPORATES = False
+    VISCOSITY = 3
+
+
+#: Depth of magma that will kill whatever is standing in it. Ankle-deep magma
+#: is still magma.
+BURN_DEPTH = 1
+
+
+def quench(magma: Magma, water: Water, lm) -> List[Cell]:
+    """Turn magma that has met water into obsidian. Returns the cells cast.
+
+    The oldest trick in the fortress: run water onto magma and the two of them
+    make you a wall for nothing. It costs a unit of each, and the tile it
+    leaves is solid rock that has to be dug out again like any other.
+
+    Only cells that moved this step are considered. Sweeping the whole magma
+    sea instead costs ten milliseconds a step to discover that a mile of rock
+    is still a mile of rock.
+    """
+    cast: List[Cell] = []
+    candidates = [c for c in (magma.moving() | water.moving())
+                  if c in magma.depth]
+    for cell in candidates:
+        x, y, z = cell
+        touching = [
+            side for side in ((x, y, z + 1), (x, y, z - 1), (x - 1, y, z),
+                              (x + 1, y, z), (x, y - 1, z), (x, y + 1, z),
+                              cell)
+            if water.depth.get(side, 0) > 0
+        ]
+        if not touching:
+            continue
+        side = touching[0]
+        water.add(side, -1)
+        magma.depth.pop(cell, None)
+        lm.set_tile(x, y, z, "obsidian_wall")
+        magma._wake(cell)
+        water._wake(side)
+        cast.append(cell)
+    return cast
+
+
+def seed_magma(lm, floor: int, extra: Optional[Iterable[Cell]] = None) -> Magma:
+    """Fill the bottom of the map with a magma sea, and the pipe above it.
+
+    Everything at or below *floor* is molten, as is every cell of *extra* —
+    the magma tube that stands up out of the sea. It is a reservoir like a
+    river: it sits there for ever until somebody digs into it, and then it
+    does not stop coming.
+    """
+    magma = Magma()
+    cells = [(x, y, z)
+             for z in range(lm.zmin, floor + 1)
+             for y in range(lm.height)
+             for x in range(lm.width)]
+    cells.extend(extra or ())
+    for cell in cells:
+        if not can_hold(lm, cell):
+            continue
+        magma.depth[cell] = MAX_DEPTH
+        magma.infinite[cell] = MAX_DEPTH
+    magma.seal_banks(lm)
+    magma.wake_all()
+    return magma
 
 
 def seed_from_terrain(lm) -> Water:

@@ -361,27 +361,50 @@ def _handle_danger(fort, dwarf) -> bool:
     return False
 
 
-def _flee_water(fort, dwarf) -> bool:
-    """Get out of rising water. True if it took the turn.
+def _magma_near(fort, cell: Cell) -> bool:
+    """True if there is *loose* magma in this cell or the next one over.
 
-    Pathing already refuses to route through deep water, but that does not
-    help a dwarf standing in a room that is filling up around it.
+    Magma kills on contact rather than over a minute, so the useful moment to
+    run is while it is still next door. The sea and the pipe do not count: a
+    corridor mined past a sealed pipe has magma one tile away for its whole
+    length, and a dwarf that runs from that runs for ever, back and forth,
+    until it dies of thirst beside a barrel of ale.
+    """
+    x, y, z = cell
+    magma = fort.magma
+    if magma.at(x, y, z) > 0:
+        return True
+    for dx, dy in geometry.DIRS8:
+        side = (x + dx, y + dy, z)
+        if magma.depth.get(side, 0) > 0 and side not in magma.infinite:
+            return True
+    return False
+
+
+def _flee_water(fort, dwarf) -> bool:
+    """Get out of rising water, or away from magma. True if it took the turn.
+
+    Pathing already refuses to route through either, but that does not help a
+    dwarf standing in a room that is filling up around it.
     """
     from ..world.fluids import SWIM_DEPTH
 
     here = (dwarf.x, dwarf.y, dwarf.z)
-    if fort.water.at(*here) < SWIM_DEPTH - 1:
+    burning = _magma_near(fort, here)
+    if fort.water.at(*here) < SWIM_DEPTH - 1 and not burning:
         return False
     release_job(fort, dwarf)
 
     # Straight to the driest neighbour if there is one; that is usually enough.
     lm = fort.local
-    best, best_depth = None, fort.water.at(*here)
+    best, best_depth = None, fort.water.at(*here) + (9 if burning else 0)
     for dx, dy in geometry.DIRS8:
         cell = (dwarf.x + dx, dwarf.y + dy, dwarf.z)
         if not lm.walkable(*cell) or fort.creature_at(*cell) is not None:
             continue
-        depth = fort.water.at(*cell)
+        if fort.magma.at(*cell) > 0:
+            continue
+        depth = fort.water.at(*cell) + (9 if _magma_near(fort, cell) else 0)
         if depth < best_depth:
             best, best_depth = cell, depth
     if best is not None:

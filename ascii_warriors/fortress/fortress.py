@@ -12,7 +12,8 @@ from ..game.item import Item, corpse_of
 from ..game.log import MessageLog
 from ..game.weather import Weather, starting_weather
 from ..world import tiles as tile_data
-from ..world.fluids import Water, can_hold, seed_from_terrain
+from ..world.fluids import (Magma, Water, can_hold, seed_from_terrain,
+                            seed_magma)
 from ..world.localmap import LocalMap
 from ..world.worldgen import World
 from . import dwarf as dwarf_mod
@@ -72,6 +73,16 @@ class Fortress:
         self.drowning: Dict[int, int] = {}
         #: Wet rock. Dig one of these and it never stops leaking.
         self.aquifer: Set[Cell] = set()
+        self.magma = Magma()
+        #: The top of the magma sea, and the empty heart of the adamantine
+        #: spire. Mine into the second one and you have made the last mistake
+        #: this fortress will make.
+        self.magma_floor = 0
+        self.hollow: Set[Cell] = set()
+        #: Set once the spire has been opened. There is no closing it.
+        self.breached = False
+        #: Where it was opened, because they keep coming up out of it.
+        self.breach_cell: Optional[Cell] = None
         self.paused = True
         self.speed = 1
         self.z = 0
@@ -94,6 +105,8 @@ class Fortress:
         self._water_cache: Optional[List[Cell]] = None
         #: Most water the map has ever held, for the flood warning.
         self._water_mark = 0
+        #: The magma the map started with. Any more than this is loose.
+        self._magma_mark = 0
         self._warned: Set[str] = set()
         self._next_scan = 0
         self.site_id: Optional[int] = None
@@ -115,7 +128,10 @@ class Fortress:
         old = (localmap_mod.LOCAL_W, localmap_mod.LOCAL_H,
                localmap_mod.Z_BELOW, localmap_mod.Z_ABOVE)
         localmap_mod.LOCAL_W, localmap_mod.LOCAL_H = 80, 60
-        localmap_mod.Z_BELOW, localmap_mod.Z_ABOVE = 10, 5
+        # Three levels deeper than anywhere else: the caverns keep the bottom
+        # of an ordinary map, and the magma sea needs somewhere to be under
+        # them.
+        localmap_mod.Z_BELOW, localmap_mod.Z_ABOVE = 13, 5
         try:
             local, _pop = localmap_mod.generate_local(
                 world, wx, wy, rng.sub("fortress-%d-%d" % (wx, wy)))
@@ -133,6 +149,14 @@ class Fortress:
 
         fort.water = seed_from_terrain(local)
         fort._water_mark = fort.water.total()
+
+        # The deep first: it eats the bottom levels, and an aquifer laid down
+        # there would go into the magma with them.
+        deep = localmap_mod.carve_deep(local, rng)
+        fort.magma_floor = int(deep["floor"])
+        fort.hollow = set(deep["hollow"])
+        fort.magma = seed_magma(local, fort.magma_floor, deep.get("tube"))
+        fort._magma_mark = fort.magma.total()
         fort._lay_aquifer(rng)
         wagon = fort._wagon_site()
         fort.z = wagon[2]
@@ -166,7 +190,9 @@ class Fortress:
         # the middle of it.
         best_z, best = None, 0
         top = max(lm.surface) if lm.surface else 0
-        for z in range(lm.zmin + 1, min(top, lm.zmax)):
+        # Above the warm stone: wet rock over the magma sea is not wet for
+        # long, and an aquifer inside the sea is not an aquifer at all.
+        for z in range(self.magma_floor + 2, min(top, lm.zmax)):
             count = 0
             for y in range(0, lm.height, 2):
                 for x in range(0, lm.width, 2):
@@ -473,7 +499,8 @@ class Fortress:
     def is_passable(self, x: int, y: int, z: int) -> bool:
         """True if a dwarf could stand there."""
         return (self.local.walkable(x, y, z)
-                and not self.water.deep(x, y, z))
+                and not self.water.deep(x, y, z)
+                and self.magma.at(x, y, z) <= 0)
 
     def path_neighbours(self, node: Cell):
         """Neighbours for pathing, avoiding water a dwarf would drown in.
@@ -484,9 +511,11 @@ class Fortress:
         from ..world.fluids import SWIM_DEPTH
 
         depth = self.water.depth
+        magma = self.magma.depth
         for cell, cost in self.local.path_neighbours(node):
             water = depth.get(cell, 0)
-            if water >= SWIM_DEPTH:
+            if water >= SWIM_DEPTH or magma.get(cell, 0) > 0:
+                # No amount of any depth of magma is worth walking through.
                 continue
             yield (cell, cost + water * 0.8)
 
@@ -687,6 +716,8 @@ class Fortress:
         flood is a bug the player cannot see until it is too late to matter.
         """
         was_aquifer = cell in self.aquifer
+        was_hollow = cell in self.hollow
+        warm = self.local.tile(*cell) == "warm_stone"
         held_before = can_hold(self.local, cell)
         self.local.set_tile(cell[0], cell[1], cell[2], tile)
         self._water_cache = None
@@ -695,12 +726,37 @@ class Fortress:
             # nothing the water cares about. The bank still holds.
             return
         self.water.unseal(cell)
+        self.magma.unseal(cell)
+        if warm:
+            self.warn_once(
+                "warm", "The stone here is warm. There is magma below it.")
+        if was_hollow:
+            self.hollow.discard(cell)
+            self._breach_the_spire(cell)
         if was_aquifer:
             self.aquifer.discard(cell)
             self.water.add_source(cell, 1)
             self.warn_once(
                 "aquifer",
                 "You have breached an aquifer. The water will not stop.")
+
+    def _breach_the_spire(self, cell: Cell) -> None:
+        """Somebody mined into the hollow. Everything after this is a story.
+
+        Demons come up out of it for as long as the fortress lasts. There is
+        no sealing it: the point of the adamantine is that it costs more than
+        you have.
+        """
+        from . import sim as sim_mod
+
+        if self.breached:
+            sim_mod.spawn_demons(self, cell, wave=2)
+            return
+        self.breached = True
+        self.log.bad("You have struck something hollow. Cold air comes up "
+                     "out of it.")
+        self.log.bad("The dead of the underworld are coming.")
+        sim_mod.spawn_demons(self, cell, wave=1)
 
     # -- levers and gates -------------------------------------------------- #
 
@@ -757,7 +813,7 @@ class Fortress:
     def _stone_here(self, cell: Cell) -> str:
         """Which material a wall at this cell is made of."""
         tid = self.local.tile(*cell)
-        if tid in ("ore_vein", "gem_vein", "coal_seam"):
+        if tid in ("ore_vein", "gem_vein", "coal_seam", "adamantine_vein"):
             # What the vein is made of was decided when the map was made, so a
             # fortress can plan around what it has found.
             return self.local.veins.get(cell, "copper")
@@ -774,7 +830,7 @@ class Fortress:
             return Item("coal", "coal", count=2)
         if tid == "gem_vein":
             return Item("rough_gem", material)
-        if tid == "ore_vein":
+        if tid in ("ore_vein", "adamantine_vein"):
             return Item("ore", material)
         return Item("boulder", material)
 
@@ -1077,6 +1133,13 @@ class Fortress:
             "log": self.log.to_dict(),
             "weather": self.weather.to_dict(),
             "water": self.water.to_dict(),
+            "magma": self.magma.to_dict(),
+            "magma_floor": self.magma_floor,
+            "magma_mark": self._magma_mark,
+            "hollow": ["%d,%d,%d" % c for c in self.hollow],
+            "breached": self.breached,
+            "breach_cell": ("%d,%d,%d" % self.breach_cell
+                            if self.breach_cell else ""),
             "aquifer": ["%d,%d,%d" % c for c in self.aquifer],
             "designations": self.designations.to_dict(),
             "jobs": self.jobs.to_dict(),
@@ -1125,6 +1188,16 @@ class Fortress:
         fort.log = MessageLog.from_dict(d.get("log") or {})
         fort.weather = Weather.from_dict(d.get("weather") or {})
         fort.water = Water.from_dict(d.get("water") or {})
+        fort.magma = Magma.from_dict(d.get("magma") or {})
+        fort.magma_floor = int(d.get("magma_floor", 0))
+        fort._magma_mark = int(d.get("magma_mark", 0))
+        fort.hollow = {
+            tuple(int(v) for v in k.split(",")) for k in d.get("hollow", [])
+        }
+        fort.breached = bool(d.get("breached", False))
+        cell = str(d.get("breach_cell", ""))
+        fort.breach_cell = (tuple(int(v) for v in cell.split(","))
+                            if cell else None)
         fort.aquifer = {
             tuple(int(v) for v in k.split(",")) for k in d.get("aquifer", [])
         }

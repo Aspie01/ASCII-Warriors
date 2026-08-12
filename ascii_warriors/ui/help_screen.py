@@ -97,6 +97,27 @@ complain about it. On a dry embark there is no such mercy: brew, or die.
 Your workshops will not touch the last week of food, and your farmers will not
 eat the last of the seed.
 
+THE DEEP
+
+Under the caverns is a sea of magma, and the level above it is warm stone
+that tells you so before you cut into it. A pipe of magma stands up out of
+the sea into the working levels: mine into the side of that and it comes out
+and does not stop.
+
+Magma kills anything that touches it, at any depth, and burns whatever is
+lying on the floor. Dwarves will not walk through it and will run from it.
+Where magma meets water, both are used up and you get a wall of obsidian --
+which is how a careful fortress casts one on purpose.
+
+A magma smelter and a magma forge do the same work as the ordinary kind with
+no fuel at all. They have to be built with magma directly underneath them,
+which is the whole engineering problem in one sentence.
+
+There is adamantine down there too: a spire of it standing in the sea, worth
+more than everything else in your fortress together. It is hollow. Whatever
+is inside it has been waiting a long time, and once it is open there is no
+closing it.
+
 THE WORLD OUTSIDE
 
 History does not stop while you play. Every season, beasts wake and fall on

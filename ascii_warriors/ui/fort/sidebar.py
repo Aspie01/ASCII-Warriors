@@ -145,6 +145,12 @@ def draw_status_line(scr: Screen, x: int, y: int, w: int, fort, mode: str = "") 
     if getattr(fort, "water", None) is not None and fort.water.flooded:
         parts.append(Frag("| ", colors.UI["frame"]))
         parts.append(Frag("FLOODING ", colors.UI["danger"]))
+    if getattr(fort, "magma", None) is not None and fort.magma.flooded:
+        parts.append(Frag("| ", colors.UI["frame"]))
+        parts.append(Frag("MAGMA ", colors.Color(255, 150, 60)))
+    if getattr(fort, "breached", False):
+        parts.append(Frag("| ", colors.UI["frame"]))
+        parts.append(Frag("THE PIT IS OPEN ", colors.UI["danger"]))
     mayor = fort.court.noble("mayor")
     if mayor is not None and mayor.mandate:
         parts.append(Frag("| ", colors.UI["frame"]))

@@ -1768,7 +1768,57 @@ The payoff is the megabeast: a fortress worth the walk is visited by a named
 figure out of the legends screen, and if the militia brings it down, the world
 records that your fortress is where it died.
 
-## 57. Style
+## 57. Magma and the deep (v2.8)
+
+Magma is `Water` with three class constants changed, because water's machinery
+— reservoirs, sealed banks, pressure from a source, the active set — had
+already been debugged the hard way:
+```python
+class Magma(Water):
+    NAME = "magma" ; EVAPORATES = False ; VISCOSITY = 3
+def quench(magma, water, lm) -> list[Cell]   # both spent, obsidian left behind
+def seed_magma(lm, floor, extra) -> Magma    # the sea, and the pipe above it
+BURN_DEPTH = 1                               # there is no safe depth
+```
+
+### The shape of the bottom of the world
+```python
+localmap.carve_deep(lm, rng) -> {"floor": z, "hollow": {...}, "spire": (x, y),
+                                 "tube": {...}}
+Fortress.embark: Z_BELOW 10 -> 13            # room for the sea under the caverns
+tiles: warm_stone, obsidian_wall, adamantine_vein
+```
+The sea is the bottom two levels, hollowed out and filled. Magma does not
+climb, so a sea nobody can reach would be scenery: `_magma_tube` stands a pipe
+of it up into the working levels, sealed by rock until somebody mines into the
+side of it. The cap above the sea is `warm_stone`, which is the only warning
+the player gets and is worth more than any number of log lines.
+
+### The pit
+```python
+Fortress.hollow / .breached / .breach_cell
+Fortress._breach_the_spire(cell)   # from dig_out, once, and then for ever
+sim.spawn_demons(fort, cell, wave) # DEMON_FIRST_WAVE = 6, DEMON_WAVE = 3
+```
+The spire is adamantine all the way through except its centre, which is empty.
+Mining the centre is the last decision a lot of fortresses make: demons come up
+at once and another wave arrives every season, because nothing can be done
+about the hole. The world records it, so it shows up in the legends screen.
+
+### Two performance rules learned here
+- **The shore is only the cells that can pour somewhere.** Without the
+  `can_hold` check a ten-thousand-cell magma sea puts its entire surface on the
+  shore list and the fortress spends 10 ms a step rediscovering that rock is
+  rock.
+- **`unseal()` patches the shore, it does not rebuild it.** A rebuild is a
+  sweep of every reservoir cell, and a fortress swings a pick rather often.
+
+### Order matters in `sim._magma`
+Burn creatures *before* casting obsidian: a dwarf standing in magma dies of the
+magma, not of the wall somebody made out of it half a step later. A creature
+standing where the cast lands is encased instead, which is its own way to go.
+
+## 58. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).
