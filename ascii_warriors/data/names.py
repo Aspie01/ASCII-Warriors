@@ -215,15 +215,32 @@ _TOWN_SUFFIX = ("ton", "ford", "bury", "hold", "gate", "mere", "wick", "burg",
                 "stead", "haven", "reach", "moor", "vale", "crest")
 
 
+def _expand(rng: RNG, pattern: str) -> str:
+    """Expand a name pattern, never repeating a word inside one name."""
+    used: set = set()
+
+    def pick(pool: Sequence[str]) -> str:
+        for _ in range(8):
+            w = rng.choice(pool)
+            if w not in used:
+                used.add(w)
+                return w
+        return rng.choice(pool)
+
+    out = pattern
+    for token, pool in (
+        ("{adj2}", _WORDS_ADJ), ("{adj}", _WORDS_ADJ),
+        ("{noun2}", _WORDS_NOUN), ("{noun}", _WORDS_NOUN),
+        ("{verb}", _WORDS_VERB), ("{suffix}", _TOWN_SUFFIX),
+    ):
+        while token in out:
+            out = out.replace(token, pick(pool), 1)
+    return out
+
+
 def _fill(rng: RNG, pattern: str) -> str:
     """Expand a name pattern into English words."""
-    return (
-        pattern.replace("{adj}", rng.choice(_WORDS_ADJ))
-        .replace("{noun2}", rng.choice(_WORDS_NOUN))
-        .replace("{noun}", rng.choice(_WORDS_NOUN))
-        .replace("{verb}", rng.choice(_WORDS_VERB))
-        .replace("{suffix}", rng.choice(_TOWN_SUFFIX))
-    )
+    return _expand(rng, pattern)
 
 
 def _titleize(s: str) -> str:
@@ -249,14 +266,7 @@ def civ_name(rng: RNG, race: str) -> Tuple[str, str]:
         "The {adj} {noun}s", "The {noun}s of the {noun2}", "The {verb} {noun}s",
         "The {adj} {noun} of the {noun2}", "The {noun} {noun2}s",
     )
-    form = rng.choice(forms)
-    translated = (
-        form.replace("{adj2}", rng.choice(_WORDS_ADJ).capitalize())
-        .replace("{adj}", rng.choice(_WORDS_ADJ).capitalize())
-        .replace("{noun2}", rng.choice(_WORDS_NOUN).capitalize())
-        .replace("{noun}", rng.choice(_WORDS_NOUN).capitalize())
-        .replace("{verb}", rng.choice(_WORDS_VERB).capitalize())
-    )
+    translated = _titleize(_expand(rng, rng.choice(forms)))
     native = _native_word(rng, race, rng.randint(3, 4))
     return (native, translated)
 
@@ -265,13 +275,7 @@ def artifact_name(rng: RNG, race: str) -> Tuple[str, str]:
     """``(native_name, translated_name)`` for a legendary object."""
     forms = ("The {adj} {noun}", "{noun}{verb}", "The {noun} of the {noun2}",
              "{adj}{noun}")
-    form = rng.choice(forms)
-    translated = _titleize(
-        form.replace("{noun2}", rng.choice(_WORDS_NOUN))
-        .replace("{adj}", rng.choice(_WORDS_ADJ))
-        .replace("{noun}", rng.choice(_WORDS_NOUN))
-        .replace("{verb}", rng.choice(_WORDS_VERB))
-    )
+    translated = _titleize(_expand(rng, rng.choice(forms)))
     native = _native_word(rng, race, rng.randint(2, 4))
     return (native, translated)
 
