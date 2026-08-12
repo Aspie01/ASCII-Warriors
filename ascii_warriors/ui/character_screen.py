@@ -4,11 +4,10 @@ from __future__ import annotations
 
 from typing import List
 
-from ..data.descriptors import capitalize_first, list_join
 from ..engine import colors, keys
 from ..engine.screen import Frag, Screen
 from ..engine.widgets import Tabs, key_hint, scroll_view
-from ..game.attributes import ALL_ATTRS, ATTR_NAMES, MENTAL, PHYSICAL
+from ..game.attributes import ATTR_NAMES, MENTAL, PHYSICAL
 from ..game.skills import SKILLS, SKILL_CATEGORIES, level_name
 from .app import Scene
 

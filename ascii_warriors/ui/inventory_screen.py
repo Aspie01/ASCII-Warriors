@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import List
 
 from ..engine import colors, keys
-from ..engine.screen import Frag, Screen, frag_slice
+from ..engine.screen import Frag, Screen
 from ..engine.widgets import ListMenu, MenuItem, Tabs, key_hint
 from ..game import actions
 from ..game.inventory import BODY_SLOTS, SLOT_NAMES

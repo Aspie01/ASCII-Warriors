@@ -7,10 +7,10 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence, Set, Tuple
 from ..data import creatures as creature_data
 from ..data import names as name_data
 from ..data.calendar import GameTime, TICKS_PER_DAY
-from ..engine import colors, geometry
+from ..engine import colors
 from ..engine.fov import compute_fov
 from ..engine.rng import RNG
-from ..engine.scheduler import ACTION_COST, Scheduler
+from ..engine.scheduler import Scheduler
 from ..engine.screen import Frag
 from ..world import tiles as tile_data
 from ..world.localmap import LocalMap, generate_local

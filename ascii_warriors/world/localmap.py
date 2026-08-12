@@ -7,11 +7,10 @@ and valleys are real terrain you climb rather than paint.
 
 from __future__ import annotations
 
-from typing import Any, Dict, Iterator, List, Mapping, Optional, Sequence, Set, Tuple
+from typing import Any, Dict, Iterator, List, Mapping, Optional, Sequence, Tuple
 
 from ..data import biomes as biome_data
 from ..data import materials as mat_data
-from ..engine.geometry import Point
 from ..engine.noise import ValueNoise
 from ..engine.rng import RNG
 from . import tiles as tile_data

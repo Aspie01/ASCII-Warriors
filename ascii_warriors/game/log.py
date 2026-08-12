@@ -6,7 +6,7 @@ matter. Repeats collapse into a single line with a counter.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Mapping, Optional, Sequence
+from typing import Any, Dict, List, Mapping, Sequence
 
 from ..engine import colors
 from ..engine.screen import Frag, Markup, frag_str

@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 
-from ..engine import colors, keys
+from ..engine import colors
 from ..engine.rng import RNG
 from ..engine.screen import Screen
 from ..engine.terminal import QuitSignal, Terminal

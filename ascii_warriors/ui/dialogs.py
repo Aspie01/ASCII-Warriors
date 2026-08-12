@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from typing import List, Optional, Tuple
+from typing import List
 
 from ..engine import colors, keys
 from ..engine.screen import Frag, Screen
-from ..engine.widgets import ListMenu, MenuItem, key_hint, scroll_view
+from ..engine.widgets import ListMenu, MenuItem, key_hint
 from ..game import conversation
 from .app import Scene
 

@@ -8,7 +8,6 @@ from __future__ import annotations
 
 from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
 
-from ..data import items as item_data
 from .item import Item
 
 #: Equipment slots. ``weapon``/``offhand`` are held; the rest are worn.

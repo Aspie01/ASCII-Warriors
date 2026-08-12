@@ -9,7 +9,7 @@ regions and civilizations. History is simulated afterwards by
 from __future__ import annotations
 
 import math
-from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Set, Tuple
+from typing import Any, Callable, Dict, List, Mapping, Optional, Set, Tuple
 
 from ..data import biomes as biome_data
 from ..data import names as name_data

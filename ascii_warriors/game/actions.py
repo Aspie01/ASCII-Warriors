@@ -6,10 +6,9 @@ happened and no time should pass.
 
 from __future__ import annotations
 
-from typing import List, Optional, Sequence, Tuple
+from typing import Optional
 
 from ..data.calendar import TICKS_PER_HOUR
-from ..engine import colors, geometry
 from ..engine.fov import line_of_fire
 from ..engine.scheduler import ACTION_COST
 from ..world import tiles as tile_data
@@ -212,17 +211,51 @@ def eat(game, item: Item) -> int:
     return NORMAL
 
 
+def water_source_near(game) -> bool:
+    """True if the player is standing on or beside drinkable water."""
+    p = game.player
+    for dx in range(-1, 2):
+        for dy in range(-1, 2):
+            t = tile_data.get(game.local.tile(p.x + dx, p.y + dy, p.z))
+            if t.has("WATER_SOURCE"):
+                return True
+            if t.has("WATER") and not t.has("DEEP"):
+                return True
+    return False
+
+
+def refill_waterskins(game) -> int:
+    """Top up every carried waterskin. Returns how many rations were added."""
+    p = game.player
+    skins = len(p.inventory.by_def("waterskin"))
+    if skins <= 0:
+        return 0
+    capacity = skins * 4
+    have = p.inventory.count_of("water_drink")
+    if have >= capacity:
+        return 0
+    added = capacity - have
+    p.inventory.add(Item("water_drink", "water", count=added))
+    return added
+
+
 def drink(game, item: Optional[Item] = None) -> int:
     """Drink, from an item or from water underfoot."""
     p = game.player
     if item is None:
-        here = tile_data.get(game.local.tile(p.x, p.y, p.z))
-        if here.has("WATER") or here.has("WATER_SOURCE"):
+        if water_source_near(game):
             p.needs.thirst = 0
             game.log.info("You drink your fill.")
+            added = refill_waterskins(game)
+            if added:
+                game.log.info("You fill your waterskin.")
             return NORMAL
-        game.log.warn("There is nothing to drink here.")
-        return FREE
+        water = p.inventory.by_def("water_drink")
+        if water:
+            item = water[0]
+        else:
+            game.log.warn("There is nothing to drink here.")
+            return FREE
     if not item.is_drink:
         game.log.warn("You cannot drink that.")
         return FREE

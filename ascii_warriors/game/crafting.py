@@ -7,8 +7,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 from ..data import creatures as creature_data
 from ..data import items as item_data
-from ..engine.rng import RNG
-from .item import Item, make_item
+from .item import Item
 
 
 @dataclass(frozen=True)

@@ -2,15 +2,14 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Dict, Tuple
 
 from ..data import creatures as creature_data
 from ..data import names as name_data
 from ..engine import colors, keys
 from ..engine.rng import RNG
-from ..engine.screen import Frag, Screen
+from ..engine.screen import Screen
 from ..engine.widgets import ListMenu, MenuItem, key_hint, prompt_string
-from ..game.attributes import ALL_ATTRS, ATTR_NAMES, PHYSICAL
 from ..game.skills import SKILLS, level_name
 from ..game.state import Game
 from .app import Scene

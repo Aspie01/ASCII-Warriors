@@ -6,7 +6,7 @@ Needs-driven, not scripted: a creature looks around, decides what it wants
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 from ..engine import geometry
 from ..engine.fov import has_los

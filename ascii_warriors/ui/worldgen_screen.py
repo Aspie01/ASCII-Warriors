@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
 
-from ..data import creatures as creature_data
 from ..engine import colors, keys
-from ..engine.rng import RNG, seed_from_string
-from ..engine.screen import Frag, Screen
+from ..engine.rng import RNG
+from ..engine.screen import Screen
 from ..engine.widgets import ListMenu, MenuItem, key_hint, prompt_string
-from ..world.worldgen import WORLD_SIZES, generate_world, summarize
+from ..world.worldgen import WORLD_SIZES, generate_world
 from .app import Scene
 
 SIZE_ORDER = ["pocket", "small", "medium", "large", "huge"]

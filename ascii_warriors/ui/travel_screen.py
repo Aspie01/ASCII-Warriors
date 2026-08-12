@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from typing import List, Optional, Tuple
+from typing import List, Tuple
 
 from ..data import biomes as biome_data
 from ..engine import colors, geometry, keys
 from ..engine.colors import Color
 from ..engine.pathfind import astar
-from ..engine.screen import Frag, Screen, frag_slice
+from ..engine.screen import Screen
 from ..engine.widgets import key_hint
 from .app import Scene
 

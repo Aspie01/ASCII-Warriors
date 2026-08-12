@@ -7,8 +7,8 @@ on a specific part and works through its tissue layers in order.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any, Dict, List, Mapping, Optional, Tuple
+from dataclasses import dataclass
+from typing import Any, Dict, List, Mapping, Optional
 
 from ..data import bodies as body_data
 from ..data import materials as mat_data
@@ -199,6 +199,8 @@ class Body:
         self.dead = False
         self.death_cause = ""
         self.bloodless = False
+        #: Lowest blood-warning threshold already announced.
+        self._blood_warned = 1.0
 
     # -- queries ----------------------------------------------------------- #
 
@@ -512,8 +514,26 @@ class Body:
         rate = self.bleeding_rate()
         if rate > 0 and not self.bloodless:
             self.blood = max(0.0, self.blood - rate * ticks)
-            if self.blood_fraction() < 0.6 and rng.one_in(max(1, 400 // ticks)):
-                msgs.append("You are bleeding badly.")
+        elif not self.bloodless and self.blood < self.max_blood:
+            # Blood is replaced steadily once the wounds have closed.
+            self.blood = min(
+                self.max_blood, self.blood + 0.00012 * ticks * recuperation
+            )
+
+        # Warn once each time the player crosses a blood threshold downward,
+        # so nobody bleeds out without being told it is happening.
+        frac = self.blood_fraction()
+        if not self.bloodless:
+            for level, text in (
+                (0.75, "You are bleeding."),
+                (0.55, "You are bleeding badly!"),
+                (0.35, "You are losing consciousness from blood loss!"),
+            ):
+                if frac < level and level < self._blood_warned:
+                    msgs.append(text)
+                    self._blood_warned = level
+            if frac > self._blood_warned + 0.1:
+                self._blood_warned = min(1.0, frac)
 
         for p in self.parts.values():
             for w in list(p.wounds):
@@ -662,6 +682,7 @@ class Body:
             "dead": self.dead,
             "cause": self.death_cause,
             "bloodless": self.bloodless,
+            "warned": self._blood_warned,
         }
 
     @classmethod
@@ -682,6 +703,7 @@ class Body:
         b.dead = bool(d.get("dead", False))
         b.death_cause = str(d.get("cause", ""))
         b.bloodless = bool(d.get("bloodless", False))
+        b._blood_warned = float(d.get("warned", 1.0))
         return b
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid

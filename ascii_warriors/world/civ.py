@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Mapping, Optional, Sequence, Set, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Set, Tuple
 
-from ..data import biomes as biome_data
 from ..data import creatures as creature_data
 from ..data import names as name_data
 from ..engine import colors

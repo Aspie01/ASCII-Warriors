@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from typing import Any, List, Optional, Tuple
+from typing import List, Optional
 
 from ..engine import colors, keys
 from ..engine.screen import Frag, Screen
-from ..engine.widgets import ListMenu, MenuItem, Tabs, key_hint, prompt_string, scroll_view
+from ..engine.widgets import (
+    ListMenu, MenuItem, Tabs, key_hint, prompt_string, scroll_view,
+)
 from ..world import legends
-from ..world import history as history_mod
 from .app import Scene
 
 TABS = ["Overview", "Figures", "Sites", "Civilizations", "Artifacts", "Events"]

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import List, Tuple
+from typing import List
 
 from ..engine import colors
 from ..engine.screen import Frag, Screen, frag_slice

@@ -5,9 +5,8 @@ from __future__ import annotations
 from typing import Optional, Tuple
 
 from ..engine import colors, keys
-from ..engine.screen import Frag, Screen, frag_slice
+from ..engine.screen import Screen
 from ..engine.widgets import key_hint
-from ..world import tiles as tile_data
 from .app import Scene
 from .sidebar import LOG_HEIGHT, SIDEBAR_WIDTH
 
@@ -48,7 +47,6 @@ class LookScene(Scene):
         mx, my, mw, mh = play._layout(scr)
         play.cam_x = max(0, min(max(0, game.local.width - mw), self.cx - mw // 2))
         play.cam_y = max(0, min(max(0, game.local.height - mh), self.cy - mh // 2))
-        saved_z = game.player.z
         play.draw_map(scr, mx, my, mw, mh)
 
         sx = mx + self.cx - play.cam_x

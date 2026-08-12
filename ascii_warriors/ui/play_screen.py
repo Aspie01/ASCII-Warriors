@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from typing import List, Optional, Tuple
+from typing import Optional, Tuple
 
 from ..engine import colors, keys
 from ..engine.colors import Color
 from ..engine.screen import Frag, Screen
-from ..engine.widgets import MenuItem, choose, key_hint, message_box
+from ..engine.widgets import MenuItem, choose
 from ..game import actions, crafting
 from ..world import tiles as tile_data
 from .app import Scene

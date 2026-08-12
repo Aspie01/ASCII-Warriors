@@ -8,7 +8,7 @@ minimal escape-sequence stream.
 
 from __future__ import annotations
 
-from typing import Dict, Iterable, List, NamedTuple, Optional, Sequence, Tuple, Union
+from typing import Dict, List, NamedTuple, Optional, Sequence, Tuple, Union
 
 from . import colors
 from .colors import Color

@@ -45,7 +45,7 @@ ascii_warriors/
             look_screen.py travel_screen.py inventory_screen.py character_screen.py
             legends_screen.py help_screen.py dialogs.py sidebar.py
 tests/      test_*.py           (stdlib unittest only)
-tools/      smoke.py demo_render.py
+tools/      smoke.py
 ```
 
 ---
@@ -120,7 +120,7 @@ class Terminal:
 class HeadlessTerminal(Terminal):
     """Test/CI driver. Never touches a real tty."""
     def __init__(self, width: int = 100, height: int = 34,
-                 keys: Sequence[str] = (), loop_keys: bool = False) -> None
+                 keys_script: Sequence[str] = (), loop_keys: bool = False) -> None
     frames: list[list[str]]      # each frame = list of plain-text rows
     def feed(self, keys: Sequence[str]) -> None
     def last_text(self) -> str   # last frame joined with "\n"
@@ -528,7 +528,8 @@ MONTHS: tuple[str, ...]      # Granite, Slate, Felsite, Hematite, Malachite, Gal
                              # Limestone, Sandstone, Timber, Moonstone, Opal, Obsidian
 SEASONS: tuple[str, ...]     # Spring, Summer, Autumn, Winter
 DAYS_PER_MONTH = 28
-TICKS_PER_DAY  = 1200        # 1 tick ~= 72 seconds
+SECONDS_PER_TICK = 6         # one tick is one standard action at base speed
+TICKS_PER_MINUTE = 10 ; TICKS_PER_HOUR = 600 ; TICKS_PER_DAY = 14400
 DAYS_PER_YEAR  = 336
 
 @dataclass
@@ -1166,7 +1167,14 @@ class LocalMap:
 
 LOCAL_W = 64 ; LOCAL_H = 48 ; Z_BELOW = 6 ; Z_ABOVE = 4
 
-def generate_local(world, wx: int, wy: int, rng: RNG, *, site=None) -> LocalMap
+def generate_local(world, wx, wy, rng: RNG, *, site=None
+                   ) -> tuple[LocalMap, list[dict]]
+    # Returns the map together with the population spec list that
+    # world/sitegen.py produced, which game/state.py uses to spawn inhabitants.
+def LocalMap.central_open(self, rng) -> tuple[int, int, int]
+    # The best arrival spot near the middle of the map: open ground, on a road
+    # where there is one. Site maps are generated perfectly flat at z=0 so that
+    # streets, halls and the people in them all share one level.
 ```
 Generation: local heightmap interpolated from world neighbours, soil/stone layers,
 trees per biome density, water bodies/rivers, cave systems below (cellular automata),
@@ -1265,7 +1273,26 @@ Run with: `python -m unittest discover -s tests -v`
 
 ---
 
-## 49. Style
+## 49. Implementation notes
+
+Where the built code refines this contract:
+
+- **Time.** One tick is one standard action for a creature of speed 100, about
+  six seconds of world time. `engine/scheduler.py` grants `speed * ticks`
+  energy per tick and an action costs `ACTION_COST` (100).
+- **Bleeding is the usual cause of death.** `game/body.py` drains
+  `BLEED_PER_POINT` litres per tick per point of wound bleeding, warns the
+  player once per crossed blood threshold, and regenerates blood steadily once
+  the wounds have closed.
+- **`Scene.overlay`** — `ui/app.py` draws the deepest non-overlay scene and
+  everything above it, so modal scenes (the pause menu) keep the map behind them.
+- **`generate_local` returns a tuple**, as documented in section 43 above.
+- **World serialisation rounds floats.** `world_hash` rounds rather than
+  truncates so a save/load round trip cannot change a world's digest.
+- **`Item.name()`** wraps the name in quality symbols and appends a wear marker;
+  `article=True` picks "a"/"an" from the *unwrapped* name.
+
+## 50. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

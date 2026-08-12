@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from ..data import creatures as creature_data
-from ..data import names as name_data
 from ..engine.geometry import Rect, line
 from ..engine.rng import RNG
 from . import tiles as tile_data

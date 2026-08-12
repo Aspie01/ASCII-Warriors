@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-from typing import List, Optional
 
 from ..engine import colors, keys
-from ..engine.screen import Frag, Screen
+from ..engine.screen import Screen
 from ..engine.widgets import ListMenu, MenuItem, key_hint
 from ..game import save as save_mod
 from .app import Scene

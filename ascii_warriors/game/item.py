@@ -499,6 +499,7 @@ def starting_kit(rng: RNG, race: str, profession: str) -> List[Item]:
         kit.append(Item(a, mat))
 
     kit.append(Item("waterskin", "leather"))
+    kit.append(Item("water_drink", "water", count=3))
     kit.append(Item("backpack", "leather"))
     kit.append(Item("meat", "meat", count=rng.randint(3, 6)))
     kit.append(Item("bread", "bread", count=rng.randint(2, 4)))

@@ -6,7 +6,7 @@ sites, real rulers and real events from :mod:`ascii_warriors.world.history`.
 
 from __future__ import annotations
 
-from typing import Any, List, Optional, Sequence, Tuple
+from typing import Any, List, Optional, Tuple
 
 from ..data.descriptors import list_join
 from ..engine import colors, geometry

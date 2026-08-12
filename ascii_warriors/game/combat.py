@@ -9,14 +9,13 @@ is left is driven into the defender's tissues by :mod:`ascii_warriors.game.body`
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, List, Optional, Sequence, Tuple
+from typing import List, Optional, Tuple
 
 from ..data import materials as mat_data
 from ..data.items import AttackDef, PUNCH
 from ..engine import colors
 from ..engine.rng import RNG
 from ..engine.screen import Frag
-from .body import Body, PartState
 from .item import Item, severed_part
 from .skills import skill_bonus
 
