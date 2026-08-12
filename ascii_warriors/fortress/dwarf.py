@@ -262,6 +262,8 @@ def take_turn(fort, dwarf, ticks: int) -> None:
 
     if _handle_danger(fort, dwarf):
         return
+    if _handle_wounds(fort, dwarf, ticks):
+        return
     if _handle_needs(fort, dwarf, ticks):
         return
 
@@ -276,42 +278,59 @@ def take_turn(fort, dwarf, ticks: int) -> None:
     _work_job(fort, dwarf, job, ticks)
 
 
+#: How far a soldier will chase, and how far a civilian panics.
+SOLDIER_SIGHT = 24
+CIVILIAN_SIGHT = 10
+
+
 def _handle_danger(fort, dwarf) -> bool:
-    """Fight or run from a hostile in sight. True if it took the turn."""
+    """Fight, chase or run. True if it took the turn."""
     from ..game import combat
-    from ..game.ai import can_see
+
+    state = dwarf.fort
+    squad = fort.military.squad_of(dwarf.id)
+    reach = SOLDIER_SIGHT if squad is not None else CIVILIAN_SIGHT
 
     enemies = [
         c for c in fort.creatures.values()
-        if not c.body.dead and c.faction == "hostile" and c.z == dwarf.z
-        and geometry.chebyshev(dwarf.x, dwarf.y, c.x, c.y) <= 10
+        if not c.body.dead and c.faction == "hostile"
+        and abs(c.z - dwarf.z) <= 2
+        and geometry.chebyshev(dwarf.x, dwarf.y, c.x, c.y) <= reach
     ]
     if not enemies:
-        return False
+        return _hold_position(fort, dwarf, squad)
+
     enemies.sort(key=lambda c: geometry.chebyshev(dwarf.x, dwarf.y, c.x, c.y))
     foe = enemies[0]
+    if squad is not None and squad.order == "kill" and squad.target is not None:
+        wanted = fort.creatures.get(squad.target)
+        if wanted is not None and not wanted.body.dead:
+            foe = wanted
     dist = geometry.chebyshev(dwarf.x, dwarf.y, foe.x, foe.y)
-    state = dwarf.fort
 
-    if state.squad:
-        if dist <= 1:
-            combat.melee_attack(dwarf, foe, rng=fort.rng, log=fort.log)
-            if foe.body.dead:
-                fort.kill_creature(foe)
-            return True
+    if dist <= 1 and foe.z == dwarf.z:
+        _release_job(fort, dwarf)
+        combat.melee_attack(dwarf, foe, rng=fort.rng, log=fort.log)
+        if foe.body.dead:
+            fort.kill_creature(foe)
+        return True
+
+    # Nobody fights on past the point of collapse, siege or no siege.
+    if dist > 2 and _desperate(dwarf):
+        return False
+
+    if squad is not None:
+        _release_job(fort, dwarf)
         if path_to(fort, dwarf, (foe.x, foe.y, foe.z)):
             step_along(fort, dwarf)
             return True
         return False
 
-    # Civilians fight only when cornered.
-    if dist <= 1:
-        combat.melee_attack(dwarf, foe, rng=fort.rng, log=fort.log)
-        if foe.body.dead:
-            fort.kill_creature(foe)
-        return True
-    if dist <= 6:
+    # Civilians run for the burrow if there is one, and away if there is not.
+    if dist <= CIVILIAN_SIGHT:
         _release_job(fort, dwarf)
+        if _retreat_to_burrow(fort, dwarf):
+            return True
         dx, dy = geometry.normalize_dir(dwarf.x - foe.x, dwarf.y - foe.y)
         for cand in ((dwarf.x + dx, dwarf.y + dy, dwarf.z),
                      (dwarf.x + dx, dwarf.y, dwarf.z),
@@ -320,6 +339,90 @@ def _handle_danger(fort, dwarf) -> bool:
                 dwarf.x, dwarf.y, dwarf.z = cand
                 return True
         return True
+    return False
+
+
+def _handle_wounds(fort, dwarf, ticks: int) -> bool:
+    """A hurt dwarf goes to bed and stays there. True if it took the turn.
+
+    A doctor with a patient waiting is the exception: somebody has to be well
+    enough to do the binding, and a scratched surgeon is better than a dead
+    fortress.
+    """
+    from . import hospital
+
+    if not hospital.is_hurt(dwarf):
+        hospital.release_bed(fort, dwarf)
+        return False
+    state = dwarf.fort
+    if state.job is not None and state.job.kind == "treat":
+        return False
+    if not hospital.is_critical(dwarf) and dwarf.fort.labors.has("medicine") \
+            and any(hospital.is_critical(p) for p in hospital.patients(fort)):
+        return False
+
+    _release_job(fort, dwarf)
+    bed = hospital.free_bed(fort, dwarf)
+    here = (dwarf.x, dwarf.y, dwarf.z)
+    if bed is None or here == bed.center:
+        dwarf.body.rest_heal(ticks * 3, dwarf.attributes.factor("recuperation"))
+        if bed is not None:
+            dwarf.needs.add_thought("rested in a hospital bed", -2)
+        return True
+    if path_to(fort, dwarf, bed.center, adjacent=False):
+        step_along(fort, dwarf)
+        return True
+    dwarf.body.rest_heal(ticks * 3, dwarf.attributes.factor("recuperation"))
+    return True
+
+
+def _desperate(dwarf) -> bool:
+    """True when a need has passed the point where anything else matters."""
+    needs = dwarf.needs
+    return (needs.thirst > THIRST_URGENT * 1.5
+            or needs.hunger > HUNGER_URGENT * 1.5
+            or needs.drowsy > SLEEP_URGENT * 1.8)
+
+
+def _hold_position(fort, dwarf, squad) -> bool:
+    """No enemy in sight: stand where you were told, or shelter."""
+    if _desperate(dwarf):
+        return False
+    if squad is not None:
+        if squad.order == "station" and squad.station is not None:
+            here = (dwarf.x, dwarf.y, dwarf.z)
+            if geometry.chebyshev(here[0], here[1], squad.station[0],
+                                  squad.station[1]) <= 2 \
+                    and here[2] == squad.station[2]:
+                return True
+            _release_job(fort, dwarf)
+            if path_to(fort, dwarf, squad.station):
+                step_along(fort, dwarf)
+                return True
+        return False
+    if fort.military.alarm and fort.military.burrow is not None:
+        if fort.military.in_burrow(dwarf.x, dwarf.y, dwarf.z):
+            return False
+        _release_job(fort, dwarf)
+        return _retreat_to_burrow(fort, dwarf)
+    return False
+
+
+def _retreat_to_burrow(fort, dwarf) -> bool:
+    """Head for the safe zone. False if there is nowhere to go."""
+    military = fort.military
+    if military.burrow is None:
+        return False
+    if military.in_burrow(dwarf.x, dwarf.y, dwarf.z):
+        return True
+    cells = [c for c in military.burrow_cells() if fort.local.walkable(*c)]
+    if not cells:
+        return False
+    cells.sort(key=lambda c: _heuristic((dwarf.x, dwarf.y, dwarf.z), c))
+    for cell in cells[:4]:
+        if path_to(fort, dwarf, cell, adjacent=False):
+            step_along(fort, dwarf)
+            return True
     return False
 
 

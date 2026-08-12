@@ -193,9 +193,20 @@ class JobBoard:
         return out
 
     def assign(self, job: Job, dwarf) -> None:
-        """Give a job to a dwarf."""
+        """Give a job to a dwarf, freeing anything it was already holding.
+
+        A dwarf can only work on one thing. Without this, giving a busy dwarf a
+        second job leaves the first marked as taken for ever: it never comes
+        back to the board and nobody else can ever do it.
+        """
+        for other in self.jobs.values():
+            if other is not job and other.assigned == dwarf.id:
+                other.assigned = None
         job.assigned = dwarf.id
         dwarf.job = job
+        state = getattr(dwarf, "fort", None)
+        if state is not None:
+            state.job = job
 
     def release(self, job: Job, *, penalise: bool = True) -> None:
         """Put a job back on the board after a dwarf gives up on it."""

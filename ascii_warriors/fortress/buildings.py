@@ -80,6 +80,11 @@ KINDS: Dict[str, BuildingKind] = {
         _b("farm", "Farm plot", "=", colors.Color(120, 92, 58), 3, 3,
            (), 0, 60, "farming", "herbalism", "farm", "Workshops", True,
            "Plump helmets grow underground on nothing but mud and patience."),
+        _b("barracks", "Barracks", "!", colors.Color(190, 180, 210), 3, 3,
+           ("WOOD", "STONE"), 1, 200, "building", "carpentry",
+           "barracks", "Workshops", True,
+           "Where a squad spars. An untrained militia is a pile of corpses "
+           "that has not happened yet."),
 
         # -- furniture ----------------------------------------------------- #
         _b("bed", "Bed", "=", colors.Color(180, 140, 90), 1, 1, ("WOOD",), 1,
@@ -128,14 +133,32 @@ KINDS: Dict[str, BuildingKind] = {
         _b("down_stair", "Down staircase", ">", colors.Color(200, 195, 175),
            1, 1, ("STONE", "WOOD"), 1, 130, "building", "masonry",
            "stair_down", "Construction", True, ""),
+
+        # -- defence -------------------------------------------------------- #
+        _b("weapon_trap", "Weapon trap", "^", colors.Color(200, 120, 110),
+           1, 1, ("WEAPON",), 1, 160, "mechanics", "mechanics", "trap",
+           "Defence", True,
+           "A weapon on a trigger. It does not care how brave the goblin is."),
+        _b("spike_trap", "Spike trap", "^", colors.Color(180, 140, 140),
+           1, 1, ("STONE", "METAL"), 1, 140, "mechanics", "mechanics", "trap",
+           "Defence", True, "Cheaper, and almost as unpleasant."),
+        _b("hatch", "Hatch cover", "+", colors.Color(150, 140, 130), 1, 1,
+           ("WOOD", "STONE", "METAL"), 1, 100, "building", "carpentry",
+           "hatch", "Defence", True,
+           "Closes a stairway behind you."),
     )
 }
+
+#: Buildings that hurt whatever walks onto them.
+TRAP_KINDS: Tuple[str, ...] = ("weapon_trap", "spike_trap")
 
 WORKSHOP_KINDS: Tuple[str, ...] = (
     "carpenter", "mason", "craftsdwarf", "smith", "still", "kitchen", "butcher",
 )
 
-BUILD_CATEGORIES: Tuple[str, ...] = ("Workshops", "Furniture", "Construction")
+BUILD_CATEGORIES: Tuple[str, ...] = (
+    "Workshops", "Furniture", "Construction", "Defence",
+)
 
 
 class Building:
@@ -357,6 +380,8 @@ def material_matches(item, kind: str) -> bool:
     k = KINDS.get(kind)
     if k is None:
         return False
+    if "WEAPON" in k.materials:
+        return item.is_weapon and not item.is_ranged
     if item.def_id == "boulder":
         return "STONE" in k.materials
     if item.def_id == "log":

@@ -9,7 +9,7 @@ is left is driven into the defender's tissues by :mod:`ascii_warriors.game.body`
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from ..data import materials as mat_data
 from ..data.items import AttackDef, PUNCH
@@ -384,6 +384,60 @@ def melee_attack(
     if defender.body.dead:
         result.killed = True
         result.add(_slain_line(defender), colors.UI["danger"])
+    _emit(log, result)
+    return result
+
+
+#: What each kind of trap does when something walks onto it.
+TRAP_STRIKES: Dict[str, Tuple[str, float, int, int, str]] = {
+    # kind -> (damage kind, momentum, contact, penetration, verb)
+    "weapon_trap": ("edged", 30000.0, 60, 4000, "slashes"),
+    "spike_trap": ("piercing", 24000.0, 10, 8000, "impales"),
+}
+
+
+def trap_strike(
+    victim, trap_kind: str, material: str = "", *, rng: RNG, log=None
+) -> AttackResult:
+    """A trap goes off under somebody.
+
+    Traps do not miss and cannot be parried — that is the point of them — but
+    armour still counts, so a well-equipped goblin may walk over one and live.
+    """
+    result = AttackResult()
+    if victim.body.dead:
+        return result
+    spec = TRAP_STRIKES.get(trap_kind)
+    if spec is None:
+        return result
+    kind, momentum, contact, penetration, verb = spec
+
+    part = victim.body.random_part(rng)
+    if part is None:
+        return result
+    result.part = part.id
+    momentum *= rng.uniform(0.7, 1.25)
+    absorbed, outer = armor_protection(victim, part.id, kind)
+    delivered = max(0.0, momentum - absorbed)
+    result.damage = delivered
+
+    name = ("%s %s" % (material, trap_kind.replace("_", " "))).strip()
+    head = "A %s %s %s in the %s" % (name, verb, _object(victim), part.name)
+    if delivered <= 0:
+        result.add("%s, but the armour holds." % head, colors.UI["dim"])
+        _emit(log, result)
+        return result
+
+    clauses = victim.body.apply_damage(
+        part.id, kind, delivered, contact, penetration, rng)
+    result.hit = True
+    if clauses:
+        result.add("%s, %s!" % (head, ", ".join(clauses)), colors.UI["fg"])
+    else:
+        result.add("%s." % head, colors.UI["dim"])
+    if victim.body.dead:
+        result.killed = True
+        result.add(_slain_line(victim), colors.UI["danger"])
     _emit(log, result)
     return result
 

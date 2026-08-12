@@ -89,7 +89,7 @@ def draw_map(
 
 
 def _draw_zones(scr, fort, ox, oy, w, h, cam_x, cam_y) -> None:
-    """Stockpile rectangles, tinted behind whatever is on them."""
+    """Stockpile and burrow rectangles, tinted behind whatever is on them."""
     for pile in fort.stockpiles:
         if pile.z != fort.z:
             continue
@@ -100,6 +100,20 @@ def _draw_zones(scr, fort, ox, oy, w, h, cam_x, cam_y) -> None:
                 continue
             ch, fg, _bg = scr.get(ox + sx, oy + sy)
             scr.put(ox + sx, oy + sy, ch, fg, colors.darken(tint, 0.22))
+
+    burrow = getattr(fort, "military", None)
+    if burrow is None or burrow.burrow is None:
+        return
+    tint = (colors.Color(90, 40, 40) if burrow.alarm
+            else colors.Color(40, 50, 70))
+    for cx, cy, cz in burrow.burrow_cells():
+        if cz != fort.z:
+            continue
+        sx, sy = cx - cam_x, cy - cam_y
+        if not (0 <= sx < w and 0 <= sy < h):
+            continue
+        ch, fg, _bg = scr.get(ox + sx, oy + sy)
+        scr.put(ox + sx, oy + sy, ch, fg, tint)
 
 
 def _draw_designations(scr, fort, ox, oy, w, h, cam_x, cam_y) -> None:

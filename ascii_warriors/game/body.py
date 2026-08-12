@@ -27,6 +27,10 @@ BLOOD_DEATH = 0.20
 #: Litres lost per tick per point of wound bleeding.
 BLEED_PER_POINT = 0.004
 
+#: Ticks of rest that close one point of bleeding. Resting is much faster than
+#: standing about clotting, and a bandage is faster still.
+REST_CLOT_TICKS = 260.0
+
 WOUND_KINDS = ("cut", "bruise", "fracture", "puncture", "burn", "tear")
 
 
@@ -201,6 +205,8 @@ class Body:
         self.bloodless = False
         #: Lowest blood-warning threshold already announced.
         self._blood_warned = 1.0
+        #: Ticks of rest banked toward closing the next point of bleeding.
+        self._rest_ticks = 0.0
 
     # -- queries ----------------------------------------------------------- #
 
@@ -586,7 +592,18 @@ class Body:
         return msgs
 
     def rest_heal(self, ticks: int, recuperation: float) -> None:
-        """Accelerated healing while sleeping or resting."""
+        """Accelerated healing while sleeping or resting.
+
+        Rest closes wounds faster than standing about does, but it does not
+        close them instantly. Lying down used to zero every wound in the body
+        on the first call, which made a bandage worthless and a severed artery
+        a minor inconvenience.
+        """
+        self._rest_ticks += ticks * max(0.2, recuperation)
+        closed = int(self._rest_ticks // REST_CLOT_TICKS)
+        if closed:
+            self._rest_ticks -= closed * REST_CLOT_TICKS
+
         for p in self.parts.values():
             if p.gone:
                 continue
@@ -597,9 +614,16 @@ class Body:
                         1.0, frac + (ticks / 3000.0) * (t.heal_rate / 100.0)
                         * recuperation
                     )
-            for w in list(p.wounds):
-                w.bleeding = 0
-            p.wounds = [w for w in p.wounds if w.severed]
+            if closed:
+                for w in p.wounds:
+                    if w.bleeding > 0:
+                        w.bleeding = max(0, w.bleeding - closed)
+            # A wound only stops being a wound once the flesh under it has
+            # knitted back together.
+            p.wounds = [
+                w for w in p.wounds
+                if w.severed or w.bleeding > 0 or p.damage_fraction() > 0.02
+            ]
             if p.broken and all(p.tissues.get(t, 1.0) > 0.8 for t in p.defn.tissues):
                 p.broken = False
         if not self.bloodless:

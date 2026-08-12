@@ -19,6 +19,7 @@ from .buildings import Building, Stockpile
 from .designations import KINDS as DESIGNATION_KINDS
 from .designations import Designations
 from .jobs import Job, JobBoard
+from .military import Military
 
 Cell = Tuple[int, int, int]
 
@@ -57,6 +58,7 @@ class Fortress:
         self.jobs = JobBoard()
         self.buildings: List[Building] = []
         self.stockpiles: List[Stockpile] = []
+        self.military = Military()
         self.creatures: Dict[int, Creature] = {}
         self.items_on_ground: Dict[Cell, List[Item]] = {}
         self.weather = Weather()
@@ -493,7 +495,15 @@ class Fortress:
             self.designations.clear(job.cell)
 
     def release_job_items(self, job: Job) -> None:
-        """Un-reserve everything a cancelled job had promised itself."""
+        """Un-reserve everything a cancelled job had promised itself.
+
+        Whoever was carrying the goods puts them down. A job that is deleted
+        while a dwarf still holds its materials takes those materials out of
+        the fortress permanently.
+        """
+        holder = self.creatures.get(job.assigned) if job.assigned else None
+        if holder is not None and getattr(holder, "fort", None) is not None:
+            self.put_down(holder, job)
         for item_id, owner in list(self.jobs.reserved_items.items()):
             if owner == job.id:
                 del self.jobs.reserved_items[item_id]
@@ -506,8 +516,10 @@ class Fortress:
 
     def job_items(self, job: Job) -> List[int]:
         """Item ids a job needs in hand before the work can start."""
-        if job.kind == "haul":
+        if job.kind in ("haul", "equip"):
             return [job.target] if job.target else []
+        if job.kind == "treat":
+            return [job.carrying] if job.carrying else []
         if job.kind == "build":
             b = self.building(job.target) if job.target else None
             return list(b.materials) if b is not None and not b.built else []
@@ -751,6 +763,64 @@ class Fortress:
             return 1
         return 0
 
+    def _finish_equip(self, dwarf, job: Job) -> None:
+        """A soldier picks up its kit and puts it on."""
+        item = next((i for i in dwarf.inventory.items if i.id == job.target),
+                    None)
+        if item is None:
+            return
+        self.jobs.release_item(item.id)
+        dwarf.fort.carrying = None
+        for msg in dwarf.inventory.auto_equip():
+            pass
+        if item.is_weapon:
+            self.log.info("%s takes up %s." % (dwarf.name, item.name(article=True)))
+
+    def _finish_treat(self, dwarf, job: Job) -> None:
+        """A doctor gets to a patient and does what it can.
+
+        The supplies go back on the floor whatever happens, including when the
+        patient stopped bleeding on the way over. A doctor that pockets the
+        fortress's only bandages is worse than no doctor.
+        """
+        from . import hospital
+
+        try:
+            patient = self.creatures.get(job.target)
+            if patient is None or patient.body.dead:
+                return
+            care = hospital.needs_care(patient)
+            if not care:
+                return
+            part_id, treatment = care[0]
+            hospital.treat(self, dwarf, patient, part_id, treatment)
+        finally:
+            self.return_supplies(dwarf, job)
+
+    def return_supplies(self, dwarf, job: Job) -> None:
+        """Put down whatever a job had a dwarf carrying, and un-reserve it."""
+        if job.carrying is not None:
+            self.jobs.release_item(job.carrying)
+        for item in list(dwarf.inventory.items):
+            if item.id != job.carrying:
+                continue
+            dwarf.inventory.items.remove(item)
+            if item.count > 0:
+                self.drop_item(item, dwarf.x, dwarf.y, dwarf.z)
+        dwarf.fort.carrying = None
+
+    def _finish_train(self, dwarf, job: Job) -> None:
+        """A bout of sparring is over."""
+        from . import military as military_mod
+
+        squad = self.military.squad_of(dwarf.id)
+        if squad is None:
+            return
+        for skill in military_mod.TRAINING_SKILLS:
+            dwarf.add_exp(skill, 12)
+        dwarf.add_exp(squad.defn.skill, 20)
+        dwarf.needs.add_thought("trained with the squad", -2)
+
     def _finish_plant(self, dwarf, job: Job) -> None:
         b = self.building(job.target) if job.target else None
         if b is None:
@@ -807,6 +877,7 @@ class Fortress:
             "jobs": self.jobs.to_dict(),
             "buildings": [b.to_dict() for b in self.buildings],
             "stockpiles": [s.to_dict() for s in self.stockpiles],
+            "military": self.military.to_dict(),
             "creatures": [c.to_dict() for c in self.creatures.values()],
             "dwarf_state": {
                 str(c.id): c.fort.to_dict()
@@ -850,6 +921,7 @@ class Fortress:
         fort.jobs = JobBoard.from_dict(d.get("jobs") or {})
         fort.buildings = [Building.from_dict(b) for b in d.get("buildings", [])]
         fort.stockpiles = [Stockpile.from_dict(s) for s in d.get("stockpiles", [])]
+        fort.military = Military.from_dict(d.get("military") or {})
 
         states = d.get("dwarf_state") or {}
         for cd in d.get("creatures", []):

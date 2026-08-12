@@ -169,3 +169,42 @@ class StockpileScene(CursorScene):
         fort.stockpiles.append(pile)
         fort.log.system("Stockpile (%s), %d by %d." % (
             self.kind, pile.w, pile.h))
+
+
+class BurrowScene(CursorScene):
+    """Mark the room civilians run to when the alarm sounds."""
+
+    mode_name = "Safe burrow"
+
+    def header(self) -> List[Frag]:
+        """Explain what this is for."""
+        current = self.fort.military.burrow
+        out = [Frag("Mark the room your civilians shelter in. ",
+                    colors.UI["fg"])]
+        if current is not None:
+            out.append(Frag("(one is already set: Enter twice to replace it)",
+                            colors.UI["dim"]))
+        return out
+
+    def hints(self) -> List[Tuple[str, str]]:
+        """Bottom-line hints."""
+        return [(keys.ENTER, "corner, then corner"), ("x", "clear"),
+                (keys.ESC, "done")]
+
+    def extra_key(self, key: str) -> bool:
+        """Clear the burrow entirely."""
+        if key == "x":
+            self.fort.military.burrow = None
+            self.fort.log.system("The safe burrow is cleared.")
+            return True
+        return False
+
+    def apply(self, x0: int, y0: int, x1: int, y1: int) -> None:
+        """Set the burrow rectangle."""
+        fort = self.fort
+        lo_x, hi_x = sorted((x0, x1))
+        lo_y, hi_y = sorted((y0, y1))
+        fort.military.burrow = (lo_x, lo_y, fort.z,
+                                hi_x - lo_x + 1, hi_y - lo_y + 1)
+        fort.log.system("Safe burrow set, %d by %d." % (
+            hi_x - lo_x + 1, hi_y - lo_y + 1))

@@ -816,3 +816,287 @@ class TestFortressUI(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestMilitary(unittest.TestCase):
+    """Squads, uniforms, training and the alarm."""
+
+    def setUp(self):
+        from ascii_warriors.fortress import military
+
+        self.military = military
+
+    def _armed_squad(self, fort, size=3, uniform="axe"):
+        """Raise a squad, give the fortress kit to arm it, and a barracks."""
+        from ascii_warriors.game.item import Item
+
+        spot = _open_spot(fort, "barracks")
+        self.assertIsNotNone(spot, "nowhere to put a barracks")
+        fort.buildings.append(Building("barracks", *spot))
+        d0 = fort.dwarves()[0]
+        for _ in range(size + 1):
+            for def_id, mat in (("battle_axe", "steel"), ("mail_shirt", "iron"),
+                                ("helm", "iron"), ("shield", "iron"),
+                                ("greaves", "iron"), ("high_boots", "leather"),
+                                ("gauntlets", "iron")):
+                fort.drop_item(Item(def_id, mat), d0.x, d0.y, d0.z)
+        squad = fort.military.add_squad("The Test Guard", uniform)
+        for d in fort.dwarves()[:size]:
+            fort.military.enlist(squad, d.id)
+        return squad
+
+    def test_every_uniform_names_real_items(self):
+        """A uniform that asks for a nonexistent axe arms nobody."""
+        from ascii_warriors.data import items as item_data
+        from ascii_warriors.game import skills as skill_mod
+
+        for uniform in self.military.UNIFORMS.values():
+            self.assertTrue(uniform.weapons, uniform.id)
+            self.assertTrue(skill_mod.exists(uniform.skill), uniform.id)
+            for def_id in uniform.weapons + uniform.armor:
+                self.assertTrue(item_data.exists(def_id),
+                                "%s wants a nonexistent %s"
+                                % (uniform.id, def_id))
+
+    def test_enlisting_moves_a_dwarf_between_squads(self):
+        """A dwarf belongs to at most one squad."""
+        fort = embark("enlist")
+        a = fort.military.add_squad("A", "axe")
+        b = fort.military.add_squad("B", "hammer")
+        d = fort.dwarves()[0]
+        fort.military.enlist(a, d.id)
+        fort.military.enlist(b, d.id)
+        self.assertFalse(a.has(d.id))
+        self.assertTrue(b.has(d.id))
+        self.assertEqual(fort.military.squad_of(d.id), b)
+
+    def test_squad_size_is_capped(self):
+        """A squad will not take an eleventh dwarf."""
+        fort = embark("squadsize")
+        squad = fort.military.add_squad("Full", "axe")
+        squad.members = list(range(self.military.SQUAD_SIZE))
+        self.assertFalse(fort.military.enlist(squad, 999))
+
+    def test_soldiers_arm_themselves(self):
+        """A squad finds and puts on the kit its uniform calls for."""
+        fort = embark("arming")
+        squad = self._armed_squad(fort)
+        sim.run(fort, 2000)
+        ready, total = self.military.readiness(squad, fort)
+        self.assertEqual(ready, total, "the squad never armed itself")
+        for dwarf_id in squad.members:
+            d = fort.creatures[dwarf_id]
+            self.assertIsNotNone(d.inventory.weapon())
+
+    def test_the_whole_squad_trains(self):
+        """Training must not concentrate on whoever grabs the job first."""
+        fort = embark("training")
+        squad = self._armed_squad(fort, size=3)
+        sim.run(fort, 9000)
+        levels = [fort.creatures[i].skills.level("fighter")
+                  for i in squad.members]
+        self.assertTrue(all(lv >= 3 for lv in levels),
+                        "only some of the squad trained: %s" % levels)
+
+    def test_a_trained_squad_beats_a_siege(self):
+        """The point of a militia."""
+        fort = embark("defence")
+        squad = self._armed_squad(fort, size=3)
+        sim.run(fort, 9000)
+        before = len(fort.dwarves())
+        sim.spawn_attack(fort, 5)
+        sim.run(fort, 2500)
+        self.assertEqual(len(fort.hostiles()), 0, "the goblins are still here")
+        self.assertGreaterEqual(len(fort.dwarves()), before - 2)
+
+    def test_the_alarm_raises_and_lifts_itself(self):
+        """Somebody has to notice the goblins."""
+        fort = embark("alarm")
+        self.assertFalse(fort.military.alarm)
+        sim.spawn_attack(fort, 2)
+        sim.step(fort)
+        self.assertTrue(fort.military.alarm)
+        for foe in fort.hostiles():
+            foe.body.dead = True
+        sim.step(fort)
+        self.assertFalse(fort.military.alarm)
+
+    def test_civilians_shelter_in_the_burrow(self):
+        """Under alarm, a civilian heads for the safe room."""
+        fort = embark("burrow")
+        d = fort.dwarves()[0]
+        # A burrow a few tiles away, on walkable ground.
+        cells = [(d.x + dx, d.y + dy) for dx in range(3, 6) for dy in range(0, 3)
+                 if fort.local.walkable(d.x + dx, d.y + dy, d.z)]
+        self.assertTrue(cells, "no walkable ground for a burrow")
+        fort.military.burrow = (cells[0][0], cells[0][1], d.z, 3, 3)
+        fort.military.sound_alarm()
+        for _ in range(120):
+            dwarf_mod.take_turn(fort, d, sim.STEP_TICKS)
+        self.assertTrue(fort.military.in_burrow(d.x, d.y, d.z),
+                        "%s never reached shelter" % d.name)
+
+    def test_traps_hurt_intruders(self):
+        """A weapon trap is worth more than a dwarf with an axe."""
+        from ascii_warriors.game.item import Item
+
+        fort = embark("trapped")
+        spot = _open_spot(fort, "weapon_trap")
+        fort.drop_item(Item("battle_axe", "steel"), *spot)
+        trap = Building("weapon_trap", *spot)
+        fort.buildings.append(trap)
+        sim.run(fort, 800)
+        self.assertTrue(trap.built, "the trap was never built")
+        foe = sim.spawn_attack(fort, 1)[0]
+        foe.x, foe.y, foe.z = spot
+        before = foe.body.health_fraction()
+        for _ in range(3):
+            sim._traps(fort)
+        self.assertLess(foe.body.health_fraction(), before,
+                        "the goblin walked over the trap unharmed")
+
+    def test_military_survives_a_save(self):
+        """Squads and the burrow come back."""
+        fort = embark("milsave")
+        squad = fort.military.add_squad("Keepers", "hammer")
+        fort.military.enlist(squad, fort.dwarves()[0].id)
+        squad.order = "station"
+        squad.station = (10, 10, fort.z)
+        fort.military.burrow = (5, 5, fort.z, 4, 4)
+        again = Fortress.from_dict(fort.to_dict())
+        self.assertEqual(len(again.military.squads), 1)
+        back = again.military.squads[0]
+        self.assertEqual(back.name, "Keepers")
+        self.assertEqual(back.uniform, "hammer")
+        self.assertEqual(back.station, (10, 10, fort.z))
+        self.assertEqual(again.military.burrow, (5, 5, fort.z, 4, 4))
+
+
+class TestHospital(unittest.TestCase):
+    """Wounds, doctors and beds."""
+
+    def _wound(self, dwarf, bleeding=6):
+        """Open a survivable but serious cut."""
+        from ascii_warriors.game.body import Wound
+
+        pid = dwarf.body.order[5]
+        dwarf.body.parts[pid].wounds.append(
+            Wound(pid, "muscle", 0.5, "edge", bleeding=bleeding, pain=8))
+        return pid
+
+    def _ward(self, fort, doctors=True, beds=3):
+        """Build a hospital and stock it."""
+        from ascii_warriors.game.item import Item
+
+        for _ in range(beds):
+            spot = _open_spot(fort, "hospital")
+            if spot is not None:
+                fort.buildings.append(Building("hospital", *spot))
+        d0 = fort.dwarves()[0]
+        fort.drop_item(Item("bandage", "pig_tail_cloth", count=10),
+                       d0.x, d0.y, d0.z)
+        for d in fort.dwarves():
+            if doctors:
+                d.fort.labors.enable("medicine")
+            else:
+                d.fort.labors.disable("medicine")
+        sim.run(fort, 700)
+
+    def test_resting_does_not_instantly_cure_everything(self):
+        """Lying down closes wounds over time, not on the first tick."""
+        fort = embark("resting")
+        d = fort.dwarves()[0]
+        self._wound(d, bleeding=8)
+        before = d.body.bleeding_rate()
+        d.body.rest_heal(30, 1.0)
+        self.assertGreater(d.body.bleeding_rate(), 0.0,
+                           "one moment of rest closed an open wound")
+        self.assertLessEqual(d.body.bleeding_rate(), before)
+
+    def test_rest_does_eventually_close_a_wound(self):
+        """It has to converge, or nobody ever recovers."""
+        fort = embark("resting2")
+        d = fort.dwarves()[0]
+        self._wound(d, bleeding=4)
+        for _ in range(200):
+            d.body.rest_heal(30, 1.0)
+        self.assertEqual(d.body.bleeding_rate(), 0.0)
+
+    def test_the_hurt_stop_working(self):
+        """A bleeding dwarf does not carry on hauling rocks."""
+        fort = embark("stopwork")
+        dig_room(fort, 5)
+        sim.run(fort, 300)
+        d = fort.dwarves()[0]
+        self._wound(d, bleeding=4)
+        sim.step(fort)
+        self.assertTrue(d.fort.job is None or d.fort.job.kind == "treat")
+
+    def test_a_doctor_binds_a_wound(self):
+        """The whole chain: notice, assign, walk, bandage, stop bleeding."""
+        fort = embark("binding")
+        self._ward(fort)
+        patient = fort.dwarves()[3]
+        # Serious enough to kill without help, slow enough to be treatable.
+        self._wound(patient, bleeding=4)
+        for _ in range(600):
+            sim.step(fort)
+            if patient.body.bleeding_rate() == 0 or patient.body.dead:
+                break
+        bound = [m.text for m in fort.log.all() if "binds" in m.text]
+        self.assertTrue(bound, "nobody ever bandaged the patient")
+        self.assertFalse(patient.body.dead)
+
+    def test_a_hospital_saves_a_dwarf_that_would_have_died(self):
+        """The point of a hospital."""
+        def run(with_doctors):
+            fort = embark("saved")
+            self._ward(fort, doctors=with_doctors)
+            patient = fort.dwarves()[3]
+            self._wound(patient, bleeding=4)
+            for _ in range(900):
+                sim.step(fort)
+                if patient.body.dead or patient.body.bleeding_rate() == 0:
+                    break
+            return patient.body.dead
+
+        self.assertTrue(run(False), "the control case did not die; retune it")
+        self.assertFalse(run(True), "the hospital did not save the patient")
+
+    def test_supplies_are_never_lost(self):
+        """A doctor must not pocket the fortress's only bandages."""
+        fort = embark("supplies")
+        self._ward(fort)
+        before = fort.stock_count("bandage")
+        patient = fort.dwarves()[3]
+        self._wound(patient, bleeding=3)
+        sim.run(fort, 500)
+        carried = sum(i.count for c in fort.creatures.values()
+                      for i in c.inventory.items if i.def_id == "bandage")
+        self.assertLessEqual(carried, 0,
+                             "%d bandages are stuck in a pocket" % carried)
+        self.assertGreater(fort.stock_count("bandage"), before - 4)
+
+    def test_a_ward_with_no_doctor_warns(self):
+        """Silence is the wrong response to a bleeding dwarf."""
+        fort = embark("nodoc")
+        self._ward(fort, doctors=False)
+        self._wound(fort.dwarves()[3], bleeding=4)
+        sim.run(fort, 30)
+        self.assertTrue(
+            any("treat" in m.text for m in fort.log.all()),
+            "no warning that nobody can treat the wounded")
+
+    def test_health_summary_reads_sensibly(self):
+        """The health screen's rows."""
+        from ascii_warriors.fortress import hospital
+
+        fort = embark("summary")
+        self.assertEqual(hospital.summary(fort), [])
+        self._wound(fort.dwarves()[0], bleeding=5)
+        rows = hospital.summary(fort)
+        self.assertEqual(len(rows), 1)
+        name, condition, wanted = rows[0]
+        self.assertTrue(name)
+        self.assertTrue(condition)
+        self.assertIn("bandage", wanted)

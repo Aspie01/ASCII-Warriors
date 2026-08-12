@@ -102,13 +102,9 @@ class UnitsScene(Scene):
         elif key == "n":
             self._nickname(creature)
         elif key == "m":
-            state = creature.fort
-            state.squad = not state.squad
-            state.labors.enable("military") if state.squad else \
-                state.labors.disable("military")
-            self.fort.log.system("%s %s the militia." % (
-                creature.name, "joins" if state.squad else "leaves"))
-            self.menu.set_items(self._items())
+            from .military_screen import MilitaryScene
+
+            self.app.push(MilitaryScene(self.app, self.fort))
 
     def _selected(self):
         """The creature under the cursor."""

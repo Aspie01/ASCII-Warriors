@@ -10,7 +10,7 @@ queues orders; the fortress works out the rest, badly, and dies of it eventually
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 from ..data import names as name_data
 from ..data.calendar import TICKS_PER_DAY, TICKS_PER_HOUR
@@ -49,6 +49,10 @@ HAUL_WORK = 20
 
 #: Ticks a farm plot takes to grow a crop.
 GROW_TICKS = TICKS_PER_DAY * 5
+
+#: Training outranks ordinary work. A squad ordered to train is a squad taken
+#: off the labour force; set it to defend instead if you need the hands.
+TRAIN_PRIORITY = 8
 
 #: Which labor covers each production skill.
 SKILL_LABOR: Dict[str, str] = {
@@ -95,9 +99,12 @@ def step(fort) -> None:
         scan_jobs(fort)
         fort.wealth = appraise(fort)
     _bodies(fort, ticks)
+    _triage(fort)
     for dwarf in list(fort.dwarves()):
         dwarf_mod.take_turn(fort, dwarf, ticks)
     _hostiles(fort, ticks)
+    _traps(fort)
+    _watch(fort)
     _crops(fort, ticks)
     _moods(fort, ticks)
     _calendar(fort)
@@ -143,6 +150,27 @@ def _bodies(fort, ticks: int) -> None:
                 fort.warn_once("hunger", "Your dwarves are starving!")
         if c.body.dead:
             fort.kill_creature(c)
+
+
+def _triage(fort) -> None:
+    """Post treatment for anybody bleeding out, without waiting for the scan.
+
+    The ordinary job scan runs once a minute of fortress time. A dwarf with a
+    severed artery does not have a minute.
+    """
+    from . import hospital
+
+    for patient in fort.dwarves():
+        if not hospital.is_critical(patient):
+            continue
+        cell = (patient.x, patient.y, patient.z)
+        if fort.jobs.has_job_at("treat", cell):
+            continue
+        if any(j.kind == "treat" and j.target == patient.id
+               for j in fort.jobs.jobs.values()):
+            continue
+        _scan_hospital(fort, 4)
+        return
 
 
 def _hostiles(fort, ticks: int) -> None:
@@ -192,6 +220,39 @@ def _hostile_step(fort, foe, goal: Cell) -> None:
     foe.x, foe.y, foe.z = nxt
 
 
+def _traps(fort) -> None:
+    """Anything hostile standing on a trap gets what a trap gives."""
+    from ..game import combat
+    from .buildings import TRAP_KINDS
+
+    traps = [b for b in fort.buildings
+             if b.built and b.kind in TRAP_KINDS]
+    if not traps:
+        return
+    for foe in fort.hostiles():
+        here = (foe.x, foe.y, foe.z)
+        for trap in traps:
+            if here not in trap.cells():
+                continue
+            combat.trap_strike(foe, trap.kind, trap.material_name,
+                               rng=fort.rng, log=fort.log)
+            if foe.body.dead:
+                fort.kill_creature(foe)
+            break
+
+
+def _watch(fort) -> None:
+    """Sound and lift the alarm on the player's behalf."""
+    military = fort.military
+    hostiles = fort.hostiles()
+    if hostiles and not military.alarm:
+        military.sound_alarm()
+        fort.log.warn("The alarm is raised. Civilians, get inside.")
+    elif not hostiles and military.alarm:
+        military.all_clear()
+        fort.log.good("All clear.")
+
+
 def _crops(fort, ticks: int) -> None:
     """Farm plots grow."""
     for b in fort.buildings:
@@ -212,8 +273,9 @@ def scan_jobs(fort) -> int:
     """Sweep the fortress for work and post it. Returns how many jobs appeared."""
     _prune(fort)
     budget = MAX_NEW_JOBS
-    for scanner in (_scan_designations, _scan_buildings, _scan_farms,
-                    _scan_workshops, _scan_stockpiles):
+    for scanner in (_scan_hospital, _scan_military, _scan_designations,
+                    _scan_buildings, _scan_farms, _scan_workshops,
+                    _scan_stockpiles):
         if budget <= 0:
             break
         budget -= scanner(fort, budget)
@@ -240,6 +302,206 @@ def _prune(fort) -> None:
         if fort.ticks >= when:
             del fort.unreachable[cell]
             fort.clear_warning("unreachable")
+
+
+def _scan_hospital(fort, budget: int) -> int:
+    """Post treatment jobs for anybody bleeding.
+
+    This runs before everything else: a dwarf with an open artery has minutes,
+    and a fortress that finishes hauling the rocks first is a fortress with a
+    corpse in it.
+    """
+    from . import hospital
+
+    hurt = hospital.patients(fort)
+    if not hurt:
+        return 0
+    available = hospital.doctors(fort)
+    if not available:
+        fort.warn_once("doctor",
+                       "Somebody is hurt and nobody can treat them. "
+                       "Enable the medicine labor.")
+        return 0
+    fort.clear_warning("doctor")
+
+    busy = {j.assigned for j in fort.jobs.jobs.values()
+            if j.kind == "treat" and j.assigned is not None}
+    posted = 0
+    for patient in hurt:
+        if posted >= budget:
+            break
+        care = hospital.needs_care(patient)
+        if not care:
+            continue
+        part_id, treatment = care[0]
+        cell = (patient.x, patient.y, patient.z)
+        if any(j.kind == "treat" and j.target == patient.id
+               for j in fort.jobs.jobs.values()):
+            continue
+        if not hospital.can_supply(fort, treatment):
+            fort.warn_once("bandages", "The hospital has run out of bandages.")
+            continue
+        fort.clear_warning("bandages")
+        # Send the closest doctor, rather than leaving it on the board for
+        # whoever happens to look next. Bleeding is measured in minutes.
+        doctor = _nearest_doctor(available, busy, patient)
+        if doctor is None:
+            continue
+        item = hospital.supplies(fort, treatment)
+        job = fort.jobs.make(
+            "treat", cell[0], cell[1], cell[2], labor="medicine",
+            skill=medical_skill(treatment), work=hospital.TREAT_WORK,
+            target=patient.id, priority=10)
+        job.carrying = item.id if item is not None else None
+        if item is not None:
+            fort.jobs.reserve_item(item.id, job)
+        if doctor.fort.job is not None:
+            fort.abandon_job(doctor, doctor.fort.job)
+            doctor.fort.job = None
+        fort.jobs.assign(job, doctor)
+        busy.add(doctor.id)
+        posted += 1
+    return posted
+
+
+def _nearest_doctor(available, busy, patient):
+    """The closest free doctor who is not the patient."""
+    best = None
+    best_d = 1 << 30
+    for doctor in available:
+        if doctor.id in busy or doctor.id == patient.id:
+            continue
+        d = (geometry.chebyshev(doctor.x, doctor.y, patient.x, patient.y)
+             + abs(doctor.z - patient.z) * 4)
+        if d < best_d:
+            best, best_d = doctor, d
+    return best
+
+
+def medical_skill(treatment: str) -> str:
+    """The skill a treatment trains."""
+    from ..game import medical
+
+    return medical.TREATMENT_SKILL.get(treatment, "wound_dressing")
+
+
+def _scan_military(fort, budget: int) -> int:
+    """Kit soldiers out and send them to train.
+
+    Equipment comes first and at the highest priority in the game: a squad
+    standing around in civilian clothes when the goblins arrive is worse than
+    no squad at all, because you were counting on it.
+    """
+    from . import military as military_mod
+
+    military = fort.military
+    if not military.squads:
+        return 0
+    enlisted = set(military.soldiers())
+    for d in fort.dwarves():
+        d.fort.squad = d.id in enlisted
+
+    posted = 0
+    for squad in military.squads:
+        for dwarf_id in list(squad.members):
+            if posted >= budget:
+                return posted
+            dwarf = fort.creatures.get(dwarf_id)
+            if dwarf is None or dwarf.body.dead:
+                military.discharge(dwarf_id)
+                continue
+            dwarf.fort.labors.enable("military")
+            posted += _equip_one(fort, squad, dwarf)
+        if squad.order == "train" and not military.alarm:
+            posted += _train_squad(fort, squad, budget - posted)
+    return posted
+
+
+def _equip_one(fort, squad, dwarf) -> int:
+    """Post one equipment job for a soldier that is short of its uniform."""
+    from . import military as military_mod
+
+    if fort.jobs.has_job_at("equip", (dwarf.x, dwarf.y, dwarf.z)):
+        return 0
+    if any(j.kind == "equip" and j.assigned == dwarf.id
+           for j in fort.jobs.jobs.values()):
+        return 0
+    wanted = military_mod.wanted_items(squad, dwarf)
+    if not wanted:
+        return 0
+    item = _find_kit(fort, wanted)
+    if item is None:
+        fort.warn_once("kit-" + squad.defn.id,
+                       "%s has nothing to arm itself with." % squad.name)
+        return 0
+    fort.clear_warning("kit-" + squad.defn.id)
+    # Whatever it was doing, arming itself comes first — but put down the
+    # rocks properly rather than walking off with them.
+    if dwarf.fort.job is not None:
+        fort.abandon_job(dwarf, dwarf.fort.job)
+        dwarf.fort.job = None
+    cell = fort.item_cell(item)
+    job = fort.jobs.make("equip", cell[0], cell[1], cell[2], labor="military",
+                         work=20, target=item.id, priority=9)
+    fort.jobs.assign(job, dwarf)
+    fort.jobs.reserve_item(item.id, job)
+    return 1
+
+
+def _find_kit(fort, wanted: Sequence[str]):
+    """The best unclaimed piece of kit from a wanted list."""
+    for def_id in wanted:
+        best = None
+        best_value = -1
+        for pile in fort.items_on_ground.values():
+            for item in pile:
+                if item.def_id != def_id or fort.jobs.is_reserved(item.id):
+                    continue
+                if item.value > best_value:
+                    best, best_value = item, item.value
+        if best is not None:
+            return best
+    return None
+
+
+def _train_squad(fort, squad, budget: int) -> int:
+    """Send a squad to the barracks to spar.
+
+    One job per member, not one per squad: with a single job the same dwarf
+    takes it every time and the rest of the militia never picks up a shield.
+    """
+    if budget <= 0 or not squad.members:
+        return 0
+    barracks = _barracks_for(fort, squad)
+    if barracks is None:
+        fort.warn_once("barracks",
+                       "Your militia has no barracks to train in.")
+        return 0
+    fort.clear_warning("barracks")
+    outstanding = sum(1 for j in fort.jobs.jobs.values()
+                      if j.kind == "train" and j.target == barracks.id)
+    want = min(budget, len(squad.members) - outstanding)
+    cx, cy, cz = barracks.center
+    posted = 0
+    for _ in range(max(0, want)):
+        fort.jobs.make("train", cx, cy, cz, labor="military", skill="fighter",
+                       work=400, target=barracks.id, priority=TRAIN_PRIORITY)
+        posted += 1
+    return posted
+
+
+def _barracks_for(fort, squad):
+    """The barracks a squad trains at, claiming one if it has none."""
+    if squad.barracks is not None:
+        b = fort.building(squad.barracks)
+        if b is not None and b.built:
+            return b
+        squad.barracks = None
+    for b in fort.buildings:
+        if b.kind == "barracks" and b.built:
+            squad.barracks = b.id
+            return b
+    return None
 
 
 def _scan_designations(fort, budget: int) -> int:

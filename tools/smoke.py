@@ -65,6 +65,12 @@ FORTRESS_SCRIPT: List[str] = (
     + ["p", "ENTER", "RIGHT", "RIGHT", "DOWN", "ENTER", "ESC"]
     # Build a workshop: the build menu opens a chooser first
     + ["b", "ENTER", "ENTER", "ESC"]
+    # The militia: raise a squad, enlist somebody, give it orders
+    + ["m", "n", "ENTER", "j", "j", "ENTER", "ENTER", "o", "j", "ENTER", "a", "ESC"]
+    # A safe burrow for the civilians
+    + ["w", "ENTER", "RIGHT", "RIGHT", "DOWN", "ENTER", "ESC"]
+    # Health
+    + ["h", "j", "ENTER", "ESC", "ESC"]
     # Every panel
     + ["u", "j", "ENTER", "ESC", "l", "SPACE", "j", "SPACE", "ESC", "ESC"]
     + ["z", "j", "j", "ESC"]

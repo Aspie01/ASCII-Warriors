@@ -150,6 +150,18 @@ class FortScene(Scene):
             from .units import UnitsScene
 
             self.app.push(UnitsScene(self.app, fort))
+        elif key == "h":
+            from .health import HealthScene
+
+            self.app.push(HealthScene(self.app, fort))
+        elif key == "m":
+            from .military_screen import MilitaryScene
+
+            self.app.push(MilitaryScene(self.app, fort))
+        elif key == "w":
+            from .build_menu import BurrowScene
+
+            self.app.push(BurrowScene(self.app, self))
         elif key == "j":
             self._job_summary()
         elif key == "z":
@@ -266,10 +278,13 @@ HELP_LINES: Tuple[str, ...] = (
     "arrows   scroll the view (PgUp/PgDn/Home/End to scroll fast)",
     "",
     "d        designate: dig, channel, stairs, chop, smooth",
-    "b        build a workshop, furniture or wall",
+    "b        build a workshop, furniture, wall or trap",
     "p        place a stockpile",
     "o        queue work orders at a workshop",
     "",
+    "m        the militia: raise squads, arm them, order them about",
+    "h        health: who is hurt and who can treat them",
+    "w        mark the safe burrow civilians retreat into",
     "u        units: who is here and what they are doing",
     "z        stocks: everything the fortress owns",
     "j        jobs outstanding",
