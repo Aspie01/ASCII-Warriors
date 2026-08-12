@@ -71,6 +71,7 @@ def draw_map(
             glyph, fg, bg = cell_appearance(fort, wx, wy, z)
             scr.put(ox + sx, oy + sy, glyph, fg, bg)
 
+    _draw_water(scr, fort, ox, oy, w, h, cam_x, cam_y)
     _draw_zones(scr, fort, ox, oy, w, h, cam_x, cam_y)
     _draw_designations(scr, fort, ox, oy, w, h, cam_x, cam_y)
     _draw_buildings(scr, fort, ox, oy, w, h, cam_x, cam_y)
@@ -86,6 +87,40 @@ def draw_map(
         if 0 <= sx < w and 0 <= sy < h:
             ch, fg, _bg = scr.get(ox + sx, oy + sy)
             scr.put(ox + sx, oy + sy, ch, colors.UI["bg"], colors.UI["accent"])
+
+
+#: Background shades for water one to seven deep.
+WATER_SHADES = (
+    colors.Color(24, 40, 62), colors.Color(26, 48, 76),
+    colors.Color(28, 56, 92), colors.Color(28, 64, 108),
+    colors.Color(26, 70, 124), colors.Color(22, 74, 140),
+    colors.Color(18, 76, 156),
+)
+
+
+def _draw_water(scr, fort, ox, oy, w, h, cam_x, cam_y) -> None:
+    """Water, shaded by how deep it is.
+
+    Depth is what matters: a dwarf can wade through two and drowns in seven,
+    and the player has to be able to tell those apart at a glance.
+    """
+    water = getattr(fort, "water", None)
+    if water is None:
+        return
+    from ...world.fluids import SWIM_DEPTH
+
+    for (wx, wy, wz), depth in water.depth.items():
+        if wz != fort.z or depth <= 0:
+            continue
+        sx, sy = wx - cam_x, wy - cam_y
+        if not (0 <= sx < w and 0 <= sy < h):
+            continue
+        ch, fg, _bg = scr.get(ox + sx, oy + sy)
+        bg = WATER_SHADES[min(depth, 7) - 1]
+        if depth >= SWIM_DEPTH:
+            scr.put(ox + sx, oy + sy, "~", colors.Color(120, 175, 225), bg)
+        else:
+            scr.put(ox + sx, oy + sy, ch, fg, bg)
 
 
 def _draw_zones(scr, fort, ox, oy, w, h, cam_x, cam_y) -> None:

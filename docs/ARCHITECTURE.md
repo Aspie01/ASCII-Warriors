@@ -1614,7 +1614,72 @@ shows.
 - `ui/fort/`: `military_screen.py`, `health.py`; `BurrowScene` in
   `build_menu.py`.
 
-## 54. Style
+## 54. Water and engineering (v2.5)
+
+### `world/fluids.py`
+```python
+MAX_DEPTH = 7 ; SWIM_DEPTH = 4 ; EVAPORATE_AT = 1
+MAX_ACTIVE = 2500 ; PUSH_RANGE = 400
+def can_hold(lm, cell) -> bool    # walls, shut doors and raised bridges say no
+class Water:
+    depth: dict[Cell, int]        # 1..7, absent when dry
+    sources: dict[Cell, int]      # aquifers and springs, produce for ever
+    infinite: dict[Cell, int]     # river and lake cells, a fixed reservoir
+    sealed: set[Cell]             # the bed and banks, watertight until dug
+    def at/deep/wet/set/add/add_source/total
+    def step(lm)                  # sources -> push -> natural feed -> fall -> spread
+    def seal_banks(lm) / unseal(cell) / rebuild_shore() / wake_all()
+def seed_from_terrain(lm) -> Water
+```
+Five rules make this behave, stay cheap, and still be dangerous:
+
+- **Only wet cells and their neighbours are simulated.** An active set is woken
+  by any change; a still map costs nothing.
+- **Natural bodies are reservoirs, not weather.** They feed what you dig beside
+  them but never spread on their own, or a river creeps over the whole map.
+- **Their bed and banks are sealed at generation.** A riverbed holds its water
+  until something breaks it, and `unseal()` is what breaking it looks like.
+- **Two deep is the smallest difference worth moving.** Half of two is one,
+  which levels the pair exactly; chasing a difference of one moves nothing and
+  keeps every cell in the pool awake for ever.
+- **A saturated source pushes past the level.** Because of the rule above,
+  water settles into a shallow staircase and stops. `_push()` walks out from
+  any source that has filled its own cell — down and outward, never up, at
+  most `PUSH_RANGE` cells — and puts one unit into the nearest shallow water.
+  That is the pressure behind an aquifer, and without it breaching one leaves
+  a puddle instead of a disaster.
+
+Water only evaporates outdoors. Underground a puddle stays, or a flooded room
+quietly empties itself and the flood means nothing.
+
+### Additions to the fortress
+```python
+Fortress.water / .aquifer / .drowning / ._water_mark
+Fortress.dig_out(cell, tile)      # the ONLY way terrain changes
+Fortress.path_neighbours(node)    # refuses water deep enough to swim in
+Fortress.levers() / gates() / link() / set_gate() / pull_lever()
+Fortress._lay_aquifer(rng)        # one whole layer of wet rock
+sim._flow(fort, ticks)            # water step, drowning, the flood warning
+sim._scan_levers(fort, budget)    # posts the pull job
+dwarf._flee_water(fort, dwarf)    # drop the job, get out of rising water
+DROWN_STEPS = 6 ; FLOOD_WARN = 1200
+```
+Everything that changes a tile goes through `dig_out()`, so the water always
+finds out. A tunnel that reaches an aquifer and does not flood is a bug the
+player cannot see until it is too late to matter. It only breaks the bank when
+the tile actually *opens* — smoothing a wall, laying a farm plot and gathering
+plants all pass through here and must leave the river where it is.
+
+### Additions elsewhere
+- `data/items.py`: `mechanism`; `production.py`: the recipe for it.
+- `world/tiles.py`: `lever`, `floodgate_open` / `floodgate_shut`,
+  `bridge_down` / `bridge_up`.
+- `fortress/buildings.py`: `lever`, `floodgate`, `drawbridge`; `GATE_TILES`
+  maps each gate kind to its open and shut tiles; `Building.links`, `.shut`,
+  `.pending`.
+- `ui/fort/levers.py`, and depth-shaded water in `ui/fort/render.py`.
+
+## 55. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

@@ -146,11 +146,35 @@ KINDS: Dict[str, BuildingKind] = {
            ("WOOD", "STONE", "METAL"), 1, 100, "building", "carpentry",
            "hatch", "Defence", True,
            "Closes a stairway behind you."),
+        _b("lever", "Lever", "\\", colors.Color(200, 180, 120), 1, 1,
+           ("mechanism",), 1, 120, "mechanics", "mechanics", "lever",
+           "Defence", True,
+           "Pull it and everything linked to it opens or shuts."),
+        _b("floodgate", "Floodgate", "#", colors.Color(120, 150, 180), 1, 1,
+           ("STONE", "METAL", "WOOD"), 1, 160, "building", "mechanics",
+           "floodgate_shut", "Defence", False,
+           "Holds water back, or lets it through. Link it to a lever."),
+        _b("drawbridge", "Drawbridge", "=", colors.Color(150, 112, 66), 3, 1,
+           ("WOOD", "STONE", "METAL"), 1, 220, "building", "mechanics",
+           "bridge_down", "Defence", True,
+           "Raise it and the corridor becomes a wall. The classic answer to "
+           "a siege."),
     )
 }
 
 #: Buildings that hurt whatever walks onto them.
 TRAP_KINDS: Tuple[str, ...] = ("weapon_trap", "spike_trap")
+
+#: Buildings a lever can be linked to, and the tiles for their two states.
+#: ``(open tile, shut tile)`` — open lets things through, shut does not.
+GATE_TILES: Dict[str, Tuple[str, str]] = {
+    "floodgate": ("floodgate_open", "floodgate_shut"),
+    "drawbridge": ("bridge_down", "bridge_up"),
+    "door": ("door_open", "door_closed"),
+    # An open hatch is the hole it was covering: things climb down it, and
+    # water pours down it.
+    "hatch": ("stair_down", "hatch"),
+}
 
 WORKSHOP_KINDS: Tuple[str, ...] = (
     "carpenter", "mason", "craftsdwarf", "smith", "still", "kitchen", "butcher",
@@ -181,6 +205,11 @@ class Building:
         self.orders: List[Dict[str, Any]] = []
         self.worker: Optional[int] = None
         self.owner: Optional[int] = None
+        #: Levers remember what they are linked to; gates remember their state.
+        self.links: List[int] = []
+        self.shut = True
+        #: Set when somebody has asked for this lever to be pulled.
+        self.pending = False
         #: Farm plots track what is growing.
         self.crop = ""
         self.growth = 0
@@ -197,6 +226,16 @@ class Building:
         if self.material_name:
             return "%s %s" % (self.material_name, self.defn.name.lower())
         return self.defn.name
+
+    @property
+    def is_gate(self) -> bool:
+        """True for things a lever can open and shut."""
+        return self.kind in GATE_TILES
+
+    def gate_tile(self) -> str:
+        """The tile this gate should be showing right now."""
+        openp, shutp = GATE_TILES.get(self.kind, ("floor", "floor"))
+        return shutp if self.shut else openp
 
     @property
     def is_workshop(self) -> bool:
@@ -225,6 +264,7 @@ class Building:
             "material_name": self.material_name, "orders": self.orders,
             "worker": self.worker, "owner": self.owner, "crop": self.crop,
             "growth": self.growth, "planted": self.planted,
+            "links": self.links, "shut": self.shut, "pending": self.pending,
         }
 
     @classmethod
@@ -242,6 +282,9 @@ class Building:
         b.crop = str(d.get("crop", ""))
         b.growth = int(d.get("growth", 0))
         b.planted = bool(d.get("planted", False))
+        b.links = [int(i) for i in d.get("links", [])]
+        b.shut = bool(d.get("shut", True))
+        b.pending = bool(d.get("pending", False))
         return b
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
@@ -382,6 +425,8 @@ def material_matches(item, kind: str) -> bool:
         return False
     if "WEAPON" in k.materials:
         return item.is_weapon and not item.is_ranged
+    if item.def_id in k.materials:
+        return True
     if item.def_id == "boulder":
         return "STONE" in k.materials
     if item.def_id == "log":

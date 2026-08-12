@@ -163,7 +163,7 @@ def path_to(fort, dwarf, goal: Cell, *, adjacent: bool = True) -> bool:
             state.path = [start]
             state.path_goal = goal
             return True
-        route = astar(start, target, lm.path_neighbours, _heuristic,
+        route = astar(start, target, fort.path_neighbours, _heuristic,
                       max_nodes=MAX_PATH_NODES)
         if route:
             state.path = route
@@ -260,6 +260,8 @@ def take_turn(fort, dwarf, ticks: int) -> None:
     if dwarf.body.unconscious > 0 or dwarf.body.stunned > 0:
         return
 
+    if _flee_water(fort, dwarf):
+        return
     if _handle_danger(fort, dwarf):
         return
     if _handle_wounds(fort, dwarf, ticks):
@@ -340,6 +342,47 @@ def _handle_danger(fort, dwarf) -> bool:
                 return True
         return True
     return False
+
+
+def _flee_water(fort, dwarf) -> bool:
+    """Get out of rising water. True if it took the turn.
+
+    Pathing already refuses to route through deep water, but that does not
+    help a dwarf standing in a room that is filling up around it.
+    """
+    from ..world.fluids import SWIM_DEPTH
+
+    here = (dwarf.x, dwarf.y, dwarf.z)
+    if fort.water.at(*here) < SWIM_DEPTH - 1:
+        return False
+    release_job(fort, dwarf)
+
+    # Straight to the driest neighbour if there is one; that is usually enough.
+    lm = fort.local
+    best, best_depth = None, fort.water.at(*here)
+    for dx, dy in geometry.DIRS8:
+        cell = (dwarf.x + dx, dwarf.y + dy, dwarf.z)
+        if not lm.walkable(*cell) or fort.creature_at(*cell) is not None:
+            continue
+        depth = fort.water.at(*cell)
+        if depth < best_depth:
+            best, best_depth = cell, depth
+    if best is not None:
+        dwarf.x, dwarf.y, dwarf.z = best
+        return True
+
+    # Otherwise look further for dry land, and if there is none, swim for it.
+    for radius in (4, 10):
+        for dx in range(-radius, radius + 1):
+            for dy in range(-radius, radius + 1):
+                cell = (dwarf.x + dx, dwarf.y + dy, dwarf.z)
+                if fort.water.at(*cell) > 0 or not lm.walkable(*cell):
+                    continue
+                if path_to(fort, dwarf, cell, adjacent=False):
+                    step_along(fort, dwarf)
+                    return True
+    dwarf.add_exp("swimming", 6)
+    return True
 
 
 def _handle_wounds(fort, dwarf, ticks: int) -> bool:

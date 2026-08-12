@@ -11,11 +11,13 @@ from ..game.entity import Creature
 from ..game.item import Item, corpse_of
 from ..game.log import MessageLog
 from ..game.weather import Weather, starting_weather
+from ..world import tiles as tile_data
+from ..world.fluids import Water, can_hold, seed_from_terrain
 from ..world.localmap import LocalMap
 from ..world.worldgen import World
 from . import dwarf as dwarf_mod
 from . import production
-from .buildings import Building, Stockpile
+from .buildings import GATE_TILES, Building, Stockpile
 from .designations import KINDS as DESIGNATION_KINDS
 from .designations import Designations
 from .jobs import Job, JobBoard
@@ -64,6 +66,12 @@ class Fortress:
         self.creatures: Dict[int, Creature] = {}
         self.items_on_ground: Dict[Cell, List[Item]] = {}
         self.weather = Weather()
+        self.water = Water()
+        #: Creature id -> steps spent under water. Held breath is not saved:
+        #: a dwarf loaded out of a flooded room starts the count again.
+        self.drowning: Dict[int, int] = {}
+        #: Wet rock. Dig one of these and it never stops leaking.
+        self.aquifer: Set[Cell] = set()
         self.paused = True
         self.speed = 1
         self.z = 0
@@ -84,6 +92,8 @@ class Fortress:
         #: Scratch pathing state for hostiles, rebuilt freely.
         self.hostile_state: Dict[int, Dict[str, Any]] = {}
         self._water_cache: Optional[List[Cell]] = None
+        #: Most water the map has ever held, for the flood warning.
+        self._water_mark = 0
         self._warned: Set[str] = set()
         self._next_scan = 0
         self.site_id: Optional[int] = None
@@ -121,6 +131,9 @@ class Fortress:
         fort.weather = starting_weather(
             rng, tile.biome, tile.temperature, fort.time.season)
 
+        fort.water = seed_from_terrain(local)
+        fort._water_mark = fort.water.total()
+        fort._lay_aquifer(rng)
         wagon = fort._wagon_site()
         fort.z = wagon[2]
         for i, profession in enumerate(professions or STARTING_SEVEN):
@@ -135,6 +148,50 @@ class Fortress:
         fort.log.info("Seven dwarves, and everything they could carry.")
         fort.log.info("Press ? for help. Space starts and stops time.")
         return fort
+
+    def _lay_aquifer(self, rng: RNG) -> None:
+        """Soak one layer of rock, in a wet enough place.
+
+        An aquifer is a whole z-level of stone that bleeds water when you cut
+        into it. It is the reason dwarves learn to dig around things.
+        """
+        tile = self.world.tile(self.wx, self.wy)
+        if tile.rainfall < 0.35 or tile.is_ocean:
+            return
+        if not rng.chance(0.25 + tile.rainfall * 0.45):
+            return
+        lm = self.local
+        # Pick a layer that is actually mostly rock. Choosing by depth below
+        # the surface puts the aquifer in open air on a map with a valley in
+        # the middle of it.
+        best_z, best = None, 0
+        top = max(lm.surface) if lm.surface else 0
+        for z in range(lm.zmin + 1, min(top, lm.zmax)):
+            count = 0
+            for y in range(0, lm.height, 2):
+                for x in range(0, lm.width, 2):
+                    t = tile_data.get(lm.tile(x, y, z))
+                    if t.has("DIGGABLE") and t.has("WALL"):
+                        count += 1
+            # Shallower layers are more interesting: an aquifer you only meet
+            # at the bottom of the map is an aquifer you never meet.
+            score = count * (1.0 + 0.15 * (z - lm.zmin))
+            if score > best:
+                best_z, best = z, score
+        if best_z is None:
+            return
+        z = best_z
+        wet = set()
+        for y in range(lm.height):
+            for x in range(lm.width):
+                tid = lm.tile(x, y, z)
+                if tile_data.get(tid).has("DIGGABLE") \
+                        and tile_data.get(tid).has("WALL"):
+                    wet.add((x, y, z))
+        if len(wet) < 200:
+            return
+        self.aquifer = wet
+        self.log.info("The rock here is damp. There is water in it somewhere.")
 
     def _wagon_site(self) -> Cell:
         """Open ground near the middle of the map, on the surface.
@@ -383,7 +440,23 @@ class Fortress:
 
     def is_passable(self, x: int, y: int, z: int) -> bool:
         """True if a dwarf could stand there."""
-        return self.local.walkable(x, y, z)
+        return (self.local.walkable(x, y, z)
+                and not self.water.deep(x, y, z))
+
+    def path_neighbours(self, node: Cell):
+        """Neighbours for pathing, avoiding water a dwarf would drown in.
+
+        Wading is fine. Swimming is how a hauler carrying a rock dies, so the
+        route planner simply refuses to go that way.
+        """
+        from ..world.fluids import SWIM_DEPTH
+
+        depth = self.water.depth
+        for cell, cost in self.local.path_neighbours(node):
+            water = depth.get(cell, 0)
+            if water >= SWIM_DEPTH:
+                continue
+            yield (cell, cost + water * 0.8)
 
     def water_sources(self) -> List[Cell]:
         """Every cell a dwarf could drink from: open water and built wells.
@@ -574,6 +647,81 @@ class Fortress:
 
     # -- job completion handlers ------------------------------------------- #
 
+    def dig_out(self, cell: Cell, tile: str) -> None:
+        """Change a tile because somebody dug or built it.
+
+        Everything that opens rock up has to go through here, so the water
+        finds out. A tunnel that reaches an aquifer or a riverbed and does not
+        flood is a bug the player cannot see until it is too late to matter.
+        """
+        was_aquifer = cell in self.aquifer
+        held_before = can_hold(self.local, cell)
+        self.local.set_tile(cell[0], cell[1], cell[2], tile)
+        self._water_cache = None
+        if held_before or not can_hold(self.local, cell):
+            # Smoothing a wall, or turning a floor into a farm plot, changes
+            # nothing the water cares about. The bank still holds.
+            return
+        self.water.unseal(cell)
+        if was_aquifer:
+            self.aquifer.discard(cell)
+            self.water.add_source(cell, 1)
+            self.warn_once(
+                "aquifer",
+                "You have breached an aquifer. The water will not stop.")
+
+    # -- levers and gates -------------------------------------------------- #
+
+    def levers(self) -> List[Building]:
+        """Every built lever."""
+        return [b for b in self.buildings if b.kind == "lever" and b.built]
+
+    def gates(self) -> List[Building]:
+        """Everything a lever could be linked to."""
+        return [b for b in self.buildings if b.built and b.is_gate]
+
+    def link(self, lever: Building, gate: Building) -> bool:
+        """Connect a lever to a gate, or disconnect it if already linked."""
+        if gate.id in lever.links:
+            lever.links.remove(gate.id)
+            return False
+        lever.links.append(gate.id)
+        return True
+
+    def set_gate(self, gate: Building, shut: bool) -> None:
+        """Open or close one gate and repaint its tiles."""
+        gate.shut = shut
+        tile = gate.gate_tile()
+        for cx, cy, cz in gate.cells():
+            self.local.set_tile(cx, cy, cz, tile)
+            self.water.unseal((cx, cy, cz))
+        self._water_cache = None
+
+    def pull_lever(self, lever: Building) -> int:
+        """Throw a lever. Returns how many gates moved."""
+        moved = 0
+        for gid in lever.links:
+            gate = self.building(gid)
+            if gate is None or not gate.built:
+                continue
+            self.set_gate(gate, not gate.shut)
+            moved += 1
+        lever.shut = not lever.shut
+        lever.pending = False
+        if moved:
+            self.log.system("A lever is pulled: %d %s." % (
+                moved, "gate moves" if moved == 1 else "gates move"))
+        else:
+            self.log.warn("A lever is pulled, and nothing happens.")
+        return moved
+
+    def _finish_pull(self, dwarf, job: Job) -> None:
+        """A dwarf reaches a lever and throws it."""
+        lever = self.building(job.target) if job.target else None
+        if lever is None or not lever.built:
+            return
+        self.pull_lever(lever)
+
     def _stone_here(self, cell: Cell) -> str:
         """Which stone a wall at this cell is made of."""
         tid = self.local.tile(*cell)
@@ -589,7 +737,7 @@ class Fortress:
     def _finish_dig(self, dwarf, job: Job) -> None:
         cell = job.cell
         material = self._stone_here(cell)
-        self.local.set_tile(cell[0], cell[1], cell[2], "floor")
+        self.dig_out(cell, "floor")
         if material:
             boulder = Item("boulder", material)
             self.drop_item(boulder, *cell)
@@ -602,10 +750,12 @@ class Fortress:
     def _finish_channel(self, dwarf, job: Job) -> None:
         cell = job.cell
         material = self._stone_here(cell)
-        self.local.set_tile(cell[0], cell[1], cell[2], "air")
+        self.dig_out(cell, "air")
         below = (cell[0], cell[1], cell[2] - 1)
         if self.local.in_bounds(*below):
-            self.local.set_tile(below[0], below[1], below[2], "ramp_up")
+            # Through dig_out as well: channelling cuts two tiles open, and
+            # the lower one is as good a way into an aquifer as the upper.
+            self.dig_out(below, "ramp_up")
             if material:
                 self.drop_item(Item("boulder", material), *below)
         self._reveal_around(cell)
@@ -613,7 +763,7 @@ class Fortress:
     def _finish_stairs(self, dwarf, job: Job) -> None:
         cell = job.cell
         material = self._stone_here(cell)
-        self.local.set_tile(cell[0], cell[1], cell[2], "stair_updown")
+        self.dig_out(cell, "stair_updown")
         if material:
             self.drop_item(Item("boulder", material), *cell)
         self._reveal_around(cell)
@@ -621,34 +771,34 @@ class Fortress:
     def _finish_ramp(self, dwarf, job: Job) -> None:
         cell = job.cell
         material = self._stone_here(cell)
-        self.local.set_tile(cell[0], cell[1], cell[2], "ramp_up")
+        self.dig_out(cell, "ramp_up")
         if material:
             self.drop_item(Item("boulder", material), *cell)
         self._reveal_around(cell)
 
     def _finish_smooth(self, dwarf, job: Job) -> None:
         cell = job.cell
-        self.local.set_tile(cell[0], cell[1], cell[2], "wall_constructed")
+        self.dig_out(cell, "wall_constructed")
         dwarf.needs.add_thought("admired a smoothed wall", -1)
 
     def _finish_chop(self, dwarf, job: Job) -> None:
         cell = job.cell
-        self.local.set_tile(cell[0], cell[1], cell[2], "grass")
+        self.dig_out(cell, "grass")
         above = (cell[0], cell[1], cell[2] + 1)
         if self.local.in_bounds(*above) and self.local.tile(*above) == "tree":
-            self.local.set_tile(above[0], above[1], above[2], "air")
+            self.dig_out(above, "air")
         self.drop_item(Item("log", self.rng.choice(["oak", "pine", "willow"])),
                        *cell)
 
     def _finish_gather(self, dwarf, job: Job) -> None:
         cell = job.cell
-        self.local.set_tile(cell[0], cell[1], cell[2], "grass")
+        self.dig_out(cell, "grass")
         self.drop_item(Item("plump_helmet", "plant",
                             count=self.rng.randint(2, 5)), *cell)
 
     def _finish_remove(self, dwarf, job: Job) -> None:
         cell = job.cell
-        self.local.set_tile(cell[0], cell[1], cell[2], "floor")
+        self.dig_out(cell, "floor")
         b = self.building_at(*cell)
         if b is not None:
             self.buildings.remove(b)
@@ -690,8 +840,13 @@ class Fortress:
         dwarf.fort.carrying = None
         b.material_name = material_name
         b.built = True
+        if b.is_gate:
+            # A gate is built in whatever state its own tile says it is in: a
+            # drawbridge lies down, a floodgate stands shut. Get this wrong and
+            # the first pull of the lever appears to do nothing.
+            b.shut = b.defn.tile == GATE_TILES[b.kind][1]
         for cx, cy, cz in b.cells():
-            self.local.set_tile(cx, cy, cz, b.defn.tile)
+            self.dig_out((cx, cy, cz), b.defn.tile)
         self.log.good("%s has completed a %s." % (dwarf.name, b.defn.name.lower()))
         if b.kind == "statue":
             for d in self.dwarves():
@@ -877,6 +1032,8 @@ class Fortress:
             "time": self.time.to_dict(),
             "log": self.log.to_dict(),
             "weather": self.weather.to_dict(),
+            "water": self.water.to_dict(),
+            "aquifer": ["%d,%d,%d" % c for c in self.aquifer],
             "designations": self.designations.to_dict(),
             "jobs": self.jobs.to_dict(),
             "buildings": [b.to_dict() for b in self.buildings],
@@ -923,6 +1080,10 @@ class Fortress:
         fort.time = GameTime.from_dict(d.get("time") or {})
         fort.log = MessageLog.from_dict(d.get("log") or {})
         fort.weather = Weather.from_dict(d.get("weather") or {})
+        fort.water = Water.from_dict(d.get("water") or {})
+        fort.aquifer = {
+            tuple(int(v) for v in k.split(",")) for k in d.get("aquifer", [])
+        }
         fort.designations = Designations.from_dict(d.get("designations") or {})
         fort.jobs = JobBoard.from_dict(d.get("jobs") or {})
         fort.buildings = [Building.from_dict(b) for b in d.get("buildings", [])]

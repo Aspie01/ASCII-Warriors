@@ -71,6 +71,8 @@ FORTRESS_SCRIPT: List[str] = (
     + ["w", "ENTER", "RIGHT", "RIGHT", "DOWN", "ENTER", "ESC"]
     # Health
     + ["h", "j", "ENTER", "ESC", "ESC"]
+    # Levers and gates
+    + ["L", "j", "l", "ESC", "ESC"]
     # Every panel
     + ["u", "j", "ENTER", "ESC", "l", "SPACE", "j", "SPACE", "ESC", "ESC"]
     + ["z", "j", "j", "ESC"]

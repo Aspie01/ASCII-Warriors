@@ -417,6 +417,11 @@ for _fid, _fname, _fglyph, _fvol, _fval in (
     _add(ItemDef(_fid, _fname, _fname + "s", "furniture", _fglyph, _fvol, _fval,
                  ("WOOD", "STONE", "METAL"), flags=frozenset({"FURNITURE"})))
 
+_add(ItemDef("mechanism", "mechanism", "mechanisms", "tool", "*", 200, 30,
+             ("STONE", "METAL", "WOOD"), stack=False,
+             description="Levers, gears and a length of chain. Everything "
+                         "clever a fortress does runs on these."))
+
 # Jewellery. Worth many times the stone it is cut from, which is the point.
 for _jid, _jname, _jplural, _jvol, _jval in (
     ("crown", "crown", "crowns", 400, 300),

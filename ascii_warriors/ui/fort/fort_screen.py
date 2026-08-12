@@ -158,6 +158,10 @@ class FortScene(Scene):
             from .military_screen import MilitaryScene
 
             self.app.push(MilitaryScene(self.app, fort))
+        elif key == "L":
+            from .levers import LeverScene
+
+            self.app.push(LeverScene(self.app, fort))
         elif key == "w":
             from .build_menu import BurrowScene
 
@@ -284,6 +288,7 @@ HELP_LINES: Tuple[str, ...] = (
     "",
     "m        the militia: raise squads, arm them, order them about",
     "h        health: who is hurt and who can treat them",
+    "L        levers: link them to gates and pull them",
     "w        mark the safe burrow civilians retreat into",
     "u        units: who is here and what they are doing",
     "z        stocks: everything the fortress owns",

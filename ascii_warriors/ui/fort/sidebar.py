@@ -137,6 +137,9 @@ def draw_status_line(scr: Screen, x: int, y: int, w: int, fort, mode: str = "") 
     if fort.caravan is not None:
         parts.append(Frag("| ", colors.UI["frame"]))
         parts.append(Frag("caravan (t) ", colors.UI["good"]))
+    if getattr(fort, "water", None) is not None and fort.water.flooded:
+        parts.append(Frag("| ", colors.UI["frame"]))
+        parts.append(Frag("FLOODING ", colors.UI["danger"]))
     mayor = fort.court.noble("mayor")
     if mayor is not None and mayor.mandate:
         parts.append(Frag("| ", colors.UI["frame"]))

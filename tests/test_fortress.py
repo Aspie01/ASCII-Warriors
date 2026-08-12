@@ -29,11 +29,16 @@ def world():
     return _WORLD
 
 
-def embark(seed: str = "fort") -> Fortress:
-    """Found a test fortress on the most promising square."""
-    from ascii_warriors.ui.fort.embark import suggest_site
+def embark(seed: str = "fort", *, private_world: bool = False) -> Fortress:
+    """Found a test fortress on the most promising square.
 
-    w = world()
+    Pass ``private_world`` for anything that writes to the world, so it does
+    not move the embark site out from under every other test.
+    """
+    from ascii_warriors.ui.fort.embark import suggest_site
+    from ascii_warriors.world.worldgen import World
+
+    w = World.from_dict(world().to_dict()) if private_world else world()
     x, y = suggest_site(w)
     return Fortress.embark(w, x, y, RNG(seed))
 
@@ -345,12 +350,20 @@ class TestSimulation(unittest.TestCase):
                         "no digging happened at all")
 
     def test_embark_supplies_last_a_fortnight(self):
-        """Doing nothing at all should still buy you two weeks."""
+        """Doing nothing at all should still buy you two weeks.
+
+        About supplies, not about safety: digging a room can breach a river
+        and drown somebody, which is a different lesson entirely.
+        """
         fort = embark("survival")
         dig_room(fort, 6)
         sim.run(fort, int(TICKS_PER_DAY * 14 / sim.STEP_TICKS))
         self.assertFalse(fort.lost, "the fortress fell: %s" % fort.loss_reason)
-        self.assertEqual(len(fort.dwarves()), 7)
+        went_without = [c.body.death_cause for c in fort.creatures.values()
+                        if c.body.dead and c.body.death_cause in
+                        ("starved to death", "died of thirst")]
+        self.assertEqual(went_without, [],
+                         "the embark supplies did not last a fortnight")
 
     def test_a_farming_fortress_survives_a_season(self):
         """Food in, drink out: the economy has to actually close.
@@ -386,7 +399,7 @@ class TestSimulation(unittest.TestCase):
 
     def test_losing_is_recorded(self):
         """When the last dwarf dies the fortress falls, and history says so."""
-        fort = embark("losing")
+        fort = embark("losing", private_world=True)
         events_before = len(fort.world.events)
         for d in list(fort.dwarves()):
             d.body.dead = True
@@ -1137,19 +1150,30 @@ class TestRooms(unittest.TestCase):
         self.assertLess(room.quality, 26)
 
     def test_furniture_improves_a_room(self):
-        """More in it, better it is."""
-        bare = self.rooms.measure(self.fort, self._furnish(["bed"]))
-        rich = self.rooms.measure(
-            self.fort,
-            self._furnish(["bed", "cabinet", "coffer", "statue", "door"]))
+        """More in it, better it is.
+
+        Measured on the same bed in the same place: two rooms in two different
+        corners of the map differ for reasons that have nothing to do with
+        what is in them.
+        """
+        bed = self._furnish(["bed"])
+        bare = self.rooms.measure(self.fort, bed)
+        for i, kind in enumerate(("cabinet", "coffer", "statue")):
+            extra = Building(kind, bed.x + 1 + i, bed.y, bed.z)
+            extra.built = True
+            self.fort.buildings.append(extra)
+        rich = self.rooms.measure(self.fort, bed)
         self.assertGreater(rich.quality, bare.quality)
         self.assertLessEqual(rich.thought, bare.thought)
 
     def test_a_better_room_is_a_better_thought(self):
         """Quality has to translate into happiness or it means nothing."""
-        rich = self.rooms.measure(
-            self.fort,
-            self._furnish(["bed", "cabinet", "coffer", "statue", "statue"]))
+        bed = self._furnish(["bed"])
+        for i, kind in enumerate(("cabinet", "coffer", "statue", "statue")):
+            extra = Building(kind, bed.x + 1 + i, bed.y, bed.z)
+            extra.built = True
+            self.fort.buildings.append(extra)
+        rich = self.rooms.measure(self.fort, bed)
         self.assertLess(rich.thought, 0)
 
     def test_a_room_does_not_swallow_the_map(self):
@@ -1279,8 +1303,12 @@ class TestLegacy(unittest.TestCase):
     """A fortress that ends becomes a place."""
 
     def _ended_fortress(self, seed="legacy"):
-        """Build a little, then abandon it."""
-        fort = embark(seed)
+        """Build a little, then abandon it.
+
+        On a private copy of the world: recording a fortress adds a site, and
+        a site changes where every later test would choose to embark.
+        """
+        fort = embark(seed, private_world=True)
         dig_room(fort, 5)
         for kind in ("carpenter", "bed", "statue"):
             spot = _open_spot(fort, kind)
@@ -1403,3 +1431,348 @@ class TestLegacy(unittest.TestCase):
         self.assertIsNotNone(payload)
         self.assertEqual(payload["name"], fort.name)
         self.assertTrue(legacy.describe(payload))
+
+
+class TestWater(unittest.TestCase):
+    """Water that moves, and the engineering that controls it."""
+
+    def setUp(self):
+        from ascii_warriors.world import fluids
+
+        self.fluids = fluids
+
+    def _sealed_room(self, fort, size=3):
+        """Wall a small chamber off underground and return its floor cells.
+
+        Built rather than dug: the caverns leave no block of rock big enough
+        to hollow out, and a chamber with a way out is no test at all — water
+        drains through the hole and a drowning dwarf simply walks away.
+        """
+        lm = fort.local
+        for z in range(lm.zmin + 2, lm.zmax - 2):
+            for y in range(2, lm.height - size - 3):
+                for x in range(2, lm.width - size - 3):
+                    cells = [(x + dx, y + dy, z)
+                             for dx in range(size) for dy in range(size)]
+                    if any(not lm.walkable(*c) or lm.is_outside(*c)
+                           for c in cells):
+                        continue
+                    for dx in range(-1, size + 1):
+                        for dy in range(-1, size + 1):
+                            side = (x + dx, y + dy, z)
+                            if side not in cells:
+                                lm.set_tile(*side, "rock_wall")
+                            lm.set_tile(x + dx, y + dy, z + 1, "rock_wall")
+                            # Two levels of rock underneath, so a test can
+                            # open the floor and the water still has a bottom.
+                            lm.set_tile(x + dx, y + dy, z - 1, "rock_wall")
+                            lm.set_tile(x + dx, y + dy, z - 2, "rock_wall")
+                    fort._water_cache = None
+                    fort.water.wake_all()
+                    return cells
+        return []
+
+    # -- the fluid layer --------------------------------------------------- #
+
+    def test_water_falls(self):
+        """It goes down before it goes sideways."""
+        fort = embark("falls")
+        room = self._sealed_room(fort, 3)
+        self.assertTrue(room)
+        top = room[0]
+        below = (top[0], top[1], top[2] - 1)
+        fort.dig_out(below, "floor")
+        fort.water.set(top, 4)
+        for _ in range(6):
+            fort.water.step(fort.local)
+        self.assertGreater(fort.water.at(*below), 0,
+                           "water did not fall into the space below it")
+
+    def test_water_spreads(self):
+        """A deep pile evens out with its neighbours."""
+        fort = embark("spread")
+        room = self._sealed_room(fort, 3)
+        self.assertTrue(room)
+        fort.water.set(room[4], 7)
+        for _ in range(20):
+            fort.water.step(fort.local)
+        wet = sum(1 for c in room if fort.water.at(*c) > 0)
+        self.assertGreater(wet, 1, "the water never spread at all")
+
+    def test_water_is_conserved_when_it_has_nowhere_to_go(self):
+        """A sealed room holds exactly what you poured into it."""
+        fort = embark("conserve")
+        room = self._sealed_room(fort, 3)
+        self.assertTrue(room)
+        # Seal the floor below so nothing drains away.
+        fort.water.sources.clear()
+        fort.water.infinite.clear()
+        fort.water.depth.clear()
+        fort.water.set(room[4], 6)
+        before = fort.water.total()
+        for _ in range(30):
+            fort.water.step(fort.local)
+        self.assertLessEqual(fort.water.total(), before)
+
+    def test_a_river_does_not_flood_the_map_on_its_own(self):
+        """Left alone, natural water stays exactly where it is."""
+        fort = embark("river")
+        before = fort.water.total()
+        for _ in range(300):
+            fort.water.step(fort.local)
+        self.assertEqual(fort.water.total(), before,
+                         "the river crept across the countryside")
+
+    def test_only_an_opening_breaks_the_bank(self):
+        """A mason smoothing a wall must not flood the fortress.
+
+        Every job that changes a tile goes through dig_out: digging, but also
+        smoothing, laying a farm plot, gathering plants. Only the ones that
+        actually open the rock up may break the bank, or the river pours over
+        its own shore because somebody polished a wall beside it.
+        """
+        fort = embark("bank")
+        lm = fort.local
+        self.assertTrue(fort.water.sealed, "this embark has no natural water")
+
+        # A stretch of bank with solid rock beside it: where a player would
+        # dig the trench that brings the river indoors.
+        shore = wall = None
+        for cell in sorted(fort.water.sealed):
+            x, y, z = cell
+            for side in ((x - 1, y, z), (x + 1, y, z),
+                         (x, y - 1, z), (x, y + 1, z)):
+                if not lm.in_bounds(*side) or self.fluids.can_hold(lm, side):
+                    continue
+                shore, wall = cell, side
+                break
+            if wall is not None:
+                break
+        self.assertIsNotNone(wall, "no solid rock beside the water at all")
+
+        before = fort.water.total()
+        fort.dig_out(wall, "wall_constructed")   # smoothed, still a wall
+        self.assertIn(shore, fort.water.sealed)
+        for _ in range(30):
+            fort.water.step(lm)
+        self.assertEqual(fort.water.total(), before,
+                         "the bank leaked without anybody digging it")
+
+        fort.dig_out(wall, "floor")              # and now cut into it
+        self.assertNotIn(shore, fort.water.sealed)
+        for _ in range(30):
+            fort.water.step(lm)
+        self.assertGreater(fort.water.total(), before,
+                           "digging into the bank let nothing in")
+
+    def test_the_water_step_is_cheap(self):
+        """It runs every simulation step, so it has to be nearly free."""
+        import time
+
+        fort = embark("cheap")
+        for _ in range(20):
+            fort.water.step(fort.local)
+        start = time.time()
+        for _ in range(200):
+            fort.water.step(fort.local)
+        per_step = (time.time() - start) * 1000 / 200
+        self.assertLess(per_step, 5.0,
+                        "%.2f ms per water step is too slow" % per_step)
+
+    def test_water_survives_a_save(self):
+        """Depths, sources and the sealed bank all come back."""
+        fort = embark("watersave")
+        room = self._sealed_room(fort, 3)
+        if room:
+            fort.water.set(room[0], 5)
+            fort.water.add_source(room[1], 1)
+        again = Fortress.from_dict(fort.to_dict())
+        self.assertEqual(again.water.total(), fort.water.total())
+        self.assertEqual(again.water.sources, fort.water.sources)
+        self.assertEqual(len(again.water.infinite), len(fort.water.infinite))
+
+    # -- aquifers ---------------------------------------------------------- #
+
+    def test_a_wet_site_has_an_aquifer(self):
+        """The test world is rainy, so this should nearly always fire."""
+        found = [len(embark("aq%d" % i).aquifer) for i in range(3)]
+        self.assertTrue(any(n > 0 for n in found),
+                        "no aquifer on any of three wet embarks")
+
+    def test_breaching_an_aquifer_floods_and_warns(self):
+        """Digging into wet rock is supposed to be a disaster."""
+        fort = embark("breach")
+        if not fort.aquifer:
+            self.skipTest("this embark has no aquifer")
+        cell = sorted(fort.aquifer)[len(fort.aquifer) // 2]
+        before = fort.water.total()
+        fort.dig_out(cell, "floor")
+        self.assertIn(cell, fort.water.sources)
+        sim.run(fort, 60)
+        self.assertGreater(fort.water.total(), before)
+        self.assertTrue(any("aquifer" in m.text.lower()
+                            for m in fort.log.all()))
+
+    def test_a_breached_aquifer_does_not_stop_at_a_puddle(self):
+        """The leak has to keep working its way outward.
+
+        Water levels out to within one unit of itself and then has nothing
+        worth moving. An aquifer has a whole rock layer of pressure behind
+        it, so it must push past that: otherwise breaching one leaves a
+        puddle and a shrug, and the danger the layer exists for never lands.
+        """
+        fort = embark("puddle")
+        if not fort.aquifer:
+            self.skipTest("this embark has no aquifer")
+        cell = sorted(fort.aquifer)[len(fort.aquifer) // 2]
+        fort.dig_out(cell, "floor")
+        for _ in range(200):
+            fort.water.step(fort.local)
+        early = fort.water.total()
+        for _ in range(400):
+            fort.water.step(fort.local)
+        self.assertGreater(fort.water.total(), early, "the leak sealed itself")
+
+    # -- drowning ---------------------------------------------------------- #
+
+    def test_a_dwarf_drowns_in_a_flooded_room(self):
+        """Deep water kills."""
+        fort = embark("drowned")
+        room = self._sealed_room(fort, 3)
+        self.assertTrue(room)
+        d = fort.dwarves()[0]
+        d.x, d.y, d.z = room[4]
+        fort.water.add_source(room[4], 7)
+        for _ in range(60):
+            sim.step(fort)
+            if d.body.dead:
+                break
+        self.assertTrue(d.body.dead)
+        self.assertEqual(d.body.death_cause, "drowned")
+
+    def test_dwarves_will_not_path_through_deep_water(self):
+        """Wading is fine; swimming with a rock is not."""
+        from ascii_warriors.world.fluids import SWIM_DEPTH
+
+        fort = embark("nopath")
+        d = fort.dwarves()[0]
+        here = (d.x, d.y, d.z)
+        neighbours = [c for c, _cost in fort.path_neighbours(here)]
+        self.assertTrue(neighbours)
+        flooded = neighbours[0]
+        fort.water.set(flooded, SWIM_DEPTH + 1)
+        again = [c for c, _cost in fort.path_neighbours(here)]
+        self.assertNotIn(flooded, again)
+
+    # -- levers and gates -------------------------------------------------- #
+
+    def _gate_and_lever(self, fort):
+        """Build a floodgate and a lever, already linked."""
+        gate = Building("floodgate", *_open_spot(fort, "floodgate"))
+        gate.built = True
+        fort.buildings.append(gate)
+        fort.set_gate(gate, True)
+        lever = Building("lever", *_open_spot(fort, "lever"))
+        lever.built = True
+        fort.buildings.append(lever)
+        fort.link(lever, gate)
+        return lever, gate
+
+    def test_every_gate_kind_has_both_its_tiles(self):
+        """A gate with a missing tile would vanish when it opened."""
+        from ascii_warriors.fortress.buildings import GATE_TILES, KINDS
+        from ascii_warriors.world import tiles as tile_data
+
+        for kind, (open_tile, shut_tile) in GATE_TILES.items():
+            self.assertIn(kind, KINDS)
+            self.assertTrue(tile_data.exists(open_tile), kind)
+            self.assertTrue(tile_data.exists(shut_tile), kind)
+            self.assertTrue(tile_data.get(open_tile).walk, kind)
+            # The shut state must stop water, which is what a gate is for.
+            shut = tile_data.get(shut_tile)
+            blocks = not shut.walk or (shut.has("DOOR") and not shut.has("OPEN"))
+            self.assertTrue(blocks, "%s does not hold water when shut" % kind)
+
+    def test_pulling_a_lever_opens_a_gate(self):
+        """And pulling it again shuts it."""
+        fort = embark("lever")
+        lever, gate = self._gate_and_lever(fort)
+        self.assertTrue(gate.shut)
+        self.assertFalse(fort.local.walkable(*gate.center))
+        fort.pull_lever(lever)
+        self.assertFalse(gate.shut)
+        self.assertTrue(fort.local.walkable(*gate.center))
+        fort.pull_lever(lever)
+        self.assertTrue(gate.shut)
+        self.assertFalse(fort.local.walkable(*gate.center))
+
+    def test_a_gate_is_built_in_the_state_its_tile_shows(self):
+        """A drawbridge is finished lying down, a floodgate finished shut.
+
+        The flag and the tile have to agree, or the first pull of the lever
+        sets the flag the way it already looked and appears to do nothing.
+        """
+        fort = embark("gatebuild")
+        for kind, shut in (("drawbridge", False), ("floodgate", True)):
+            gate = Building(kind, *_open_spot(fort, kind))
+            fort.buildings.append(gate)
+            d = fort.dwarves()[0]
+            job = fort.jobs.make("build", *gate.center, target=gate.id)
+            fort._finish_build(d, job)
+            self.assertEqual(gate.shut, shut, kind)
+            self.assertEqual(fort.local.tile(*gate.center), gate.gate_tile(),
+                             kind)
+
+    def test_a_dwarf_pulls_a_requested_lever(self):
+        """The player asks; somebody walks over and does it."""
+        fort = embark("pull")
+        lever, gate = self._gate_and_lever(fort)
+        lever.pending = True
+        sim.run(fort, 600)
+        self.assertFalse(lever.pending, "nobody ever pulled the lever")
+        self.assertFalse(gate.shut)
+
+    def test_a_shut_gate_holds_water_back(self):
+        """The entire point of a floodgate."""
+        fort = embark("holdback")
+        room = self._sealed_room(fort, 3)
+        self.assertTrue(room)
+        # Put a floodgate in the doorway of a flooded cell's only exit.
+        gate = Building("floodgate", *room[0])
+        gate.built = True
+        fort.buildings.append(gate)
+        fort.set_gate(gate, True)
+        fort.water.set(room[4], 6)
+        for _ in range(30):
+            fort.water.step(fort.local)
+        self.assertEqual(fort.water.at(*room[0]), 0,
+                         "water got through a shut floodgate")
+
+    def test_linking_toggles(self):
+        """Linking a lever twice unlinks it."""
+        fort = embark("link")
+        lever, gate = self._gate_and_lever(fort)
+        self.assertIn(gate.id, lever.links)
+        fort.link(lever, gate)
+        self.assertNotIn(gate.id, lever.links)
+
+    def test_levers_survive_a_save(self):
+        """Links and gate states come back."""
+        fort = embark("leversave")
+        lever, gate = self._gate_and_lever(fort)
+        fort.pull_lever(lever)
+        again = Fortress.from_dict(fort.to_dict())
+        back_lever = next(b for b in again.buildings if b.kind == "lever")
+        back_gate = next(b for b in again.buildings if b.kind == "floodgate")
+        self.assertEqual(back_lever.links, [back_gate.id])
+        self.assertEqual(back_gate.shut, gate.shut)
+
+    def test_a_mechanism_can_be_made(self):
+        """Levers need mechanisms, so somebody has to be able to make one."""
+        from ascii_warriors.data import items as item_data
+        from ascii_warriors.fortress import production
+
+        self.assertTrue(item_data.exists("mechanism"))
+        recipe = production.RECIPES.get("mechanisms")
+        self.assertIsNotNone(recipe)
+        self.assertEqual(recipe.output, "mechanism")

@@ -176,7 +176,7 @@ python -m ascii_warriors --dump-world - --size small --history 200 | less
 | `b` | build a workshop, furniture, wall or trap |
 | `p` `w` | place a stockpile / mark the safe burrow |
 | `o` | queue work orders at a workshop |
-| `m` `h` | the militia / health |
+| `m` `h` `L` | the militia / health / levers and gates |
 | `u` `z` `j` | units / stocks / outstanding jobs |
 | `k` `t` | look / trade with the caravan |
 | `?` | help |
@@ -239,6 +239,18 @@ dwarves stop working and take to a bed; the nearest dwarf with the medicine
 labor is sent immediately rather than waiting for the next job scan. Bandages
 stop bleeding at once, splints set bones, sutures close what is already
 closed. Rest closes wounds too, slowly, which is not always fast enough.
+
+**Water, and the engineering to control it.** Water has a depth from one to
+seven; it falls, it spreads, and underground it does not go away. Rivers and
+lakes hold their water until you break the bank, and then they pour in for as
+long as the trench is open. Some rock is an aquifer, and cutting into it leaks
+for ever.
+
+Dwarves wade through two and drown in seven, and they will not path through
+water deep enough to swim in — so a flooded corridor cuts your fortress in
+half whether you meant it to or not. Build a floodgate, a drawbridge, a door
+or a hatch, link it to a lever, and pull the lever: a dwarf walks over and
+throws it. The same drawbridge that keeps the water out keeps the goblins out.
 
 **Rooms, nobles and tempers.** Furniture defines rooms and rooms have quality:
 a bed in a corridor is a meagre bedroom, the same bed in a smoothed room with

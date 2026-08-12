@@ -78,6 +78,7 @@ WHAT TO DO FIRST
   m      the militia: raise squads, arm them, order them about
   w      mark the safe burrow civilians retreat into
   h      health: who is hurt and who can treat them
+  L      levers: link them to gates and pull them
   u      units: everybody, what they are doing, and their labors
   z      stocks: everything you own
   j      what work is outstanding
@@ -110,6 +111,24 @@ weapon and a mechanic. They are the cheapest defence in the game.
 
 When something hostile appears the alarm raises itself and your civilians run
 for the burrow you painted with w. Your soldiers do not.
+
+WATER
+
+Water has depth, from one to seven. You can wade through two and you drown in
+seven. It falls, it spreads, and it does not go away on its own underground.
+
+Rivers and lakes hold their water until you break the bank. Channel a trench
+to one and it pours in for as long as you leave the trench there.
+
+Some rock is wet. Cut into an aquifer and it leaks for ever: the only answers
+are to wall it off, to drain it downward, or to dig somewhere else.
+
+A shut floodgate, drawbridge, door or hatch holds water back. Link one to a
+lever with L, then pull the lever, and a dwarf will walk over and throw it.
+The same drawbridge that keeps the water out keeps the goblins out.
+
+Dwarves will not path through water deep enough to swim in, so a flooded
+corridor cuts your fortress in half whether you meant it to or not.
 
 THE WOUNDED
 

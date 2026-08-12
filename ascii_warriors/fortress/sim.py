@@ -50,6 +50,13 @@ HAUL_WORK = 20
 #: Ticks a farm plot takes to grow a crop.
 GROW_TICKS = TICKS_PER_DAY * 5
 
+#: Steps under water before a creature drowns. About a minute of game time.
+DROWN_STEPS = 6
+
+#: How much new water counts as a flood worth shouting about. Digging a
+#: tunnel that clips a riverbank lets a little in; that is not a flood.
+FLOOD_WARN = 1200
+
 #: Training outranks ordinary work. A squad ordered to train is a squad taken
 #: off the labour force; set it to defend instead if you need the hands.
 TRAIN_PRIORITY = 8
@@ -98,6 +105,7 @@ def step(fort) -> None:
         fort._next_scan = fort.ticks + SCAN_INTERVAL
         scan_jobs(fort)
         fort.wealth = appraise(fort)
+    _flow(fort, ticks)
     _bodies(fort, ticks)
     _triage(fort)
     for dwarf in list(fort.dwarves()):
@@ -132,6 +140,49 @@ def _weather(fort, ticks: int) -> None:
         ticks, fort.rng, tile.biome, tile.temperature, fort.time.season)
     if change:
         fort.log.info(change)
+
+
+def _flow(fort, ticks: int) -> None:
+    """Move the water, and drown whatever is standing in it."""
+    from ..world import fluids
+
+    water = fort.water
+    water.step(fort.local)
+
+    for c in list(fort.creatures.values()):
+        if c.body.dead:
+            continue
+        depth = water.at(c.x, c.y, c.z)
+        if depth < fluids.SWIM_DEPTH:
+            # Out of the deep, or never in it: whatever breath it was holding
+            # it gets back.
+            fort.drowning.pop(c.id, None)
+            continue
+        if c.defn.has("AQUATIC"):
+            continue
+        # A dwarf can swim, badly, for a while. Full water over its head is
+        # another matter.
+        skill = c.skills.level("swimming")
+        if depth < fluids.MAX_DEPTH and skill > 0 and fort.rng.chance(
+                min(0.9, 0.25 + skill * 0.06)):
+            c.add_exp("swimming", 4)
+            fort.drowning.pop(c.id, None)
+            continue
+        held = fort.drowning.get(c.id, 0) + 1
+        fort.drowning[c.id] = held
+        if held == 1:
+            fort.warn_once("drowning", "%s is in the water!" % c.name)
+        if held >= DROWN_STEPS:
+            c.body.dead = True
+            c.body.death_cause = "drowned"
+            fort.drowning.pop(c.id, None)
+            fort.kill_creature(c)
+
+    # Measured against the water the map started with, not against last step:
+    # a mark that follows the total can never notice a slow flood.
+    if water.total() > fort._water_mark + FLOOD_WARN and not water.flooded:
+        water.flooded = True
+        fort.log.bad("The fortress is flooding!")
 
 
 def _bodies(fort, ticks: int) -> None:
@@ -201,7 +252,7 @@ def _hostile_step(fort, foe, goal: Cell) -> None:
     if state["goal"] != goal or pos not in path:
         from ..engine.pathfind import astar
 
-        route = astar(pos, goal, fort.local.path_neighbours,
+        route = astar(pos, goal, fort.path_neighbours,
                       dwarf_mod._heuristic, max_nodes=2500)
         if not route:
             dx, dy = geometry.normalize_dir(goal[0] - foe.x, goal[1] - foe.y)
@@ -274,7 +325,8 @@ def scan_jobs(fort) -> int:
     """Sweep the fortress for work and post it. Returns how many jobs appeared."""
     _prune(fort)
     budget = MAX_NEW_JOBS
-    for scanner in (_scan_hospital, _scan_military, _scan_designations,
+    for scanner in (_scan_hospital, _scan_levers, _scan_military,
+                    _scan_designations,
                     _scan_buildings, _scan_farms, _scan_workshops,
                     _scan_stockpiles):
         if budget <= 0:
@@ -503,6 +555,23 @@ def _barracks_for(fort, squad):
             squad.barracks = b.id
             return b
     return None
+
+
+def _scan_levers(fort, budget: int) -> int:
+    """Send somebody to throw the levers the player has asked for."""
+    posted = 0
+    for lever in fort.levers():
+        if posted >= budget:
+            break
+        if not lever.pending:
+            continue
+        if fort.jobs.has_job_at("pull", lever.center):
+            continue
+        cx, cy, cz = lever.center
+        fort.jobs.make("pull", cx, cy, cz, labor="", skill="mechanics",
+                       work=20, target=lever.id, priority=10)
+        posted += 1
+    return posted
 
 
 def _scan_designations(fort, budget: int) -> int:
@@ -850,7 +919,9 @@ def _throw_tantrum(fort, dwarf) -> None:
             dwarf.x, dwarf.y, b.x, b.y))
         fort.buildings.remove(target)
         for cx, cy, cz in target.cells():
-            fort.local.set_tile(cx, cy, cz, "floor")
+            # dig_out, not set_tile: the door somebody just smashed may have
+            # been the one holding the water back.
+            fort.dig_out((cx, cy, cz), "floor")
         fort.log.bad("%s throws a tantrum and destroys a %s!"
                      % (dwarf.name, target.defn.name.lower()))
     else:

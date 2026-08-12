@@ -71,6 +71,9 @@ _r("cloth_bandage", "Bandages", "craftsdwarf", "leatherwork", (("hide", 1),),
    "bandage", 4, 160)
 _r("rope", "Rope", "craftsdwarf", "crafting", (("hide", 2),), "rope", 1, 180)
 _r("torches", "Torches", "craftsdwarf", "crafting", (("WOOD", 1),), "torch", 4, 150)
+_r("mechanisms", "Mechanisms", "craftsdwarf", "mechanics", (("STONE", 1),),
+   "mechanism", 2, 240,
+   "Everything a fortress does cleverly needs one of these.")
 
 # -- forge ------------------------------------------------------------------- #
 _r("iron_dagger", "Forge dagger", "smith", "weaponsmithing", (("STONE", 2),),
