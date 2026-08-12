@@ -181,6 +181,29 @@ class QuestLog:
                     if not remaining:
                         self._ready(game, q)
 
+    def world_changed(self, game) -> None:
+        """Check outstanding work against a world that kept moving.
+
+        The point of a living world is that it does not hold the door for you.
+        Take a month getting to the lair and you may find the hero of some
+        other town got there first, and the job you were paid to do is a story
+        somebody else is telling.
+        """
+        world = game.world
+        for q in list(self.active) + list(self.offered):
+            if q.target_hf is None:
+                continue
+            fig = world.figures.get(q.target_hf)
+            if fig is None or fig.died is None:
+                continue
+            if q.state == "offered":
+                self.offered.remove(q)
+                continue
+            game.log.warn("Word reaches you: %s is dead already -- %s."
+                          % (fig.display_name, fig.death_cause
+                             or "nobody says how"))
+            self.fail(q, game)
+
     def on_arrive(self, game, wx: int, wy: int) -> None:
         """Advance travel quests when the player reaches a place."""
         for q in list(self.active):

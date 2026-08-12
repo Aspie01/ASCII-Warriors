@@ -29,16 +29,19 @@ def world():
     return _WORLD
 
 
-def embark(seed: str = "fort", *, private_world: bool = False) -> Fortress:
+def embark(seed: str = "fort") -> Fortress:
     """Found a test fortress on the most promising square.
 
-    Pass ``private_world`` for anything that writes to the world, so it does
-    not move the embark site out from under every other test.
+    Every embark gets its own copy of the shared world, because a fortress
+    changes the world it stands in: it writes itself into history, and every
+    season it plays, the world outside takes a season too. Sharing one world
+    between tests means a long-running test can burn down the town another
+    test was about to embark next to. The copy costs about five milliseconds.
     """
     from ascii_warriors.ui.fort.embark import suggest_site
     from ascii_warriors.world.worldgen import World
 
-    w = World.from_dict(world().to_dict()) if private_world else world()
+    w = World.from_dict(world().to_dict())
     x, y = suggest_site(w)
     return Fortress.embark(w, x, y, RNG(seed))
 
@@ -435,7 +438,7 @@ class TestSimulation(unittest.TestCase):
 
     def test_losing_is_recorded(self):
         """When the last dwarf dies the fortress falls, and history says so."""
-        fort = embark("losing", private_world=True)
+        fort = embark("losing")
         events_before = len(fort.world.events)
         for d in list(fort.dwarves()):
             d.body.dead = True
@@ -870,6 +873,110 @@ class TestIndustry(unittest.TestCase):
         self.assertFalse(pile.accepts(self.Item("meat", "meat")))
         stone = Stockpile("stone", 0, 0, 0, 3, 3)
         self.assertFalse(stone.accepts(self.Item("ore", "iron")))
+
+
+class TestLivingWorld(unittest.TestCase):
+    """The world outside the fortress keeps happening."""
+
+    def setUp(self):
+        from ascii_warriors.world import history as history_mod
+        from ascii_warriors.world import livingworld
+
+        self.history = history_mod
+        self.lw = livingworld
+
+    def _beast(self, fort):
+        """A megabeast in the world's history, alive right now."""
+        beast = self.lw.wandering_beast(fort.world, fort.rng, fort.time.year)
+        if beast is None:
+            beast = self.history._spawn_megabeast(fort.world, fort.rng,
+                                                  fort.time.year)
+        return beast
+
+    def test_a_season_passing_moves_the_world(self):
+        """The fortress clock drives world history, not just its own."""
+        fort = embark("seasons")
+        before = len(fort.world.events)
+        for _ in range(6):
+            fort.time.advance(TICKS_PER_DAY * 95)
+            sim.step(fort)
+        self.assertGreater(len(fort.world.events), before,
+                           "a year and a half passed and the world did not")
+
+    def test_travellers_bring_word(self):
+        """What happens out there has to reach the player."""
+        fort = embark("word")
+        for _ in range(12):
+            sim._world_turns(fort)
+            fort.time.advance(TICKS_PER_DAY * 95)
+        self.assertTrue(
+            any("word" in m.text.lower() for m in fort.log.all()),
+            "three years of world history and nobody mentioned any of it")
+
+    def test_the_caravan_brings_news(self):
+        """Traders have walked a long way and seen things on the road."""
+        fort = embark("caravannews")
+        self.history.record(fort.world, fort.time.year, "site_destroyed",
+                            "Testfall was destroyed by a very large frog.")
+        sim._caravan_news(fort)
+        self.assertTrue(any("very large frog" in m.text
+                            for m in fort.log.all()))
+
+    def test_a_megabeast_arrives_with_its_history(self):
+        """Not a generic monster: the one from the legends screen."""
+        fort = embark("beast")
+        beast = self._beast(fort)
+        foe = sim.spawn_beast(fort, beast)
+        self.assertIsNotNone(foe)
+        self.assertEqual(foe.hf_id, beast.id)
+        self.assertEqual(foe.name, beast.name)
+        self.assertEqual(foe.faction, "hostile")
+        self.assertIn(foe.id, fort.creatures)
+
+    def test_one_legend_at_a_time(self):
+        """Two copies of the same beast is a bookkeeping error with teeth."""
+        fort = embark("onebeast")
+        fort.wealth = 100000
+        sim.spawn_beast(fort, self._beast(fort))
+        for _ in range(40):
+            sim._maybe_beast(fort)
+        named = [c for c in fort.creatures.values()
+                 if c.hf_id is not None and not c.body.dead]
+        self.assertEqual(len(named), 1, [c.name for c in named])
+
+    def test_a_poor_fortress_is_beneath_notice(self):
+        """Nothing legendary walks across a continent for seven dwarves."""
+        fort = embark("poorbeast")
+        fort.wealth = 0
+        for _ in range(50):
+            sim._maybe_beast(fort)
+        self.assertEqual([c for c in fort.creatures.values()
+                          if c.hf_id is not None], [])
+
+    def test_killing_a_beast_writes_the_fortress_into_the_legends(self):
+        """The biggest thing a fortress ever does should be remembered."""
+        fort = embark("slain")
+        beast = self._beast(fort)
+        foe = sim.spawn_beast(fort, beast)
+        before = len(fort.world.events)
+        foe.body.death_cause = "slain by the militia"
+        fort.kill_creature(foe)
+        fig = fort.world.figures[beast.id]
+        self.assertEqual(fig.died, fort.time.year)
+        told = [e for e in fort.world.events[before:] if e.kind == "beast_slain"]
+        self.assertTrue(told, "the world never heard about it")
+        self.assertIn(fort.name, told[0].text)
+
+    def test_a_dead_beast_is_not_killed_twice(self):
+        """A second death would rewrite the first one's date."""
+        fort = embark("slaintwice")
+        beast = self._beast(fort)
+        foe = sim.spawn_beast(fort, beast)
+        fort.kill_creature(foe)
+        year = fort.world.figures[beast.id].died
+        fort.time.advance(TICKS_PER_DAY * 400)
+        fort._record_kill(foe)
+        self.assertEqual(fort.world.figures[beast.id].died, year)
 
 
 class TestWorkRate(unittest.TestCase):
@@ -1574,7 +1681,7 @@ class TestLegacy(unittest.TestCase):
         On a private copy of the world: recording a fortress adds a site, and
         a site changes where every later test would choose to embark.
         """
-        fort = embark(seed, private_world=True)
+        fort = embark(seed)
         dig_room(fort, 5)
         for kind in ("carpenter", "bed", "statue"):
             spot = _open_spot(fort, kind)

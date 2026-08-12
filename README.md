@@ -272,6 +272,20 @@ medical dwarf, a sheriff and eventually a mayor, who will demand things.
 Ignore enough of it and dwarves start breaking furniture, and then each
 other.
 
+**A world that keeps going.** History does not stop when the game starts. Every
+season, wherever you are, beasts wake and sack towns, heroes make names for
+themselves, wars are declared and settled, plagues pass through, smiths forge
+legends, outlaws gather, and ruins are resettled — all of it written into the
+same legends screen as the history you generated.
+
+You hear it as news: travellers bring word to your fortress, the autumn caravan
+arrives full of it, and taverns gossip about what happened last season rather
+than last century. It has teeth, too. Take too long over a contract to kill a
+beast and some other hero will get there first, and your quest fails with word
+of who beat you to it. And a fortress rich enough to be worth the walk will
+eventually be visited by something out of the legends — by name, with its kills
+listed. Kill it, and the world records that your fortress was where it died.
+
 **World generation.** Fractal-noise continents with droplet erosion, ocean by
 threshold, temperature from latitude and altitude, orographic rainfall, drainage,
 rivers traced downhill to the sea, 22 biomes, named regions with DF-style

@@ -1722,7 +1722,53 @@ Three small additions to `production.py` carry it:
 has the labor, nothing is posted and the log says so once. A job nobody will
 take used to sit on the board looking like a broken workshop.
 
-## 56. Style
+## 56. The world keeps turning (v2.7)
+
+### `world/livingworld.py`
+```python
+SEASONS_PER_YEAR = 4 ; MAX_BEASTS = 8 ; GROWTH = 0.015 ; POP_CAP = 1500
+TOLD_ABOUT: frozenset       # the event kinds people actually repeat
+def advance(world, rng, year, *, seasons=1) -> list[Event]
+def season_index(time) -> int        # the edge both modes hang off
+def news_since(world, mark, n=3) -> list[Event]
+def rampage(world, rng, year, beast) # one beast, one town, maybe a hero
+def slay(world, year, killer, beast, where, site=None)
+def wandering_beast(world, rng, year)
+```
+One season of world history per season of play, in both modes: towns grow,
+rulers die, heroes rise, beasts wake and fall on settlements, wars are declared
+and settled, smiths forge legends, outlaws gather, plagues pass, ruins are
+resettled. Bounded work — a fixed handful of rolls plus one sweep of the site
+list — because it runs inside the fortress's season change.
+
+It deliberately **does not** share code with `history._simulate_year`. Worlds
+must stay reproducible from their seed, and that stops being true the moment
+tuning how a season of play feels can change how a world is generated.
+
+Two invariants the sweep enforces, both learned the hard way:
+
+- **Something has to put people back.** Wars, plagues and beasts only ever
+  subtract. Without growth every settlement drains to nothing in about twenty
+  years of play.
+- **An empty settlement is a ruin.** A town at zero population that still
+  counts as a town is a place the adventurer walks into expecting shops.
+
+### Where it plugs in
+```python
+sim._world_turns(fort)        # on the season change in _calendar
+sim._maybe_beast(fort)        # BEAST_WEALTH = 4000, BEAST_ODDS = 0.06
+sim.spawn_beast(fort, beast)  # the figure's name, title and hf_id on a creature
+sim._caravan_news(fort)       # the traders have seen things on the road
+Fortress._record_kill(c)      # hf-linked deaths go back into world history
+Game._world_season()          # adventure side, off _tick_world
+QuestLog.world_changed(game)  # a quest whose target somebody else killed fails
+conversation.rumor_lines()    # one pick is always from the last two years
+```
+The payoff is the megabeast: a fortress worth the walk is visited by a named
+figure out of the legends screen, and if the militia brings it down, the world
+records that your fortress is where it died.
+
+## 57. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

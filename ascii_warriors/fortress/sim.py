@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from typing import Dict, List, Optional, Sequence, Tuple
 
+from ..data import creatures as creature_data
 from ..data import names as name_data
 from ..data.calendar import TICKS_PER_DAY, TICKS_PER_HOUR
 from ..engine import geometry
@@ -76,6 +77,13 @@ WORKSHOP_LABOR: Dict[str, str] = {
 #: Odds per step of a dwarf being seized. About one mood every three months —
 #: an artifact should be an event, not a Tuesday.
 MOOD_ODDS = 120000
+
+#: A megabeast will not cross a continent for a hole in the ground with eight
+#: dwarves and a barrel of ale in it.
+BEAST_WEALTH = 4000
+
+#: Odds per season once you are worth the walk, before wealth is counted.
+BEAST_ODDS = 0.06
 
 #: What a strange mood produces, by the workshop the moody dwarf seizes.
 MOOD_OUTPUT: Dict[str, Tuple[str, ...]] = {
@@ -805,12 +813,83 @@ def _calendar(fort) -> None:
     _season_thoughts(fort)
     _appointments(fort)
 
+    _world_turns(fort)
+
     if fort.time.season == "Spring" or fort.time.season == "Autumn":
         _maybe_migrants(fort)
     if fort.time.season == "Autumn":
         _caravan(fort)
     if fort.time.season in ("Summer", "Winter"):
         _maybe_attack(fort)
+
+
+def _world_turns(fort) -> None:
+    """A season passes for everybody else as well.
+
+    A fortress hears about it the way a fortress would: from whoever walked in
+    off the road. One line a season, so the world is present without drowning
+    out the fortress's own news.
+    """
+    from ..world import livingworld
+
+    mark = len(fort.world.events)
+    livingworld.advance(fort.world, fort.rng, fort.time.year)
+    for ev in livingworld.news_since(fort.world, mark, 1):
+        fort.log.info("Travellers bring word: %s" % ev.text)
+    _maybe_beast(fort)
+
+
+def _maybe_beast(fort) -> None:
+    """Something out of the legends decides your fortress looks interesting.
+
+    Goblins come for your wealth. A megabeast comes because it is a megabeast,
+    and it arrives with a name, a history, and everything it has already
+    killed written down in the legends screen.
+    """
+    from ..world import livingworld
+
+    if fort.lost or fort.wealth < BEAST_WEALTH or not fort.dwarves():
+        return
+    if not fort.rng.chance(min(0.30, BEAST_ODDS + fort.wealth / 90000.0)):
+        return
+    if any(c.hf_id is not None and not c.body.dead
+           for c in fort.creatures.values()):
+        # One legend at a time. Two of the same beast is a bookkeeping error
+        # standing in the wheat field.
+        return
+    beast = livingworld.wandering_beast(fort.world, fort.rng, fort.time.year)
+    if beast is None:
+        return
+    foe = spawn_beast(fort, beast)
+    if foe is None:
+        return
+    defn = creature_data.get(beast.creature_id)
+    fort.log.bad("The %s %s has come to %s!" % (
+        defn.name, beast.display_name, fort.name))
+    dead = len(beast.kills) + beast.stats.get("renown", 0)
+    if dead:
+        fort.log.warn("It has killed %d that the world knows of. Get "
+                      "everyone inside." % dead)
+    else:
+        fort.log.warn("Get everyone inside.")
+    fort.military.alert = "danger"
+
+
+def spawn_beast(fort, beast):
+    """Put one named megabeast on the edge of the map."""
+    if not beast.creature_id:
+        return None
+    side = fort.rng.choice(["north", "south", "east", "west"])
+    entry = fort.local.edge_entry(fort.rng, side)
+    foe = make_creature(fort.rng, beast.creature_id, faction="hostile", level=4)
+    foe.name = beast.name
+    if beast.titles:
+        foe.title = beast.titles[-1]
+    foe.hf_id = beast.id
+    foe.x, foe.y, foe.z = fort._free_spot(entry, 0)
+    foe.wx, foe.wy = fort.wx, fort.wy
+    fort.add_creature(foe)
+    return foe
 
 
 def _season_thoughts(fort) -> None:
@@ -1017,6 +1096,19 @@ def _caravan(fort) -> None:
         fort.log.info("Press t to trade. They will wait a fortnight.")
     else:
         fort.log.info("Press t to trade.")
+    _caravan_news(fort)
+
+
+def _caravan_news(fort) -> None:
+    """The traders have walked a long way and seen things on the road."""
+    from ..world import history as history_mod
+    from ..world import livingworld
+
+    told = [e for e in history_mod.recent_events(fort.world, 40)
+            if e.kind in livingworld.TOLD_ABOUT
+            and e.year >= fort.time.year - 1]
+    for ev in told[-3:]:
+        fort.log.info("The traders say: %s" % ev.text)
 
 
 def _caravan_goods(fort) -> List[Item]:

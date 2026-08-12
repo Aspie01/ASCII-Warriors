@@ -97,6 +97,18 @@ complain about it. On a dry embark there is no such mercy: brew, or die.
 Your workshops will not touch the last week of food, and your farmers will not
 eat the last of the seed.
 
+THE WORLD OUTSIDE
+
+History does not stop while you play. Every season, beasts wake and fall on
+towns, heroes rise, wars start and finish, and ruins are resettled. Travellers
+bring word of it and the autumn caravan is full of it, and all of it goes into
+the legends screen alongside the history you generated.
+
+A fortress worth robbing attracts goblins. A fortress worth a walk across a
+continent attracts something older, by name, with everything it has killed
+written down. Kill it and the world will record that your fortress is where it
+died.
+
 METAL
 
 Veins in the rock are made of something in particular, and they are drawn in
@@ -234,7 +246,7 @@ with use. So does everything else.
 """
 
 WORLD_TEXT = """\
-The world is generated once, and then it is simply the world.
+The world is generated once, and then it keeps going without you.
 
 Elevation, rainfall and temperature decide the biomes. Rivers run downhill to
 the sea. Civilizations settle where their people like to live: dwarves in the
@@ -249,8 +261,15 @@ All of that happened before you arrived, and all of it is written down. Press G
 to read it. Talk to people and they will tell you about it: the rumours you
 hear are real events involving real figures who are still out there.
 
+And it is still happening. Every season that passes while you play, the world
+takes another turn: another town sacked, another hero risen, another war
+declared or ended. Word of it reaches you on the road and in taverns, and it
+goes into the same legends screen.
+
 Quests come from the same place. When a tavern keeper asks you to kill a beast,
-that beast exists, has a name, has a history, and is somewhere on the map.
+that beast exists, has a name, has a history, and is somewhere on the map --
+and it is not waiting for you. Take a season getting there and you may hear
+that somebody else has already done it, in which case the job is off.
 
 Press T to travel. Moving between world tiles takes hours and makes you hungry.
 

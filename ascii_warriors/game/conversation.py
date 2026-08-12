@@ -107,7 +107,14 @@ def rumor_lines(game, hf_id: Optional[int] = None, n: int = 3) -> List[str]:
     events = history_mod.notable_events(world, 40)
     if not events:
         return ["Nothing ever happens here."]
-    picks = game.rng.sample(events, min(n, len(events)))
+    # People talk about what just happened first. The world keeps moving while
+    # you play, and a tavern that only knows ancient history is a dead world.
+    fresh = [e for e in events if e.year >= world.year - 2]
+    picks = []
+    if fresh:
+        picks.append(game.rng.choice(fresh))
+    rest = [e for e in events if e not in picks]
+    picks.extend(game.rng.sample(rest, min(max(0, n - len(picks)), len(rest))))
     prefixes = [
         "They say ", "Word is ", "I heard tell that ", "Folk are saying ",
         "There's talk that ",

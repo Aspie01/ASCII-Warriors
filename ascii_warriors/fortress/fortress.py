@@ -322,9 +322,37 @@ class Fortress:
                 other.needs.add_thought("lost a friend to a violent death", 18)
         else:
             self.log.combat("The %s is dead." % c.short_name())
+            self._record_kill(c)
         self.drop_item(corpse_of(c), c.x, c.y, c.z)
         for item in c.inventory.remove_all():
             self.drop_item(item, c.x, c.y, c.z)
+
+    def _record_kill(self, c: Creature) -> None:
+        """Write a legend's death into the world that remembers it.
+
+        Killing a megabeast is the biggest thing most fortresses ever do, and
+        it should be in the legends screen afterwards with your fortress named
+        in it.
+        """
+        if getattr(c, "hf_id", None) is None:
+            return
+        from ..world import history as history_mod
+
+        fig = self.world.figures.get(c.hf_id)
+        if fig is None or fig.died is not None:
+            return
+        fig.died = self.time.year
+        fig.death_cause = "slain at %s" % self.name
+        history_mod.record(
+            self.world, self.time.year, "beast_slain",
+            "The %s %s was slain at %s." % (
+                c.short_name(), fig.display_name, self.name),
+            [fig.id], [self.site_id] if self.site_id else [],
+        )
+        self.log.good("The %s %s is dead. %s will be remembered for it."
+                      % (c.short_name(), fig.display_name, self.name))
+        for d in self.dwarves():
+            d.needs.add_thought("was part of something legendary", -20)
 
     # -- items ------------------------------------------------------------- #
 

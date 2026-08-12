@@ -148,6 +148,97 @@ class TestHistory(unittest.TestCase):
         self.assertEqual(legends.search(self.world, ""), [])
 
 
+class TestLivingWorld(unittest.TestCase):
+    """History that keeps happening after the world is generated."""
+
+    def setUp(self):
+        from ascii_warriors.world import livingworld
+
+        self.lw = livingworld
+        self.world = _world("living", "pocket", 30)
+        self.rng = RNG("seasons")
+
+    def _play(self, years: int):
+        """Run the world forward and return the events it recorded."""
+        mark = len(self.world.events)
+        for year in range(self.world.year, self.world.year + years):
+            for _ in range(self.lw.SEASONS_PER_YEAR):
+                self.lw.advance(self.world, self.rng, year)
+        return self.world.events[mark:]
+
+    def test_a_season_of_play_writes_history(self):
+        """Ten years of playing should read like ten years of the world."""
+        new = self._play(10)
+        self.assertGreater(len(new), 10, "the world barely moved in a decade")
+        self.assertLess(len(new), 400, "the world had an apocalypse")
+
+    def test_the_events_are_well_formed(self):
+        """Anything the living world records has to survive legends."""
+        for ev in self._play(6):
+            self.assertTrue(ev.text)
+            self.assertGreaterEqual(ev.year, 1)
+            for fid in ev.figures:
+                self.assertIn(fid, self.world.figures)
+            for sid in ev.sites:
+                self.assertIsNotNone(self.world.site(sid), ev.text)
+            for cid in ev.civs:
+                self.assertIsNotNone(self.world.civ(cid), ev.text)
+
+    def test_the_world_moves_on_without_you(self):
+        """Beasts, heroes and rulers: somebody has to be doing something."""
+        kinds = {e.kind for e in self._play(15)}
+        self.assertTrue(
+            kinds & {"beast_attack", "hero_rose", "war_declared",
+                     "artifact_created", "became_leader", "plague"},
+            "fifteen years passed and nothing of note happened: %s" % kinds)
+
+    def test_populations_stay_sane(self):
+        """A living world must not depopulate itself in a few decades."""
+        self._play(20)
+        alive = [s for s in self.world.sites
+                 if s.is_settlement and not s.is_ruin]
+        self.assertTrue(alive, "every settlement in the world was wiped out")
+        for site in alive:
+            self.assertGreater(site.population, 0, site.name)
+
+    def test_a_slain_beast_stays_slain(self):
+        """The dead do not go on rampaging."""
+        from ascii_warriors.world import history as history_mod
+
+        beast = history_mod._spawn_megabeast(self.world, self.rng,
+                                             self.world.year)
+        self.assertIsNotNone(beast)
+        hero = history_mod.new_figure(self.world, self.rng, "dwarf", None,
+                                      None, year=self.world.year,
+                                      profession="warrior")
+        self.lw.slay(self.world, self.world.year, hero, beast, "in the hills")
+        self.assertIsNotNone(beast.died)
+        self.assertIn(beast.id, hero.kills)
+        self._play(5)
+        for ev in self.world.events:
+            if ev.kind == "beast_attack" and beast.id in ev.figures:
+                self.assertLessEqual(ev.year, beast.died)
+
+    def test_the_season_index_changes_once_a_season(self):
+        """The hook everything hangs off has to be a clean edge."""
+        from ascii_warriors.data.calendar import GameTime, TICKS_PER_DAY
+
+        t = GameTime.at(100, 1, 1, 8, 0)
+        marks = []
+        for _ in range(8):
+            marks.append(self.lw.season_index(t))
+            t.advance(TICKS_PER_DAY * 90)
+        self.assertEqual(len(set(marks)), len(marks), marks)
+        self.assertEqual(marks, sorted(marks))
+
+    def test_news_only_carries_what_people_repeat(self):
+        """Nobody walks three hundred miles to report a birth."""
+        mark = len(self.world.events)
+        self._play(8)
+        for ev in self.lw.news_since(self.world, mark, 5):
+            self.assertIn(ev.kind, self.lw.TOLD_ABOUT)
+
+
 class TestLocalMap(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -236,6 +327,83 @@ class TestGameLoop(unittest.TestCase):
             os.environ.pop("ASCII_WARRIORS_SAVE_DIR", None)
         else:
             os.environ["ASCII_WARRIORS_SAVE_DIR"] = self._old
+
+    def test_time_passing_moves_the_world(self):
+        """An adventurer's clock drives world history too."""
+        from ascii_warriors.data.calendar import TICKS_PER_DAY
+
+        g = self.game
+        before = len(g.world.events)
+        for _ in range(8):
+            g._tick_world(TICKS_PER_DAY * 46)
+        self.assertGreater(len(g.world.events), before,
+                           "a year on the road and the world stood still")
+        self.assertTrue(any("Word reaches you" in m.text
+                            for m in g.log.all()),
+                        "the player was never told any of it")
+
+    def test_a_quest_somebody_else_finishes_fails(self):
+        """The point of a living world: it does not hold the door for you."""
+        from ascii_warriors.game.quests import Quest
+        from ascii_warriors.world import history as history_mod
+
+        g = self.game
+        beast = history_mod._spawn_megabeast(g.world, g.rng, g.time.year)
+        self.assertIsNotNone(beast)
+        q = Quest("slay_beast", "Slay the beast", "Go and kill it.")
+        q.target_hf = beast.id
+        g.quests.accept(q)
+
+        g.quests.world_changed(g)
+        self.assertEqual(q.state, "active", "it died before anything happened")
+
+        beast.died = g.time.year
+        beast.death_cause = "slain by somebody quicker"
+        g.quests.world_changed(g)
+        self.assertEqual(q.state, "failed")
+        self.assertTrue(any("dead already" in m.text for m in g.log.all()))
+
+    def test_an_offered_quest_for_a_dead_target_is_withdrawn(self):
+        """Nobody offers you work that is already done."""
+        from ascii_warriors.game.quests import Quest
+        from ascii_warriors.world import history as history_mod
+
+        g = self.game
+        beast = history_mod._spawn_megabeast(g.world, g.rng, g.time.year)
+        q = Quest("slay_beast", "Slay the beast", "Go and kill it.")
+        q.target_hf = beast.id
+        g.quests.offer(q)
+        beast.died = g.time.year
+        g.quests.world_changed(g)
+        self.assertNotIn(q, g.quests.offered)
+
+    def test_rumours_carry_recent_news(self):
+        """A tavern that only knows ancient history is a dead world."""
+        from ascii_warriors.game import conversation
+        from ascii_warriors.world import history as history_mod
+
+        g = self.game
+        # Ten years on, so nothing from the generated history counts as news
+        # and only the thing that just happened does.
+        g.world.year += 10
+        history_mod.record(g.world, g.world.year, "site_destroyed",
+                           "Newsville was destroyed by a very large frog.")
+        lines = conversation.rumor_lines(g, n=3)
+        self.assertTrue(any("very large frog" in line for line in lines),
+                        lines)
+
+    def test_the_world_clock_survives_a_save(self):
+        """Reloading must not replay or skip a season of history."""
+        from ascii_warriors.data.calendar import TICKS_PER_DAY
+
+        g = self.game
+        g._tick_world(TICKS_PER_DAY * 100)
+        clone = Game.from_dict(json.loads(json.dumps(g.to_dict())))
+        self.assertEqual(clone._season_mark, g._season_mark)
+        before = len(clone.world.events)
+        clone._tick_world(10)
+        self.assertEqual(len(clone.world.events), before,
+                         "loading a game ran a season of history again")
 
     def test_new_game_state(self):
         g = self.game

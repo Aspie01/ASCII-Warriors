@@ -56,6 +56,9 @@ class Game:
         self._local_cache: Dict[Tuple[int, int], Dict[str, Any]] = {}
         #: Visit order for the local-map cache, oldest first.
         self._cache_order: List[Tuple[int, int]] = []
+        #: The world season last simulated, so history keeps happening while
+        #: the player walks around in it.
+        self._season_mark = 0
 
     # -- construction ------------------------------------------------------ #
 
@@ -526,6 +529,7 @@ class Game:
     def _tick_world(self, ticks: int) -> None:
         """Advance the clock, weather, needs, wounds and item state."""
         self.time.advance(ticks)
+        self._world_season()
         p = self.player
 
         tile = self.world.tile(p.wx, p.wy)
@@ -575,6 +579,30 @@ class Game:
 
         if p.body.dead and not self.game_over:
             self.end_game(p.body.death_cause or "died")
+
+    def _world_season(self) -> None:
+        """Let the rest of the world have its season while you have yours.
+
+        Beasts sack towns, heroes make names, wars start and finish. You hear
+        about it the way anyone would: as news, some of which is about a job
+        you took and somebody else has now done.
+        """
+        from ..world import livingworld
+
+        mark = livingworld.season_index(self.time)
+        if self._season_mark == 0:
+            self._season_mark = mark
+            return
+        if mark <= self._season_mark:
+            return
+        seasons = min(8, mark - self._season_mark)
+        self._season_mark = mark
+        before = len(self.world.events)
+        livingworld.advance(self.world, self.rng, self.time.year,
+                            seasons=seasons)
+        for ev in livingworld.news_since(self.world, before, 2):
+            self.log.info("Word reaches you: %s" % ev.text)
+        self.quests.world_changed(self)
 
     def kill_creature(self, c: Creature) -> None:
         """Handle a creature's death: corpse, loot, legends and quests."""
@@ -686,6 +714,7 @@ class Game:
             },
             "cache_order": ["%d,%d" % k for k in self._cache_order],
             "here": [self.player.wx, self.player.wy],
+            "season_mark": self._season_mark,
         }
 
     @classmethod
@@ -705,6 +734,7 @@ class Game:
         game.death_message = str(d.get("death_message", ""))
         game.weather = Weather.from_dict(d.get("weather") or {})
         game.companion_ids = [int(i) for i in d.get("companion_ids", [])]
+        game._season_mark = int(d.get("season_mark", 0))
         game.travelling_companions = [
             Creature.from_dict(c) for c in d.get("companions", [])
         ]
