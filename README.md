@@ -1,6 +1,8 @@
 # ASCII Warriors
 
-An ASCII adventure RPG in the spirit of Dwarf Fortress, for Windows and Linux.
+Two games in one world, in the spirit of Dwarf Fortress, for Windows and Linux.
+Build a fortress and try to keep seven dwarves alive in it, or walk out into the
+same world alone as an adventurer.
 
 The world is generated once — continents, rivers, biomes, civilizations — and
 then a few hundred years of history are simulated: kings crowned, wars declared,
@@ -15,6 +17,53 @@ carries on without you.
 **No hit points.** Every blow lands on a specific body part and drives force
 through skin, fat, muscle and bone in turn. You die because something vital was
 destroyed, because your head came off, or — most often — because you bled out.
+
+## Fortress mode
+
+Seven dwarves, a wagon, and a mountain. You do not control a dwarf; you paint
+designations on the rock, put up workshops, queue orders, and the dwarves work
+out the rest for themselves — badly, and eventually fatally.
+
+```
+[x3] z-4 | 12th of Slate, 125, 14:20 (Spring)          Mountainhome
+.....TT........###########                            |12th of Slate, 125
+....T.........##.........##                           |14:20  Spring
+.............##...CCC...S.#                           |rain
+.......@.....#....CCC...S.#                           |
+............##....CCC...S.#                           |Dwarves 11
+...@........#.............#                           |Wealth  8412
+............#..xxxxxxxx...#                           |Jobs    23
+.....@......#..xxxxxxxx...#                           |
+............#..===...===..#                           |Stocks
+...T........##............#                           |  Drink   312        28 days
+.............###.......####                           |  Food    241        21 days
+...............#########                              |  Stone   180        44 wood
+                                                      |
+                                                      |Mood [=========-----------]
+                                                      |
+                                                      |Working
+                                                      |Urist         Mining
+                                                      |Dodok         Brewing
+                                                      |Litast        Hauling
+----------------------------------------------------------------------------------
+Zuglar Coalhammer has struck ruby!
+A dwarven caravan from the mountainhomes has arrived.
+Etur Silvershield has been possessed!
+Etur Silvershield has created Goldenpeak, a #steel warhammer#!
+```
+
+A dwarf drinks about one unit a day and eats about one. You embark with a
+fortnight of both, and no more. A farm plot of plump helmets feeds six dwarves;
+a second plot gives the still enough surplus to brew. Get that loop running
+before the wagon empties, because a fortress without drink is a short one.
+
+Then migrants arrive and eat it all. Then goblins arrive. Then somebody is
+seized by a strange mood and locks themselves in a workshop.
+
+When the last dwarf dies, the fortress falls and its fall is written into the
+world's history, where an adventurer can later come and find the ruins.
+
+Losing is fun.
 
 ```
 Urist Boatmurdered | grass | quite content | T318 | 2 tasks
@@ -105,6 +154,25 @@ python -m ascii_warriors --dump-world - --size small --history 200 | less
 
 ## Controls
 
+### Fortress mode
+
+| Key | |
+|---|---|
+| `Space` | pause and unpause time |
+| `+` `-` | faster, slower |
+| `< >` | up and down a level |
+| arrows | scroll the view (`PgUp`/`PgDn`/`Home`/`End` to scroll fast) |
+| `d` | designate: dig, channel, stairs, ramp, smooth, chop, gather |
+| `b` | build a workshop, furniture or wall |
+| `p` | place a stockpile |
+| `o` | queue work orders at a workshop |
+| `u` `z` `j` | units / stocks / outstanding jobs |
+| `k` `t` | look / trade with the caravan |
+| `?` | help |
+| `Esc` | menu, save, abandon |
+
+### Adventure mode
+
 | Key | |
 |---|---|
 | `h j k l` `y u b n` | move; diagonals on `yubn` |
@@ -130,6 +198,22 @@ python -m ascii_warriors --dump-world - --size small --history 200 | less
 | `Esc` | menu, or go back |
 
 ## What is in it
+
+**Fortress mode.** Embark on a square of the world with seven dwarves and the
+supplies they could carry. Designate rock to be dug out, channel down, carve
+stairways and ramps, fell trees, smooth walls. Put up twenty-three kinds of
+building across workshops, furniture and construction; queue any of thirty-five
+recipes at them. Zone nine kinds of stockpile and dwarves haul goods into them.
+Plant farm plots, brew the harvest, forge what you dig up.
+
+Every dwarf has twenty labors you can switch on and off individually, so your
+legendary weaponsmith does not spend the winter carrying rocks. The job board
+offers each dwarf only the nearest work its labors allow; dwarves look after
+their own hunger, thirst and sleep first, fight when cornered, and fall over
+when they are too tired to stand.
+
+Time runs in real time at four speeds, and pauses whenever you want to think.
+Everything is saved, including who was halfway through what.
 
 **World generation.** Fractal-noise continents with droplet erosion, ocean by
 threshold, temperature from latitude and altitude, orographic rainfall, drainage,
@@ -213,8 +297,10 @@ forgotten beasts with their own names, shapes, materials and special abilities.
 ## Development
 
 ```sh
-python -m unittest discover -s tests -v     # 201 tests
-python -m tools.smoke                       # headless end-to-end play-through
+python -m unittest discover -s tests -v     # 308 tests
+python -m tools.smoke                       # headless adventure play-through
+python -m tools.smoke --mode fortress       # headless fortress play-through
+python -m tools.fuzz --mode fortress        # random keys, looking for crashes
 python -m compileall ascii_warriors
 ```
 

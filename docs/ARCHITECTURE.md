@@ -1355,7 +1355,176 @@ desert, no rain below freezing.
 `light_source`, `treat_wound`, `diagnose`, `water_source_near`,
 `refill_waterskins`.
 
-## 51. Style
+## 52. Fortress mode (`fortress/`, `ui/fort/`)
+
+Version 2.0. Fortress mode reuses everything below it — the same world, the
+same local maps, the same bodies, the same combat, the same needs — and adds a
+layer above: standing orders, a job board, and dwarves who choose their own work.
+
+The player never controls a dwarf. The player paints designations, places
+buildings and queues orders; `sim.step()` turns those into jobs and every dwarf
+picks the nearest one its labors allow.
+
+### `fortress/labors.py`
+```python
+LABORS: dict[str, Labor]           # 20 labors over 6 categories
+DEFAULT_LABORS: frozenset[str]     # everybody hauls
+PROFESSION_LABORS / PROFESSION_SKILLS: dict[str, ...]
+STARTING_SEVEN: tuple[str, ...]
+class LaborSet: has/enable/disable/toggle/by_category/to_list/from_list
+def labors_for_profession(profession) -> LaborSet
+def profession_title(dwarf) -> str          # named for its best skill
+```
+
+### `fortress/designations.py`
+```python
+KINDS: dict[str, DesignationKind]  # dig channel stairs ramp smooth chop gather remove
+class Designations:
+    cells: dict[Cell, str] ; claimed: dict[Cell, int]
+    def valid(lm, x, y, z, kind) -> bool     # a wall for dig, a tree for chop
+    def set/clear/paint_rect/clear_rect
+    def claim(cell, dwarf_id) -> bool        # one miner per wall
+def render(kind) -> tuple[str, Color]
+```
+
+### `fortress/jobs.py`
+```python
+@dataclass class Job: id kind x y z labor skill work progress priority
+                      assigned target carrying failed
+class JobBoard:
+    def post/make/has_job_at/remove/clear_kind
+    def reserve_item(item_id, job) -> bool   # two haulers never chase one rock
+    def unassigned() -> list[Job]            # priority, then failures
+    def for_dwarf(dwarf) -> list[Job]        # labor-filtered, nearest first
+WORK_SCALE = 100
+def work_rate(dwarf, job) -> int             # hundredths of a work point per tick
+```
+`work_rate` counts in hundredths so the gap between a novice and a legend is not
+lost to integer truncation. A job's `work` reads directly as "about this many
+ticks of labour".
+
+### `fortress/buildings.py`
+```python
+KINDS: dict[str, BuildingKind]     # 23 kinds over Workshops/Furniture/Construction
+class Building:  kind x y z built materials orders worker owner crop growth planted
+class Stockpile: kind x y z w h ; def accepts(item) -> bool
+def can_place(lm, kind, x, y, z, buildings) -> tuple[bool, str]
+def material_matches(item, kind) -> bool
+```
+
+### `fortress/production.py`
+```python
+RECIPES: dict[str, Recipe]         # ~35 recipes across 7 workshops
+CLASS_ITEMS: dict[str, tuple[str, ...]]   # STONE/WOOD/METAL/PLANT/FOOD
+def recipes_for(workshop) -> list[Recipe]
+def find_inputs(recipe, pool) -> list | None
+def output_material(recipe, inputs) -> str
+```
+
+### `fortress/dwarf.py`
+```python
+class DwarfState: labors job path path_goal blocked sleeping nickname bed
+                  mood mood_ticks idle_ticks squad carrying workshop
+def attach(creature, profession) -> Creature      # adds .fort, .labors, .job
+def make_dwarf(rng, profession, *, race="dwarf") -> Creature
+def work_positions(lm, goal) -> list[Cell]
+def at_or_beside(dwarf, cell) -> bool
+def path_to(fort, dwarf, goal, *, adjacent=True) -> bool
+def step_along(fort, dwarf) -> bool
+def take_turn(fort, dwarf, ticks)     # danger -> needs -> job -> claim -> idle
+```
+
+Two invariants here are load-bearing, and breaking either kills a fortress
+silently:
+
+- **`work_positions()` and `at_or_beside()` must agree exactly.** If a dwarf can
+  path to a cell it does not believe it has arrived at, it walks on the spot
+  until it dies of thirst.
+- **Needs are served most-urgent-first, not in a fixed order.** A dwarf on a
+  long walk to the ale barrel must be allowed to lie down before exhaustion
+  kills it two tiles short.
+
+`step_along` also refuses to wait politely: after one beat it shoulders past the
+dwarf in its way. Politeness deadlocks a queue at a single barrel.
+
+### `fortress/fortress.py`
+```python
+class Fortress:
+    world local rng time log designations jobs buildings stockpiles
+    creatures items_on_ground weather paused speed z ticks season_index
+    lost loss_reason wealth migrant_waves siege_count artifacts caravan
+    @classmethod embark(world, wx, wy, rng, *, name="", professions=())
+    def dwarves/hostiles/creature_at/kill_creature
+    def drop_item/take_item/item_cell/items_at/find_item/stock_count
+    def food_stock/food_reserve/find_consumable/consume
+    def water_sources/nearest_water                 # cached; rivers and wells
+    def job_items/fetch_target/pick_up_for/put_down # the fetch phase of a job
+    def prepare_job/cancel_preparation/abandon_job/complete_job
+    def _finish_<kind>(dwarf, job)                  # one per job kind
+    def to_dict/from_dict
+SEED_RESERVE = 6 ; FOOD_RESERVE_DAYS = 8
+```
+`DwarfState` is serialised separately, keyed by creature id, so `Creature`
+itself stays identical between the two modes and a dwarf could in principle be
+handed to adventure mode unchanged.
+
+The two reserves are what stop a fortress destroying itself: farmers will not
+eat the last of the seed, and a still on repeat will not brew the last week of
+food into ale.
+
+### `fortress/sim.py`
+```python
+STEP_TICKS = 10 ; SCAN_INTERVAL = 60
+MAX_HAUL_JOBS / MAX_DIG_JOBS / MAX_NEW_JOBS       # the board is bounded
+GROW_TICKS = TICKS_PER_DAY * 5 ; MOOD_ODDS = 120000
+def step(fort) / run(fort, steps)
+def scan_jobs(fort) -> int
+    # designations -> buildings -> farms -> workshops -> stockpiles
+def migrants(fort, count) -> list[Creature]
+def spawn_attack(fort, strength) -> list[Creature]
+def appraise(fort) -> int
+def record_fall(fort) -> None       # writes the fortress into world history
+```
+`step()` runs: weather, a periodic job scan, needs and wounds, every dwarf,
+every hostile, crops, moods, the calendar, then the loss check. Designations are
+scanned into jobs rather than being jobs, so you may paint ten thousand tiles
+and only sixty are ever live work.
+
+### `ui/fort/`
+```
+render.py       cell_appearance, draw_map (zones, designations, buildings,
+                items, creatures, cursor, drag region, building ghost)
+sidebar.py      draw_sidebar / draw_log / draw_status_line
+fort_screen.py  FortScene (realtime), FortEndScene, SCROLL_KEYS, scroll_delta
+cursor.py       CursorScene: move, anchor a corner, apply a rectangle
+designate.py    DesignateScene
+build_menu.py   pick_building, BuildScene, StockpileScene
+units.py        UnitsScene, LaborScene
+stocks.py       StocksScene
+orders.py       pick_workshop, OrderScene
+trade_screen.py open_trade, TradeScene
+embark.py       site_score, suggest_site, EmbarkScene
+```
+Fortress mode moves a camera rather than a character, so scrolling lives on the
+arrows and the numpad and every letter stays free for a command. A test asserts
+no command key is shadowed by `scroll_delta`.
+
+### Additions elsewhere
+
+- `ui/app.py`: `Scene.realtime` and `Scene.frame_time`. The main loop gives a
+  real-time scene a timed `read_key()` and ticks it whether or not a key came in.
+- `game/save.py`: `save_fortress` / `load_fortress` / `list_fortresses` /
+  `describe_fortress`, using the `.awf` suffix beside adventure's `.aws`.
+- `world/localmap.py`: `neighbours()` is now **symmetric**. It previously let a
+  creature walk down a staircase onto a plain floor with no way back up — a
+  one-way edge A* would happily route through, stranding whoever took it.
+- `game/needs.py`: `NUTRITION_SCALE`, `HYDRATION_SCALE` and `STRESS_DECAY`. One
+  unit of a staple is most of a day; unconsciousness counts as sleep, so a
+  creature that collapses from exhaustion can wake up again; and feelings fade.
+- `world/tiles.py`: `farm`, `farm_planted`. `data/items.py`: `coffer`, `bin`,
+  and jewellery (`crown`, `amulet`, `ring`, `earring`, `bracelet`).
+
+## 53. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

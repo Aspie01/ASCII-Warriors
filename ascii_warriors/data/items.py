@@ -409,11 +409,24 @@ for _fid, _fname, _fglyph, _fvol, _fval in (
     ("chest", "chest", "=", 5000, 35),
     ("cabinet", "cabinet", "=", 5000, 35),
     ("barrel", "barrel", "=", 6000, 20),
+    ("bin", "bin", "=", 5000, 18),
+    ("coffer", "coffer", "=", 5000, 40),
     ("statue", "statue", "&", 30000, 200),
     ("altar", "altar", "_", 20000, 300),
 ):
     _add(ItemDef(_fid, _fname, _fname + "s", "furniture", _fglyph, _fvol, _fval,
                  ("WOOD", "STONE", "METAL"), flags=frozenset({"FURNITURE"})))
+
+# Jewellery. Worth many times the stone it is cut from, which is the point.
+for _jid, _jname, _jplural, _jvol, _jval in (
+    ("crown", "crown", "crowns", 400, 300),
+    ("amulet", "amulet", "amulets", 120, 120),
+    ("ring", "ring", "rings", 40, 90),
+    ("earring", "earring", "earrings", 30, 70),
+    ("bracelet", "bracelet", "bracelets", 90, 100),
+):
+    _add(ItemDef(_jid, _jname, _jplural, "gem", '"', _jvol, _jval,
+                 ("METAL", "STONE", "GEM"), stack=False))
 
 
 def get(iid: str) -> ItemDef:

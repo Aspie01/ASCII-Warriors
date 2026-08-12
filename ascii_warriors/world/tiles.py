@@ -145,6 +145,10 @@ TILES: Dict[str, TileDef] = {
            "FIRE", "LIGHT"),
         _t("grave", "grave", "+", colors.Color(120, 116, 108), True, True,
            "FLOOR", "FURNITURE"),
+        _t("farm", "farm plot", "=", colors.Color(120, 92, 58), True, True,
+           "FLOOR", "FARM", material="dirt"),
+        _t("farm_planted", "planted field", '"', colors.Color(120, 172, 96),
+           True, True, "FLOOR", "FARM", material="dirt"),
         _t("web", "web", "*", colors.Color(210, 212, 218), True, True, "WEB"),
     )
 }

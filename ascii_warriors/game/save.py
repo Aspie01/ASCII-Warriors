@@ -12,6 +12,8 @@ from typing import Any, Dict, List, Optional
 
 SAVE_VERSION = 1
 SAVE_SUFFIX = ".aws"
+#: Fortresses save alongside adventurers but are a different sort of thing.
+FORTRESS_SUFFIX = ".awf"
 APP_NAME = "ASCIIWarriors"
 
 
@@ -83,6 +85,69 @@ def load_game(path):
     return Game.from_dict(payload["game"])
 
 
+def fortress_path_for(name: str) -> Path:
+    """The file a fortress save with this name would use."""
+    return save_dir() / (_safe_name(name) + FORTRESS_SUFFIX)
+
+
+def save_fortress(fort, name: str = "") -> Path:
+    """Write a fortress to disk and return the path."""
+    payload = {
+        "version": SAVE_VERSION,
+        "saved_at": int(time.time()),
+        "mode": "fortress",
+        "meta": {
+            "name": fort.name,
+            "world": fort.world.name,
+            "year": fort.time.year,
+            "date": fort.time.date_str(),
+            "dwarves": len(fort.dwarves()),
+            "wealth": fort.wealth,
+            "dead": fort.lost,
+        },
+        "fortress": fort.to_dict(),
+    }
+    path = fortress_path_for(name or fort.name)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    with gzip.open(tmp, "wt", encoding="utf-8") as fh:
+        json.dump(payload, fh, separators=(",", ":"))
+    tmp.replace(path)
+    return path
+
+
+def load_fortress(path):
+    """Read a fortress back from disk."""
+    from ..fortress.fortress import Fortress
+
+    with gzip.open(str(path), "rt", encoding="utf-8") as fh:
+        payload = json.load(fh)
+    version = int(payload.get("version", 0))
+    if version > SAVE_VERSION:
+        raise ValueError(
+            "This save was made by a newer version of ASCII Warriors "
+            "(save format %d, this build understands %d)."
+            % (version, SAVE_VERSION)
+        )
+    return Fortress.from_dict(payload["fortress"])
+
+
+def list_fortresses() -> List[Dict[str, Any]]:
+    """Every fortress save on disk, newest first."""
+    out: List[Dict[str, Any]] = []
+    try:
+        entries = sorted(save_dir().glob("*" + FORTRESS_SUFFIX))
+    except OSError:
+        return out
+    for path in entries:
+        meta = read_meta(path)
+        if meta is None:
+            continue
+        meta["path"] = path
+        out.append(meta)
+    out.sort(key=lambda m: m.get("saved_at", 0), reverse=True)
+    return out
+
+
 def read_meta(path) -> Optional[Dict[str, Any]]:
     """Read just the header of a save file, without rebuilding the game."""
     try:
@@ -132,6 +197,20 @@ def autosave(game) -> Optional[Path]:
         return save_game(game, game.player.name)
     except Exception:
         return None
+
+
+def describe_fortress(meta: Dict[str, Any]) -> str:
+    """One-line summary of a fortress save."""
+    when = meta.get("saved_at", 0)
+    stamp = time.strftime("%Y-%m-%d %H:%M", time.localtime(when)) if when else "?"
+    status = "FALLEN" if meta.get("dead") else str(meta.get("dwarves", "?"))
+    return "%-22s %-16s %-8s %-8s %s" % (
+        str(meta.get("name", "?"))[:22],
+        str(meta.get("date", "?"))[:16],
+        status,
+        str(meta.get("wealth", 0))[:8],
+        stamp,
+    )
 
 
 def describe(meta: Dict[str, Any]) -> str:

@@ -33,9 +33,14 @@ class MainMenu(Scene):
 
     def on_enter(self) -> None:
         items = [
+            MenuItem("New fortress", "fortress", hotkey="f",
+                     desc="Seven dwarves, a wagon, and a mountain"),
             MenuItem("New adventure", "new", hotkey="n",
-                     desc="Generate a world and set out"),
-            MenuItem("Continue", "load", hotkey="c",
+                     desc="Generate a world and set out into it alone"),
+            MenuItem("Continue fortress", "loadfort", hotkey="r",
+                     desc="Return to a fortress you left standing",
+                     enabled=bool(save_mod.list_fortresses())),
+            MenuItem("Continue adventure", "load", hotkey="c",
                      desc="Load a saved adventure",
                      enabled=bool(save_mod.list_saves())),
             MenuItem("Legends", "legends", hotkey="l",
@@ -83,6 +88,12 @@ class MainMenu(Scene):
             from .worldgen_screen import WorldGenScene
 
             self.app.push(WorldGenScene(self.app))
+        elif choice == "fortress":
+            from .worldgen_screen import WorldGenScene
+
+            self.app.push(WorldGenScene(self.app, mode="fortress"))
+        elif choice == "loadfort":
+            self.app.push(FortressSaveMenu(self.app))
         elif choice == "load":
             self.app.push(SaveMenu(self.app, mode="load"))
         elif choice == "legends":
@@ -163,6 +174,71 @@ class SaveMenu(Scene):
             from .play_screen import PlayScene
 
             self.app.reset_to(PlayScene(self.app))
+
+
+class FortressSaveMenu(Scene):
+    """Browse and load saved fortresses."""
+
+    def __init__(self, app) -> None:
+        super().__init__(app)
+        self.saves = []
+        self.menu = ListMenu([], per_page=14)
+        self.error = ""
+
+    def on_enter(self) -> None:
+        self.refresh()
+
+    def refresh(self) -> None:
+        """Re-read the save directory."""
+        self.saves = save_mod.list_fortresses()
+        items = [
+            MenuItem(save_mod.describe_fortress(m), m, hotkey=None)
+            for m in self.saves
+        ]
+        if not items:
+            items = [MenuItem("(no saved fortresses)", None, enabled=False)]
+        self.menu.set_items(items)
+
+    def draw(self, scr: Screen) -> None:
+        """Draw the fortress list."""
+        scr.frame(2, 1, scr.width - 4, scr.height - 3,
+                  title="Return to a fortress")
+        scr.text(4, 3, "%-22s %-16s %-8s %-8s %s" % (
+            "FORTRESS", "DATE", "DWARVES", "WEALTH", "SAVED"),
+            colors.UI["accent"])
+        self.menu.draw(scr, 4, 5, scr.width - 8, scr.height - 10,
+                       show_desc=False)
+        if self.error:
+            scr.text(4, scr.height - 5, self.error, colors.UI["danger"])
+        key_hint(scr, 4, scr.height - 3, [
+            (keys.ENTER, "open"), ("d", "delete"), (keys.ESC, "back"),
+        ])
+
+    def handle(self, key: str) -> None:
+        """Load, delete or leave."""
+        if key == "d" and self.menu.selected_value:
+            meta = self.menu.selected_value
+            if self.app.confirm("Delete %s?" % meta.get("name", "?")):
+                save_mod.delete_save(meta["path"])
+                self.refresh()
+            return
+        result = self.menu.handle(key)
+        if result == "cancel":
+            self.done = True
+            return
+        if result != "select":
+            return
+        meta = self.menu.selected_value
+        if not meta:
+            return
+        try:
+            fort = save_mod.load_fortress(meta["path"])
+        except Exception as exc:  # pragma: no cover - corrupt save path
+            self.error = "Could not load that fortress: %s" % exc
+            return
+        from .fort.fort_screen import FortScene
+
+        self.app.reset_to(FortScene(self.app, fort))
 
 
 class GameMenu(Scene):

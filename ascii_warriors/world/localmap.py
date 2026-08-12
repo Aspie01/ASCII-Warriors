@@ -119,21 +119,39 @@ class LocalMap:
         return not tile_data.get(below).has("OPEN")
 
     def neighbours(self, x: int, y: int, z: int) -> Iterator[Tuple[int, int, int]]:
-        """Every walkable cell reachable in one step, including stairs and ramps."""
+        """Every walkable cell reachable in one step, including stairs and ramps.
+
+        These edges are deliberately symmetric: if you can get from A to B you
+        can get back. An asymmetric graph gives you one-way drops that A* will
+        cheerfully route through, stranding whoever took them.
+        """
         for dx, dy in ((0, -1), (1, -1), (1, 0), (1, 1), (0, 1), (-1, 1),
                        (-1, 0), (-1, -1)):
             nx, ny = x + dx, y + dy
             if self.walkable(nx, ny, z):
                 yield (nx, ny, z)
+
         here = tile_data.get(self.tile(x, y, z))
-        if here.has("STAIR_UP") and self.walkable(x, y, z + 1):
+        above = tile_data.get(self.tile(x, y, z + 1))
+        below = tile_data.get(self.tile(x, y, z - 1))
+
+        # Up a staircase, or up into the foot of one coming down.
+        if (here.has("STAIR_UP") or above.has("STAIR_DOWN")) \
+                and self.walkable(x, y, z + 1):
             yield (x, y, z + 1)
-        if here.has("STAIR_DOWN") and self.walkable(x, y, z - 1):
+        # Down a staircase, or down onto the head of one going up.
+        if (here.has("STAIR_DOWN") or below.has("STAIR_UP")) \
+                and self.walkable(x, y, z - 1):
             yield (x, y, z - 1)
-        if here.has("RAMP"):
-            for dx, dy in ((0, -1), (1, 0), (0, 1), (-1, 0)):
-                if self.walkable(x + dx, y + dy, z + 1):
-                    yield (x + dx, y + dy, z + 1)
+
+        for dx, dy in ((0, -1), (1, 0), (0, 1), (-1, 0)):
+            # Up the slope of a ramp you are standing on.
+            if here.has("RAMP") and self.walkable(x + dx, y + dy, z + 1):
+                yield (x + dx, y + dy, z + 1)
+            # Down onto a ramp on the level below.
+            n = (x + dx, y + dy, z - 1)
+            if tile_data.get(self.tile(*n)).has("RAMP") and self.walkable(*n):
+                yield n
 
     def path_neighbours(self, node: Tuple[int, int, int]):
         """Neighbour generator in the ``(node, cost)`` form A* expects."""

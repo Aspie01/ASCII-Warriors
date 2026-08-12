@@ -1,0 +1,191 @@
+"""What workshops make, and what they need to make it."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Dict, List, Optional, Sequence, Tuple
+
+from ..data import items as item_data
+
+
+@dataclass(frozen=True)
+class Recipe:
+    """One thing a workshop can produce."""
+
+    id: str
+    name: str
+    workshop: str
+    skill: str
+    #: ``(item def id or "STONE"/"WOOD"/"METAL"/"FOOD"/"PLANT", count)``
+    inputs: Tuple[Tuple[str, int], ...]
+    output: str
+    out_count: int
+    work: int
+    description: str = ""
+
+
+RECIPES: Dict[str, Recipe] = {}
+
+
+def _r(rid, name, shop, skill, inputs, output, out_count=1, work=200, desc=""):
+    rec = Recipe(rid, name, shop, skill, inputs, output, out_count, work, desc)
+    RECIPES[rid] = rec
+    return rec
+
+
+# -- carpenter --------------------------------------------------------------- #
+_r("wood_bed", "Wooden bed", "carpenter", "carpentry", (("WOOD", 1),), "bed")
+_r("wood_table", "Wooden table", "carpenter", "carpentry", (("WOOD", 1),), "table")
+_r("wood_chair", "Wooden chair", "carpenter", "carpentry", (("WOOD", 1),), "chair")
+_r("wood_barrel", "Barrel", "carpenter", "carpentry", (("WOOD", 1),), "barrel")
+_r("wood_cabinet", "Cabinet", "carpenter", "carpentry", (("WOOD", 1),), "cabinet")
+_r("wood_shield", "Wooden shield", "carpenter", "carpentry", (("WOOD", 1),),
+   "shield", 1, 240)
+_r("wood_bolts", "Wooden bolts", "carpenter", "bowyer", (("WOOD", 1),),
+   "bolt", 15, 200)
+_r("wood_bow", "Bow", "carpenter", "bowyer", (("WOOD", 1),), "bow", 1, 280)
+_r("wood_crutch", "Crutch", "carpenter", "carpentry", (("WOOD", 1),), "crutch")
+_r("wood_splint", "Splint", "carpenter", "carpentry", (("WOOD", 1),), "splint", 3)
+
+# -- mason ------------------------------------------------------------------- #
+_r("stone_table", "Stone table", "mason", "masonry", (("STONE", 1),), "table")
+_r("stone_chair", "Stone chair", "mason", "masonry", (("STONE", 1),), "chair")
+_r("stone_door", "Stone door", "mason", "masonry", (("STONE", 1),), "chest")
+_r("stone_coffer", "Stone coffer", "mason", "masonry", (("STONE", 1),), "coffer")
+_r("stone_statue", "Statue", "mason", "masonry", (("STONE", 1),), "statue", 1, 320,
+   "Dwarves are unreasonably cheered by a good statue.")
+_r("stone_altar", "Altar", "mason", "masonry", (("STONE", 1),), "altar", 1, 300)
+
+# -- craftsdwarf ------------------------------------------------------------- #
+_r("stone_crafts", "Stone crafts", "craftsdwarf", "crafting", (("STONE", 1),),
+   "gem", 2, 220, "Trinkets. Worth more to a caravan than to you.")
+_r("bone_crafts", "Bone crafts", "craftsdwarf", "crafting",
+   (("bone_item", 2),), "gem", 1, 200)
+_r("stone_ammo", "Sling stones", "craftsdwarf", "crafting", (("STONE", 1),),
+   "stone_ammo", 12, 160)
+_r("leather_armor", "Leather cuirass", "craftsdwarf", "leatherwork",
+   (("hide", 2),), "leather_armor", 1, 260)
+_r("leather_bag", "Backpack", "craftsdwarf", "leatherwork", (("hide", 1),),
+   "backpack", 1, 200)
+_r("cloth_bandage", "Bandages", "craftsdwarf", "leatherwork", (("hide", 1),),
+   "bandage", 4, 160)
+_r("rope", "Rope", "craftsdwarf", "crafting", (("hide", 2),), "rope", 1, 180)
+_r("torches", "Torches", "craftsdwarf", "crafting", (("WOOD", 1),), "torch", 4, 150)
+
+# -- forge ------------------------------------------------------------------- #
+_r("iron_dagger", "Forge dagger", "smith", "weaponsmithing", (("STONE", 2),),
+   "dagger", 1, 340)
+_r("iron_sword", "Forge short sword", "smith", "weaponsmithing", (("STONE", 3),),
+   "short_sword", 1, 420)
+_r("iron_axe", "Forge axe", "smith", "weaponsmithing", (("STONE", 3),),
+   "axe", 1, 420)
+_r("iron_spear", "Forge spear", "smith", "weaponsmithing", (("STONE", 2),),
+   "spear", 1, 380)
+_r("iron_hammer", "Forge war hammer", "smith", "weaponsmithing", (("STONE", 3),),
+   "warhammer", 1, 420)
+_r("iron_helm", "Forge helm", "smith", "armorsmithing", (("STONE", 2),),
+   "helm", 1, 380)
+_r("iron_mail", "Forge mail shirt", "smith", "armorsmithing", (("STONE", 4),),
+   "mail_shirt", 1, 520)
+_r("iron_greaves", "Forge greaves", "smith", "armorsmithing", (("STONE", 3),),
+   "greaves", 1, 440)
+_r("iron_shield", "Forge shield", "smith", "armorsmithing", (("STONE", 2),),
+   "shield", 1, 360)
+_r("iron_bolts", "Forge bolts", "smith", "weaponsmithing", (("STONE", 1),),
+   "bolt", 20, 300)
+
+# -- still ------------------------------------------------------------------- #
+_r("brew_ale", "Brew dwarven ale", "still", "brewing", (("PLANT", 2),),
+   "dwarven_ale", 5, 200,
+   "A dwarf without drink works slowly and complains constantly.")
+_r("brew_wine", "Brew wine", "still", "brewing", (("PLANT", 2),), "wine", 5, 200)
+
+# -- kitchen ----------------------------------------------------------------- #
+_r("cook_roast", "Cook a roast", "kitchen", "cooking", (("FOOD", 2),),
+   "prepared_meal", 2, 220, "Worth far more nourishment than the parts.")
+_r("cook_biscuits", "Bake biscuits", "kitchen", "cooking", (("PLANT", 2),),
+   "bread", 4, 180)
+
+# -- butcher ----------------------------------------------------------------- #
+_r("butcher_corpse", "Butcher a corpse", "butcher", "butchery",
+   (("corpse", 1),), "meat", 6, 200)
+
+#: Material class -> the item definitions that satisfy it.
+CLASS_ITEMS: Dict[str, Tuple[str, ...]] = {
+    "STONE": ("boulder",),
+    "WOOD": ("log",),
+    "METAL": ("boulder",),
+    "PLANT": ("plump_helmet", "cave_wheat", "berries"),
+    "FOOD": ("meat", "cooked_meat", "fish_food", "plump_helmet", "cheese",
+             "bread", "berries", "cave_wheat"),
+}
+
+
+def recipes_for(workshop: str) -> List[Recipe]:
+    """Everything a given workshop can make."""
+    return [r for r in RECIPES.values() if r.workshop == workshop]
+
+
+def satisfies(item, requirement: str) -> bool:
+    """True if an item can serve as one unit of a recipe input."""
+    allowed = CLASS_ITEMS.get(requirement)
+    if allowed is not None:
+        if requirement == "METAL":
+            return item.def_id == "boulder" and item.mat.is_metal
+        if requirement == "STONE":
+            return item.def_id == "boulder"
+        return item.def_id in allowed
+    return item.def_id == requirement
+
+
+def find_inputs(recipe: Recipe, pool: Sequence) -> Optional[List]:
+    """Pick items from *pool* satisfying a recipe, or ``None`` if short."""
+    chosen: List = []
+    used = set()
+    for requirement, count in recipe.inputs:
+        found = 0
+        for item in pool:
+            if id(item) in used:
+                continue
+            if not satisfies(item, requirement):
+                continue
+            take = min(count - found, item.count)
+            if take <= 0:
+                continue
+            chosen.append((item, take))
+            used.add(id(item))
+            found += take
+            if found >= count:
+                break
+        if found < count:
+            return None
+    return chosen
+
+
+def output_material(recipe: Recipe, inputs: Sequence) -> str:
+    """What material the product comes out as."""
+    defn = item_data.get(recipe.output)
+    if recipe.output in ("dwarven_ale", "wine"):
+        return "alcohol"
+    if defn.category in ("food",):
+        return "meat" if recipe.output in ("prepared_meal", "meat") else "plant"
+    for item, _count in inputs:
+        mat = item.mat
+        if "METAL" in defn.materials and mat.is_metal:
+            return mat.id
+        if "WOOD" in defn.materials and mat.category == "wood":
+            return mat.id
+        if "STONE" in defn.materials and mat.category == "stone":
+            return mat.id
+        if "LEATHER" in defn.materials and mat.category == "leather":
+            return mat.id
+    # Metal goods forged from ore come out as the metal the ore implies.
+    if "METAL" in defn.materials:
+        return "iron"
+    if "WOOD" in defn.materials:
+        return "oak"
+    if "STONE" in defn.materials:
+        return "granite"
+    for item, _count in inputs:
+        return item.material
+    return "granite"

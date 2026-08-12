@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from typing import Any, Dict, List, Mapping, Sequence, Tuple
 
 from ..data.calendar import TICKS_PER_DAY
@@ -24,6 +25,15 @@ SLEEP_COLLAPSE = int(TICKS_PER_DAY * 2.0)
 FATIGUE_TIRED = 600
 FATIGUE_EXHAUSTED = 1200
 FATIGUE_MAX = 2000
+
+#: Ticks of hunger one point of nutrition holds off. A plump helmet (450) is
+#: about three quarters of a day; a fine meal is nearly three days.
+NUTRITION_SCALE = 24
+#: The same for thirst. A mug of ale (800) is very nearly a full day.
+HYDRATION_SCALE = 16
+
+#: Ticks for one point of stress to fade back towards indifference.
+STRESS_DECAY = 900
 
 
 class Needs:
@@ -70,17 +80,33 @@ class Needs:
                 )
             )
         if not defn.has("NO_SLEEP"):
-            before = self.drowsy
-            self.drowsy += ticks
-            msgs.extend(
-                _threshold_messages(
-                    before, self.drowsy,
-                    ((SLEEP_DROWSY, "You are drowsy."),
-                     (SLEEP_EXHAUSTED, "You are exhausted and can barely stand.")),
+            if creature.body.unconscious > 0:
+                # Being out cold is still rest. Without this a creature that
+                # collapses from exhaustion never sleeps it off, wakes up
+                # exhausted, collapses again, and dies in its coma.
+                self.drowsy = max(0, self.drowsy - ticks * 3)
+            else:
+                before = self.drowsy
+                self.drowsy += ticks
+                msgs.extend(
+                    _threshold_messages(
+                        before, self.drowsy,
+                        ((SLEEP_DROWSY, "You are drowsy."),
+                         (SLEEP_EXHAUSTED,
+                          "You are exhausted and can barely stand.")),
+                    )
                 )
-            )
 
         self.fatigue = max(0, self.fatigue - max(1, ticks // 4))
+
+        # Feelings fade. Without this a creature that had one good week stays
+        # ecstatic for ever and nothing you do to it afterwards matters.
+        if self.stress:
+            drift = ticks / float(STRESS_DECAY)
+            if abs(self.stress) <= drift:
+                self.stress = 0
+            else:
+                self.stress -= int(math.copysign(max(1, int(drift)), self.stress))
 
         # Starvation and dehydration eventually kill.
         if self.hunger > HUNGER_DEATH:
@@ -122,11 +148,17 @@ class Needs:
     # -- satisfying needs -------------------------------------------------- #
 
     def eat(self, item: Item) -> str:
-        """Consume food; returns the message to show."""
+        """Consume food; returns the message to show.
+
+        The multipliers are set so one unit of a staple — a plump helmet, a
+        mug of ale — is most of a day. Anything tighter and a creature spends
+        its whole life queueing at the food pile.
+        """
         nutrition = item.defn.nutrition or 400
-        self.hunger = max(0, self.hunger - nutrition * 6)
+        self.hunger = max(0, self.hunger - nutrition * NUTRITION_SCALE)
         if item.defn.hydration:
-            self.thirst = max(0, self.thirst - item.defn.hydration * 6)
+            self.thirst = max(
+                0, self.thirst - item.defn.hydration * HYDRATION_SCALE // 2)
         if item.quality >= 3:
             self.add_thought("ate a fine meal", -6)
         return "You eat %s." % item.name(article=True)
@@ -134,9 +166,10 @@ class Needs:
     def drink(self, item: Item) -> str:
         """Consume a drink; returns the message to show."""
         hydration = item.defn.hydration or 600
-        self.thirst = max(0, self.thirst - hydration * 8)
+        self.thirst = max(0, self.thirst - hydration * HYDRATION_SCALE)
         if item.defn.nutrition:
-            self.hunger = max(0, self.hunger - item.defn.nutrition * 4)
+            self.hunger = max(
+                0, self.hunger - item.defn.nutrition * NUTRITION_SCALE * 2 // 3)
         if item.material == "alcohol":
             self.add_thought("had a drink", -4)
             self.stress = max(-100, self.stress - 2)

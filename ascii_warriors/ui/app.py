@@ -18,6 +18,10 @@ class Scene:
 
     #: Overlay scenes are drawn on top of the scene beneath them.
     overlay = False
+    #: Real-time scenes keep ticking while nobody is pressing anything.
+    realtime = False
+    #: Seconds between frames when :attr:`realtime` is set.
+    frame_time = 0.05
 
     def __init__(self, app: "App") -> None:
         self.app = app
@@ -145,14 +149,19 @@ class App:
                 scene = self.current
                 if scene is None:
                     break
-                key = self.term.read_key()
-                if key is None:
-                    continue
+                # A real-time scene must keep running with no input at all, so
+                # it gets a timed read and a tick whether or not a key arrives.
+                if scene.realtime:
+                    key = self.term.read_key(timeout=scene.frame_time)
+                else:
+                    key = self.term.read_key()
                 if key == "C-l":
                     self.term.full_redraw()
-                    continue
-                scene.handle(key)
-                scene.tick()
+                    key = None
+                if key is not None:
+                    scene.handle(key)
+                if key is not None or scene.realtime:
+                    scene.tick()
                 while self.scenes and self.scenes[-1].done:
                     self.pop()
         except QuitSignal:

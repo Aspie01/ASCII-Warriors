@@ -1,0 +1,367 @@
+"""Workshops, furniture, constructions, stockpiles and farm plots."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any, Dict, List, Mapping, Optional, Tuple
+
+from ..engine import colors
+from ..engine.colors import Color
+from ..world import tiles as tile_data
+
+Cell = Tuple[int, int, int]
+
+
+@dataclass(frozen=True)
+class BuildingKind:
+    """One thing you can put up."""
+
+    id: str
+    name: str
+    glyph: str
+    color: Color
+    width: int
+    height: int
+    #: Item categories or flags acceptable as building material.
+    materials: Tuple[str, ...]
+    material_count: int
+    work: int
+    labor: str
+    skill: str
+    tile: str
+    category: str
+    walkable: bool = True
+    description: str = ""
+
+
+def _b(
+    bid: str, name: str, glyph: str, color: Color, w: int, h: int,
+    mats: Tuple[str, ...], count: int, work: int, labor: str, skill: str,
+    tile: str, category: str, walkable: bool = True, desc: str = "",
+) -> BuildingKind:
+    return BuildingKind(bid, name, glyph, color, w, h, mats, count, work,
+                        labor, skill, tile, category, walkable, desc)
+
+
+KINDS: Dict[str, BuildingKind] = {
+    k.id: k
+    for k in (
+        # -- workshops ---------------------------------------------------- #
+        _b("carpenter", "Carpenter's workshop", "C", colors.Color(170, 130, 80),
+           3, 3, ("WOOD",), 1, 200, "building", "carpentry",
+           "floor_constructed", "Workshops", True,
+           "Turns logs into beds, doors, barrels and bins."),
+        _b("mason", "Mason's workshop", "M", colors.Color(170, 168, 160),
+           3, 3, ("STONE",), 1, 200, "building", "masonry",
+           "floor_constructed", "Workshops", True,
+           "Turns stone into furniture, doors and blocks."),
+        _b("craftsdwarf", "Craftsdwarf's workshop", "R",
+           colors.Color(190, 160, 200), 3, 3, ("STONE", "WOOD"), 1, 200,
+           "building", "crafting", "floor_constructed", "Workshops", True,
+           "Makes trinkets, mugs and totems out of anything."),
+        _b("smith", "Metalsmith's forge", "F", colors.Color(210, 130, 80),
+           3, 3, ("STONE",), 1, 260, "building", "smithing",
+           "floor_constructed", "Workshops", True,
+           "Forges weapons and armour. Needs fuel."),
+        _b("still", "Still", "S", colors.Color(180, 140, 90), 3, 3,
+           ("WOOD", "STONE"), 1, 180, "building", "brewing",
+           "floor_constructed", "Workshops", True,
+           "Brews plants into drink. A fortress without drink is a doomed one."),
+        _b("kitchen", "Kitchen", "K", colors.Color(200, 170, 120), 3, 3,
+           ("WOOD", "STONE"), 1, 180, "building", "cooking",
+           "floor_constructed", "Workshops", True,
+           "Cooks raw food into meals worth eating."),
+        _b("butcher", "Butcher's shop", "B", colors.Color(190, 110, 110),
+           3, 3, ("WOOD", "STONE"), 1, 180, "building", "butchery",
+           "floor_constructed", "Workshops", True, ""),
+        _b("hospital", "Hospital bed", "H", colors.Color(210, 180, 180),
+           1, 1, ("WOOD",), 1, 100, "building", "carpentry", "bed",
+           "Workshops", True, "Where the wounded are treated."),
+        _b("farm", "Farm plot", "=", colors.Color(120, 92, 58), 3, 3,
+           (), 0, 60, "farming", "herbalism", "farm", "Workshops", True,
+           "Plump helmets grow underground on nothing but mud and patience."),
+
+        # -- furniture ----------------------------------------------------- #
+        _b("bed", "Bed", "=", colors.Color(180, 140, 90), 1, 1, ("WOOD",), 1,
+           80, "building", "carpentry", "bed", "Furniture", True,
+           "A dwarf who sleeps in a bed wakes up happier."),
+        _b("table", "Table", "=", colors.Color(170, 130, 85), 1, 1,
+           ("WOOD", "STONE"), 1, 80, "building", "carpentry", "table",
+           "Furniture", True, ""),
+        _b("chair", "Chair", "=", colors.Color(165, 125, 80), 1, 1,
+           ("WOOD", "STONE"), 1, 70, "building", "carpentry", "chair",
+           "Furniture", True, ""),
+        _b("door", "Door", "+", colors.Color(170, 125, 70), 1, 1,
+           ("WOOD", "STONE"), 1, 90, "building", "carpentry", "door_closed",
+           "Furniture", True, "Keeps the weather and the goblins out."),
+        _b("cabinet", "Cabinet", "=", colors.Color(150, 115, 70), 1, 1,
+           ("WOOD", "STONE"), 1, 90, "building", "carpentry", "cabinet",
+           "Furniture", False, ""),
+        _b("coffer", "Coffer", "=", colors.Color(190, 160, 100), 1, 1,
+           ("WOOD", "STONE", "METAL"), 1, 100, "building", "carpentry",
+           "coffer", "Furniture", False, ""),
+        _b("statue", "Statue", "&", colors.Color(200, 195, 185), 1, 1,
+           ("STONE", "METAL"), 1, 160, "building", "masonry", "statue",
+           "Furniture", False,
+           "Dwarves like looking at these more than you would expect."),
+        _b("well", "Well", "o", colors.Color(160, 180, 200), 1, 1,
+           ("STONE", "WOOD"), 1, 200, "building", "mechanics", "well",
+           "Furniture", True, "Clean water without leaving the fortress."),
+
+        # -- constructions -------------------------------------------------- #
+        _b("wall", "Wall", "#", colors.Color(175, 170, 158), 1, 1,
+           ("STONE", "WOOD", "METAL"), 1, 120, "building", "masonry",
+           "wall_constructed", "Construction", False, ""),
+        _b("floor", "Floor", ".", colors.Color(160, 155, 145), 1, 1,
+           ("STONE", "WOOD", "METAL"), 1, 100, "building", "masonry",
+           "floor_constructed", "Construction", True, ""),
+        _b("bridge", "Bridge", "=", colors.Color(160, 120, 75), 1, 1,
+           ("STONE", "WOOD"), 1, 110, "building", "carpentry", "bridge",
+           "Construction", True, ""),
+        _b("fortification", "Fortification", "#", colors.Color(185, 180, 168),
+           1, 1, ("STONE",), 1, 130, "building", "masonry", "fortification",
+           "Construction", False,
+           "Your crossbows can shoot through it. Theirs cannot get in."),
+        _b("up_stair", "Up staircase", "<", colors.Color(200, 195, 175), 1, 1,
+           ("STONE", "WOOD"), 1, 130, "building", "masonry", "stair_up",
+           "Construction", True, ""),
+        _b("down_stair", "Down staircase", ">", colors.Color(200, 195, 175),
+           1, 1, ("STONE", "WOOD"), 1, 130, "building", "masonry",
+           "stair_down", "Construction", True, ""),
+    )
+}
+
+WORKSHOP_KINDS: Tuple[str, ...] = (
+    "carpenter", "mason", "craftsdwarf", "smith", "still", "kitchen", "butcher",
+)
+
+BUILD_CATEGORIES: Tuple[str, ...] = ("Workshops", "Furniture", "Construction")
+
+
+class Building:
+    """A workshop, piece of furniture or construction, built or planned."""
+
+    _next_id = 1
+
+    def __init__(self, kind: str, x: int, y: int, z: int) -> None:
+        self.id = Building._next_id
+        Building._next_id += 1
+        self.kind = kind
+        self.x = x
+        self.y = y
+        self.z = z
+        self.built = False
+        #: Item ids used to build it, recorded so the material shows in its name.
+        self.materials: List[int] = []
+        self.material_name = ""
+        #: Production orders queued at this workshop.
+        self.orders: List[Dict[str, Any]] = []
+        self.worker: Optional[int] = None
+        self.owner: Optional[int] = None
+        #: Farm plots track what is growing.
+        self.crop = ""
+        self.growth = 0
+        self.planted = False
+
+    @property
+    def defn(self) -> BuildingKind:
+        """The building's definition."""
+        return KINDS.get(self.kind) or KINDS["wall"]
+
+    @property
+    def name(self) -> str:
+        """Display name, including the material once it is built."""
+        if self.material_name:
+            return "%s %s" % (self.material_name, self.defn.name.lower())
+        return self.defn.name
+
+    @property
+    def is_workshop(self) -> bool:
+        """True for buildings that take production orders."""
+        return self.kind in WORKSHOP_KINDS
+
+    def cells(self) -> List[Cell]:
+        """Every tile this building occupies."""
+        d = self.defn
+        return [
+            (self.x + dx, self.y + dy, self.z)
+            for dy in range(d.height) for dx in range(d.width)
+        ]
+
+    @property
+    def center(self) -> Cell:
+        """The middle of the building, where a worker stands."""
+        d = self.defn
+        return (self.x + d.width // 2, self.y + d.height // 2, self.z)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialise the building."""
+        return {
+            "id": self.id, "kind": self.kind, "x": self.x, "y": self.y,
+            "z": self.z, "built": self.built, "materials": self.materials,
+            "material_name": self.material_name, "orders": self.orders,
+            "worker": self.worker, "owner": self.owner, "crop": self.crop,
+            "growth": self.growth, "planted": self.planted,
+        }
+
+    @classmethod
+    def from_dict(cls, d: Mapping[str, Any]) -> "Building":
+        """Rebuild from :meth:`to_dict`."""
+        b = cls(str(d["kind"]), int(d["x"]), int(d["y"]), int(d["z"]))
+        b.id = int(d.get("id", b.id))
+        Building._next_id = max(Building._next_id, b.id + 1)
+        b.built = bool(d.get("built", False))
+        b.materials = [int(i) for i in d.get("materials", [])]
+        b.material_name = str(d.get("material_name", ""))
+        b.orders = list(d.get("orders", []))
+        b.worker = d.get("worker")
+        b.owner = d.get("owner")
+        b.crop = str(d.get("crop", ""))
+        b.growth = int(d.get("growth", 0))
+        b.planted = bool(d.get("planted", False))
+        return b
+
+    def __repr__(self) -> str:  # pragma: no cover - debugging aid
+        return "Building(%s at %d,%d,%d, %s)" % (
+            self.kind, self.x, self.y, self.z,
+            "built" if self.built else "planned")
+
+
+# --------------------------------------------------------------------------- #
+# Farm plots and stockpiles are zones rather than single buildings
+# --------------------------------------------------------------------------- #
+
+#: Which item categories each stockpile type accepts.
+STOCKPILE_TYPES: Dict[str, Tuple[str, ...]] = {
+    "stone": ("misc",),
+    "wood": ("misc",),
+    "food": ("food", "drink"),
+    "furniture": ("furniture",),
+    "weapons": ("weapon", "ammo"),
+    "armor": ("armor", "clothing", "shield"),
+    "goods": ("gem", "coin", "tool", "container", "book", "remains"),
+    "refuse": ("corpse", "remains"),
+    "all": ("weapon", "armor", "clothing", "shield", "ammo", "food", "drink",
+            "tool", "container", "gem", "coin", "book", "furniture", "misc",
+            "remains"),
+}
+
+STOCKPILE_COLORS: Dict[str, Color] = {
+    "stone": colors.Color(150, 148, 142),
+    "wood": colors.Color(160, 120, 75),
+    "food": colors.Color(190, 175, 110),
+    "furniture": colors.Color(170, 140, 100),
+    "weapons": colors.Color(180, 180, 195),
+    "armor": colors.Color(160, 170, 195),
+    "goods": colors.Color(190, 160, 200),
+    "refuse": colors.Color(140, 130, 120),
+    "all": colors.Color(170, 170, 170),
+}
+
+
+class Stockpile:
+    """A rectangle dwarves haul matching goods into."""
+
+    _next_id = 1
+
+    def __init__(self, kind: str, x: int, y: int, z: int, w: int, h: int) -> None:
+        self.id = Stockpile._next_id
+        Stockpile._next_id += 1
+        self.kind = kind
+        self.x = x
+        self.y = y
+        self.z = z
+        self.w = max(1, w)
+        self.h = max(1, h)
+
+    @property
+    def categories(self) -> Tuple[str, ...]:
+        """Item categories this pile accepts."""
+        return STOCKPILE_TYPES.get(self.kind, STOCKPILE_TYPES["all"])
+
+    @property
+    def color(self) -> Color:
+        """Overlay colour."""
+        return STOCKPILE_COLORS.get(self.kind, colors.UI["dim"])
+
+    def accepts(self, item) -> bool:
+        """True if this pile wants that item."""
+        if self.kind == "stone":
+            return item.def_id == "boulder"
+        if self.kind == "wood":
+            return item.def_id == "log"
+        if self.kind == "refuse":
+            return item.is_corpse or item.def_id in ("bone_item", "skull")
+        if item.def_id in ("boulder", "log"):
+            return self.kind == "all"
+        return item.category in self.categories
+
+    def contains(self, x: int, y: int, z: int) -> bool:
+        """True if a cell lies in this pile."""
+        return (z == self.z and self.x <= x < self.x + self.w
+                and self.y <= y < self.y + self.h)
+
+    def cells(self) -> List[Cell]:
+        """Every cell in the pile."""
+        return [
+            (self.x + dx, self.y + dy, self.z)
+            for dy in range(self.h) for dx in range(self.w)
+        ]
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialise the stockpile."""
+        return {"id": self.id, "kind": self.kind, "x": self.x, "y": self.y,
+                "z": self.z, "w": self.w, "h": self.h}
+
+    @classmethod
+    def from_dict(cls, d: Mapping[str, Any]) -> "Stockpile":
+        """Rebuild from :meth:`to_dict`."""
+        s = cls(str(d["kind"]), int(d["x"]), int(d["y"]), int(d["z"]),
+                int(d["w"]), int(d["h"]))
+        s.id = int(d.get("id", s.id))
+        Stockpile._next_id = max(Stockpile._next_id, s.id + 1)
+        return s
+
+    def __repr__(self) -> str:  # pragma: no cover - debugging aid
+        return "Stockpile(%s %dx%d at %d,%d,%d)" % (
+            self.kind, self.w, self.h, self.x, self.y, self.z)
+
+
+def can_place(lm, kind: str, x: int, y: int, z: int, buildings) -> Tuple[bool, str]:
+    """Whether a building fits here. Returns ``(ok, why not)``."""
+    k = KINDS.get(kind)
+    if k is None:
+        return (False, "There is no such building.")
+    for dy in range(k.height):
+        for dx in range(k.width):
+            cx, cy = x + dx, y + dy
+            if not lm.in_bounds(cx, cy, z):
+                return (False, "That is off the edge of the map.")
+            tile = tile_data.get(lm.tile(cx, cy, z))
+            if kind in ("wall", "floor", "up_stair", "down_stair",
+                        "fortification", "bridge"):
+                if tile.has("WALL") and kind != "floor":
+                    return (False, "There is already a wall there.")
+            elif not tile.walk or tile.has("WATER"):
+                return (False, "The ground there will not take it.")
+            if tile.has("FURNITURE"):
+                return (False, "Something is already built there.")
+            for b in buildings:
+                if (cx, cy, z) in b.cells():
+                    return (False, "Something is already built there.")
+    return (True, "")
+
+
+def material_matches(item, kind: str) -> bool:
+    """True if an item can be used to build this kind of building."""
+    k = KINDS.get(kind)
+    if k is None:
+        return False
+    if item.def_id == "boulder":
+        return "STONE" in k.materials
+    if item.def_id == "log":
+        return "WOOD" in k.materials
+    if item.category in ("weapon", "armor", "food", "drink", "corpse"):
+        return False
+    flags = item.mat.flags
+    return any(f in flags for f in k.materials)

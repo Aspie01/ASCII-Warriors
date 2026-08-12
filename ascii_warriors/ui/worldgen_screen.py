@@ -17,8 +17,10 @@ HISTORY_OPTIONS = [20, 50, 100, 150, 250, 500]
 class WorldGenScene(Scene):
     """Choose world parameters, then generate."""
 
-    def __init__(self, app) -> None:
+    def __init__(self, app, mode: str = "adventure") -> None:
         super().__init__(app)
+        #: ``"adventure"`` rolls a character next; ``"fortress"`` picks a site.
+        self.mode = mode
         self.size = app.world_size if app.world_size in WORLD_SIZES else "medium"
         self.history = app.history_years
         self.seed_text = app.seed or ""
@@ -143,6 +145,11 @@ class WorldGenScene(Scene):
             rng, size=self.size, history_years=self.history, progress=progress,
         )
         self.app.rng = rng
+        if self.mode == "fortress":
+            from .fort.embark import EmbarkScene
+
+            self.app.replace(EmbarkScene(self.app, world, rng))
+            return
         from .charcreate import CharCreateScene
 
         self.app.replace(CharCreateScene(self.app, world, rng))

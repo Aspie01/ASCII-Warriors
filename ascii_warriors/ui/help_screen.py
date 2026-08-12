@@ -9,7 +9,7 @@ from ..engine.screen import Frag, Screen
 from ..engine.widgets import Tabs, key_hint, scroll_view
 from .app import Scene
 
-TABS = ["Controls", "Combat", "The world", "Survival"]
+TABS = ["Controls", "Fortress", "Combat", "The world", "Survival"]
 
 CONTROLS: List[Tuple[str, str]] = [
     ("", "MOVEMENT"),
@@ -57,6 +57,57 @@ CONTROLS: List[Tuple[str, str]] = [
     ("Ctrl-L", "redraw the screen"),
     ("Esc", "menu / go back"),
 ]
+
+FORTRESS_TEXT = """\
+Fortress mode is the other half of the game. You do not control a dwarf; you
+control the fortress, and the dwarves get on with it.
+
+Seven dwarves arrive with a wagon. Time runs by itself -- Space pauses it, + and
+- change the speed. Scroll with the arrow keys, and use < and > to move up and
+down through the rock.
+
+WHAT TO DO FIRST
+
+  d      designate. Press d again for mining, i for a stairway. Enter marks one
+         corner of a rectangle, Enter again paints it. Dig into a hillside.
+  b      build. A still first, then a farm plot, then beds.
+  p      place a stockpile so loose goods get carried indoors.
+  o      queue work at a workshop. A still with a repeating 'brew ale' order is
+         the difference between a fortress and a graveyard.
+
+  u      units: everybody, what they are doing, and their labors
+  z      stocks: everything you own
+  j      what work is outstanding
+  k      look at whatever is in the middle of the view
+  t      trade, when the autumn caravan is here
+
+FOOD AND DRINK
+
+A dwarf drinks about one unit a day and eats about one. You embark with a
+fortnight of both. A farm plot planted with plump helmets feeds roughly six
+dwarves; a second plot gives you the surplus a still needs.
+
+Dwarves will drink from a river or a well if the ale runs out. They will
+complain about it. On a dry embark there is no such mercy: brew, or die.
+
+Your workshops will not touch the last week of food, and your farmers will not
+eat the last of the seed.
+
+WHAT WILL GO WRONG
+
+Migrants arrive each spring and autumn if word of your wealth has spread, and
+they eat as much as anybody. Goblins come once you have something worth taking.
+Dwarves who sleep on the floor, eat without a table and run out of drink become
+miserable; a miserable fortress is a short one.
+
+Sooner or later a dwarf will be seized by a strange mood, claim a workshop, and
+emerge with an artifact nobody asked for.
+
+When the last dwarf dies the fortress falls, and its fall is written into the
+world's history where an adventurer can later come and find the ruins.
+
+Losing is fun.
+"""
 
 COMBAT_TEXT = """\
 There are no hit points.
@@ -166,7 +217,8 @@ class HelpScene(Scene):
                 else:
                     out.append(Frag("  %-20s %s" % (key, desc), colors.UI["fg"]))
         else:
-            text = {1: COMBAT_TEXT, 2: WORLD_TEXT, 3: SURVIVAL_TEXT}[idx]
+            text = {1: FORTRESS_TEXT, 2: COMBAT_TEXT, 3: WORLD_TEXT,
+                    4: SURVIVAL_TEXT}[idx]
             for para in text.split("\n"):
                 out.append(Frag(para, colors.UI["fg"]))
         return out

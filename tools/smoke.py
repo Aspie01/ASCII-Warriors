@@ -19,8 +19,8 @@ from ascii_warriors.ui.app import App
 
 #: Walk into the world, poke every screen, then quit.
 DEFAULT_SCRIPT: List[str] = (
-    # Title -> new adventure -> generate with defaults
-    ["ENTER", "j", "j", "j", "ENTER"]
+    # Title -> new adventure (second entry) -> generate with defaults
+    ["j", "ENTER", "j", "j", "j", "ENTER"]
     # Character creation: cycle race and profession, then begin
     + ["l", "j", "l", "j", "j", "j", "j", "ENTER"]
     # Walk around a little
@@ -45,6 +45,39 @@ DEFAULT_SCRIPT: List[str] = (
     + ["ESC", "j", "j", "ENTER"]
 )
 
+#: Found a fortress, dig a hole, put up a workshop, look at every screen.
+FORTRESS_SCRIPT: List[str] = (
+    # Title -> new fortress -> generate with defaults
+    ["ENTER", "j", "j", "j", "ENTER"]
+    # Embark screen: take the suggestion, commit, confirm a dry site if asked
+    + ["s", "ENTER", "y"]
+    # Look around: scroll, change level, run some time
+    + ["RIGHT", "DOWN", "LEFT", "UP", "SPACE"]
+    + ["."] * 6
+    + [">", "<", "+", "+", "-"]
+    # Designate a block to dig, then a block of stairs
+    + ["d", "d", "ENTER", "RIGHT", "RIGHT", "DOWN", "DOWN", "ENTER"]
+    + ["i", "ENTER", "RIGHT", "ENTER"]
+    + ["t", "ENTER", "DOWN", "ENTER", "ESC"]
+    # Let them work
+    + ["SPACE"] + ["."] * 12
+    # Place a stockpile
+    + ["p", "ENTER", "RIGHT", "RIGHT", "DOWN", "ENTER", "ESC"]
+    # Build a workshop: the build menu opens a chooser first
+    + ["b", "ENTER", "ENTER", "ESC"]
+    # Every panel
+    + ["u", "j", "ENTER", "ESC", "l", "SPACE", "j", "SPACE", "ESC", "ESC"]
+    + ["z", "j", "j", "ESC"]
+    + ["j", "ENTER"]
+    + ["o", "ESC"]
+    + ["k", "ENTER"]
+    + ["t", "ENTER"]
+    + ["?", "ENTER"]
+    # Run a while longer, then quit through the menu
+    + ["."] * 20
+    + ["ESC", "j", "j", "j", "j", "ENTER"]
+)
+
 
 def build_parser() -> argparse.ArgumentParser:
     """Command-line options for the smoke driver."""
@@ -52,6 +85,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--seed", default="smoke")
     p.add_argument("--size", default="pocket")
     p.add_argument("--history", type=int, default=20)
+    p.add_argument("--mode", default="adventure",
+                   choices=("adventure", "fortress"),
+                   help="which built-in script to run")
     p.add_argument("--keys", default="",
                    help="comma separated key script (default: a full tour)")
     p.add_argument("--width", type=int, default=100)
@@ -66,8 +102,9 @@ def build_parser() -> argparse.ArgumentParser:
 def run(argv: Optional[Sequence[str]] = None) -> int:
     """Play a scripted game and report success or failure."""
     args = build_parser().parse_args(list(argv) if argv is not None else None)
+    default = (FORTRESS_SCRIPT if args.mode == "fortress" else DEFAULT_SCRIPT)
     script = (
-        [k for k in args.keys.split(",") if k] if args.keys else list(DEFAULT_SCRIPT)
+        [k for k in args.keys.split(",") if k] if args.keys else list(default)
     )
     term = HeadlessTerminal(args.width, args.height, script)
     app = App(

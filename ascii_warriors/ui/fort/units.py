@@ -1,0 +1,217 @@
+"""Who is in the fortress, what they are doing, and what they will do."""
+
+from __future__ import annotations
+
+from typing import List
+
+from ...engine import colors, keys
+from ...engine.screen import Frag, Screen
+from ...engine.widgets import ListMenu, MenuItem, header, key_hint, popup
+from ...fortress import dwarf as dwarf_mod
+from ...fortress.labors import CATEGORIES, LABORS, profession_title
+from ..app import Scene
+
+
+class UnitsScene(Scene):
+    """The list of everybody in the fortress."""
+
+    def __init__(self, app, fort) -> None:
+        super().__init__(app)
+        self.fort = fort
+        self.menu = ListMenu(self._items(), per_page=18, auto_hotkeys=False)
+
+    def _items(self) -> List[MenuItem]:
+        """One row per dwarf, then anything else that is alive."""
+        fort = self.fort
+        items: List[MenuItem] = []
+        dwarves = sorted(fort.dwarves(), key=lambda d: d.name)
+        items.append(header("Dwarves (%d)" % len(dwarves)))
+        for d in dwarves:
+            items.append(MenuItem(self._row(d), d.id))
+        others = [c for c in fort.creatures.values()
+                  if getattr(c, "fort", None) is None and not c.body.dead]
+        if others:
+            items.append(header("Others (%d)" % len(others)))
+            for c in others:
+                colour = (colors.UI["danger"] if c.faction == "hostile"
+                          else colors.UI["dim"])
+                items.append(MenuItem(
+                    [Frag("%-24s " % c.display_name()[:24], colour),
+                     Frag(c.faction, colors.UI["dim"])], c.id))
+        dead = [c for c in fort.creatures.values() if c.body.dead]
+        if dead:
+            items.append(header("The dead (%d)" % len(dead)))
+            for c in dead:
+                items.append(MenuItem(
+                    [Frag("%-24s " % c.name[:24], colors.UI["dim"]),
+                     Frag(c.body.death_cause or "dead", colors.UI["dim"])],
+                    c.id))
+        return items
+
+    def _row(self, d) -> List[Frag]:
+        """One dwarf's line."""
+        state = d.fort
+        name = state.nickname or d.name
+        if state.mood:
+            what, colour = "possessed", colors.MAGIC
+        elif state.job is not None:
+            what, colour = state.job.label, state.job.color
+        elif d.body.unconscious > 0:
+            what, colour = "unconscious", colors.UI["danger"]
+        else:
+            what, colour = "no job", colors.UI["dim"]
+        stress = d.needs.stress
+        mood_colour = (colors.UI["good"] if stress < 0 else
+                       colors.UI["warn"] if stress < 90 else
+                       colors.UI["danger"])
+        wounded = d.body.wound_summary()
+        return [
+            Frag("%-22s " % name[:22], colors.UI["fg"]),
+            Frag("%-22s " % profession_title(d)[:22], colors.UI["accent"]),
+            Frag("%-18s " % what[:18], colour),
+            Frag("%-12s " % d.needs.mood()[:12], mood_colour),
+            Frag(wounded[:18] if wounded else "", colors.UI["danger"]),
+        ]
+
+    def draw(self, scr: Screen) -> None:
+        """The list."""
+        scr.clear(colors.UI["bg"])
+        scr.frame(0, 0, scr.width, scr.height,
+                  title="Units of %s" % self.fort.name)
+        self.menu.per_page = max(4, scr.height - 5)
+        self.menu.draw(scr, 2, 2, scr.width - 4, scr.height - 5)
+        key_hint(scr, 2, scr.height - 2, [
+            (keys.ENTER, "look closer"), ("l", "labors"), ("n", "nickname"),
+            ("m", "militia"), (keys.ESC, "back"),
+        ])
+
+    def handle(self, key: str) -> None:
+        """Inspect, rename, or change what a dwarf is willing to do."""
+        result = self.menu.handle(key)
+        if result == "cancel":
+            self.done = True
+            return
+        creature = self._selected()
+        if result == "select" and creature is not None:
+            self._describe(creature)
+            return
+        if creature is None or getattr(creature, "fort", None) is None:
+            return
+        if key == "l":
+            self.app.push(LaborScene(self.app, self.fort, creature))
+        elif key == "n":
+            self._nickname(creature)
+        elif key == "m":
+            state = creature.fort
+            state.squad = not state.squad
+            state.labors.enable("military") if state.squad else \
+                state.labors.disable("military")
+            self.fort.log.system("%s %s the militia." % (
+                creature.name, "joins" if state.squad else "leaves"))
+            self.menu.set_items(self._items())
+
+    def _selected(self):
+        """The creature under the cursor."""
+        cid = self.menu.selected_value
+        return self.fort.creatures.get(cid) if cid is not None else None
+
+    def _nickname(self, creature) -> None:
+        """Give a dwarf a name of your own."""
+        from ...engine.widgets import prompt_string
+
+        name = prompt_string(self.app.screen, self.app.term,
+                             "Nickname for %s" % creature.name)
+        if name is not None:
+            creature.fort.nickname = name.strip()
+            self.menu.set_items(self._items())
+
+    def _describe(self, creature) -> None:
+        """A full account of one dwarf."""
+        lines: List = list(creature.describe())
+        state = getattr(creature, "fort", None)
+        if state is not None:
+            lines.append("")
+            lines.append(Frag("Thoughts", colors.UI["accent"]))
+            thoughts = creature.needs.recent_thoughts(6)
+            if thoughts:
+                for t in thoughts:
+                    lines.append("  " + t)
+            else:
+                lines.append("  Nothing much has happened to it.")
+            if state.job is not None:
+                lines.append("")
+                lines.append("Currently: %s" % state.job.label)
+        popup(self.app.screen, self.app.term, lines,
+              title=creature.display_name(),
+              width=min(self.app.screen.width - 4, 68))
+
+
+class LaborScene(Scene):
+    """Which jobs one dwarf is willing to take."""
+
+    def __init__(self, app, fort, dwarf) -> None:
+        super().__init__(app)
+        self.fort = fort
+        self.dwarf = dwarf
+        self.menu = ListMenu(self._items(), per_page=18, auto_hotkeys=False)
+
+    def _items(self) -> List[MenuItem]:
+        """Every labor, grouped, with its state and the dwarf's skill."""
+        labors = self.dwarf.fort.labors
+        items: List[MenuItem] = []
+        for category in CATEGORIES:
+            rows = [l for l in LABORS.values() if l.category == category]
+            if not rows:
+                continue
+            items.append(header(category))
+            for lab in rows:
+                on = labors.has(lab.id)
+                level = self.dwarf.skills.level(lab.skill) if lab.skill else 0
+                items.append(MenuItem([
+                    Frag("[%s] " % ("x" if on else " "),
+                         colors.UI["good"] if on else colors.UI["dim"]),
+                    Frag("%-20s " % lab.name,
+                         colors.UI["fg"] if on else colors.UI["dim"]),
+                    Frag(("skill %d" % level) if lab.skill else "",
+                         colors.UI["accent"]),
+                ], lab.id, desc=lab.description))
+        return items
+
+    def draw(self, scr: Screen) -> None:
+        """The labor list."""
+        scr.clear(colors.UI["bg"])
+        title = "Labors: %s" % dwarf_mod.display_title(self.dwarf)
+        scr.frame(0, 0, scr.width, scr.height, title=title)
+        self.menu.per_page = max(4, scr.height - 5)
+        self.menu.draw(scr, 2, 2, scr.width - 4, scr.height - 5)
+        key_hint(scr, 2, scr.height - 2, [
+            (keys.SPACE, "toggle"), ("a", "all on"), ("z", "all off"),
+            (keys.ESC, "back"),
+        ])
+
+    def handle(self, key: str) -> None:
+        """Toggle labors."""
+        labors = self.dwarf.fort.labors
+        if key == keys.ESC:
+            self.done = True
+            return
+        if key == "a":
+            for lab in LABORS:
+                labors.enable(lab)
+            self.menu.set_items(self._items())
+            return
+        if key == "z":
+            labors.enabled.clear()
+            self.menu.set_items(self._items())
+            return
+        if key in (keys.SPACE, keys.ENTER):
+            value = self.menu.selected_value
+            if value:
+                labors.toggle(value)
+                index = self.menu.index
+                self.menu.set_items(self._items())
+                self.menu.index = index
+            return
+        result = self.menu.handle(key)
+        if result == "cancel":
+            self.done = True
