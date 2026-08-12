@@ -78,6 +78,16 @@ class ConversationScene(Scene):
         if result != "select":
             return
         topic = self.menu.selected_value
+        if topic == "trade":
+            from ..game import trade as trade_mod
+            from .shop_screen import ShopScene
+
+            if trade_mod.is_trader(self.other):
+                self.transcript.extend(
+                    conversation.say(game.player, self.other, "trade", game))
+                self.app.push(ShopScene(self.app, self.other))
+                self.refresh()
+                return
         if topic == "farewell":
             self.transcript.extend(
                 conversation.say(game.player, self.other, "farewell", game)

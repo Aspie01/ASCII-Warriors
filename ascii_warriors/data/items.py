@@ -263,8 +263,8 @@ _armor("helm", "helm", "armor", HEAD, 200, 40, 3, 3, glyph="^")
 _armor("great_helm", "great helm", "armor", HEAD + NECK, 280, 60, 4, 4, glyph="^")
 _armor("mail_shirt", "mail shirt", "armor", TORSO + ARMS, 600, 90, 2, 3, glyph="[")
 _armor("breastplate", "breastplate", "armor", TORSO, 700, 120, 4, 5, glyph="[")
-_armor("leather_armor", "leather armor", "armor", TORSO + ARMS, 400, 40, 2, 2,
-       mats=("LEATHER",), plural="suits of leather armor", glyph="[")
+_armor("leather_armor", "cuirass", "armor", TORSO + ARMS, 400, 40, 2, 2,
+       mats=("LEATHER",), plural="cuirasses", glyph="[")
 _armor("chain_leggings", "chain leggings", "armor", LEGS, 400, 60, 2, 3,
        plural="pairs of chain leggings", glyph="[")
 _armor("greaves", "greaves", "armor", LEGS, 500, 80, 4, 4,
@@ -368,8 +368,10 @@ _tool("lantern", "lantern", 200, 40, mats=("METAL",), flags=("TOOL", "LIGHT"),
       glyph="~")
 _tool("lockpick", "lockpick", 30, 15)
 _tool("whetstone", "whetstone", 100, 8, mats=("STONE",))
-_tool("bandage", "bandage", 30, 4, mats=("CLOTH",), flags=("TOOL", "MEDICAL"))
-_tool("splint", "splint", 80, 6, mats=("WOOD", "METAL"), flags=("TOOL", "MEDICAL"))
+_tool("bandage", "bandage", 30, 14, mats=("CLOTH",), flags=("TOOL", "MEDICAL"),
+      desc="Clean cloth. Worth more than a sword when you are bleeding.")
+_tool("splint", "splint", 80, 18, mats=("WOOD", "METAL"),
+      flags=("TOOL", "MEDICAL"))
 _tool("crutch", "crutch", 200, 8, mats=("WOOD",), flags=("TOOL", "MEDICAL"))
 _tool("flint_and_steel", "flint and steel", 40, 10, mats=("METAL",),
       plural="flint and steel sets", flags=("TOOL", "FIRE"))

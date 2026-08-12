@@ -41,9 +41,10 @@ ascii_warriors/
   game/     attributes.py skills.py personality.py body.py combat.py item.py
             inventory.py entity.py ai.py needs.py actions.py crafting.py
             quests.py conversation.py state.py save.py log.py
+            medical.py trade.py companions.py weather.py
   ui/       app.py menus.py charcreate.py worldgen_screen.py play_screen.py
             look_screen.py travel_screen.py inventory_screen.py character_screen.py
-            legends_screen.py help_screen.py dialogs.py sidebar.py
+            legends_screen.py help_screen.py dialogs.py sidebar.py shop_screen.py
 tests/      test_*.py           (stdlib unittest only)
 tools/      smoke.py
 ```
@@ -1292,7 +1293,69 @@ Where the built code refines this contract:
 - **`Item.name()`** wraps the name in quality symbols and appends a wear marker;
   `article=True` picks "a"/"an" from the *unwrapped* name.
 
-## 50. Style
+## 50. Later modules
+
+Added after the first pass; the contract style above applies to them too.
+
+### `game/medical.py`
+```python
+def treatable(creature) -> list[tuple[PartState, list[str]]]
+def needs_treatment(part) -> list[str]        # "bandage" | "splint" | "suture"
+def can_treat(healer, treatment) -> tuple[bool, str]
+def treat(healer, patient, part_id, treatment, *, rng) -> list[Frag]
+def diagnose(healer, patient) -> list[Frag]
+def auto_treat(healer, *, rng) -> list[Frag]
+```
+Bandages cut a part's bleeding, splints set broken bones, sutures close deep
+wounds. Each consumes its item and trains its skill; a skilled diagnostician is
+told how many turns of blood are left.
+
+### `game/trade.py`
+```python
+def is_trader(npc) -> bool ; def trader_kind(npc) -> str
+def stock_merchant(npc, rng, *, tier=2) -> None    # idempotent
+def price_to_buy(item, merchant, customer) -> int
+def price_to_sell(item, merchant, customer) -> int
+def wants(merchant, item) -> bool
+def for_sale(merchant) -> list[Item] ; def sellable(customer, merchant) -> list[Item]
+def buy(game, merchant, item, count=1) -> tuple[bool, str]
+def sell(game, merchant, item, count=1) -> tuple[bool, str]
+def rent_room(game, keeper) -> tuple[bool, str]
+```
+
+### `game/companions.py`
+```python
+def party_limit(player) -> int ; def can_recruit(npc) -> bool
+def hire_price(npc, player) -> int
+def recruit(game, npc) / dismiss(game, npc) -> tuple[bool, str]
+def companions_of(game) -> list[Creature]
+def bring_along(game, _unused) -> None      # re-place the party after a move
+def on_death(game, npc) -> None
+```
+Companions are kept **out** of the per-tile creature cache and carried in
+`Game.travelling_companions`, so they are never duplicated or left behind.
+
+### `game/weather.py`
+```python
+class Weather:
+    kind: str ; ticks_left: int
+    def light_modifier(self) -> float ; def sight_modifier(self) -> float
+    def tick(self, ticks, rng, biome, temperature, season) -> str
+    def is_severe/is_cold/is_wet(self) -> bool
+def starting_weather(rng, biome, temperature, season) -> Weather
+```
+Transitions are weighted by biome, temperature and season: no snow in a hot
+desert, no rain below freezing.
+
+### Additions to `game/state.py`
+`Game.weather`, `Game.companion_ids`, `Game.travelling_companions`,
+`Game.player_light()`, `Game._cache_order` (LRU order for `_local_cache`).
+
+### Additions to `game/actions.py`
+`light_source`, `treat_wound`, `diagnose`, `water_source_near`,
+`refill_waterskins`.
+
+## 51. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

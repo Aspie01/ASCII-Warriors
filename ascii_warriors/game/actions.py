@@ -12,7 +12,7 @@ from ..data.calendar import TICKS_PER_HOUR
 from ..engine.fov import line_of_fire
 from ..engine.scheduler import ACTION_COST
 from ..world import tiles as tile_data
-from . import combat, crafting
+from . import combat, crafting, medical
 from .item import Item
 
 FREE = 0
@@ -494,6 +494,54 @@ def craft_recipe(game, recipe) -> int:
     ok, msg = crafting.craft(game.player, recipe, game)
     game.log.good(msg) if ok else game.log.warn(msg)
     return SLOW if ok else FREE
+
+
+def light_source(game, item: Optional[Item] = None) -> int:
+    """Light or put out a torch or lantern."""
+    p = game.player
+    if item is None:
+        lit = [i for i in p.inventory.items if i.is_light and i.flags.get("lit")]
+        if lit:
+            item = lit[0]
+        else:
+            usable = [
+                i for i in p.inventory.items if i.is_light and i.charges > 0
+            ]
+            if not usable:
+                game.log.warn("You have nothing to light.")
+                return FREE
+            item = usable[0]
+    if not item.is_light:
+        game.log.warn("That will not burn.")
+        return FREE
+    if item.flags.get("lit"):
+        item.flags["lit"] = False
+        game.log.info("You put out %s." % item.name(article=True))
+        game.update_fov()
+        return NORMAL
+    if item.charges <= 0:
+        game.log.warn("%s is spent." % item.name(article=True).capitalize())
+        return FREE
+    item.flags["lit"] = True
+    game.log.good("You light %s. The dark pulls back." % item.name(article=True))
+    game.update_fov()
+    return NORMAL
+
+
+def treat_wound(game, patient, part_id: str, treatment: str) -> int:
+    """Apply first aid to yourself or a companion."""
+    frags = medical.treat(game.player, patient, part_id, treatment, rng=game.rng)
+    for f in frags:
+        game.log.add([f], "info")
+    game.player.needs.exert(10)
+    return SLOW
+
+
+def diagnose(game, patient) -> int:
+    """Look over somebody's injuries."""
+    for f in medical.diagnose(game.player, patient):
+        game.log.add([f], "info")
+    return NORMAL
 
 
 def travel_start(game) -> int:

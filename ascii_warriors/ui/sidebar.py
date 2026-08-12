@@ -78,6 +78,18 @@ def draw_sidebar(scr: Screen, x: int, y: int, w: int, h: int, game) -> None:
         cy += 1
     cy += 1
 
+    # Party.
+    from ..game import companions as companion_mod
+
+    party = companion_mod.status_lines(game)
+    if party:
+        scr.text(x, cy, "Party", colors.UI["accent"])
+        cy += 1
+        for frag in party[:4]:
+            scr.text(x + 1, cy, frag_slice([frag], 0, w - 2))
+            cy += 1
+        cy += 1
+
     # Nearby creatures.
     nearby = game.visible_creatures()[:6]
     if nearby:
@@ -110,6 +122,12 @@ def draw_sidebar(scr: Screen, x: int, y: int, w: int, h: int, game) -> None:
     )
     scr.text(x, by + 2, place[: w - 1], colors.UI["accent2"])
     scr.text(x, by + 3, "z%+d  (%d, %d)" % (p.z, p.wx, p.wy), colors.UI["dim"])
+    weather = game.weather
+    bits = [Frag(weather.name, weather.defn.color)]
+    burn = game.player_light()
+    if burn > 0:
+        bits.append(Frag("  lit", colors.EMBER))
+    scr.text_right(x + w - 1, by + 3, bits)
 
 
 def draw_log(scr: Screen, x: int, y: int, w: int, h: int, game) -> None:
@@ -141,6 +159,9 @@ def draw_status_line(scr: Screen, x: int, y: int, w: int, game) -> None:
         parts.append(Frag("overloaded ", colors.UI["danger"]))
     mood = p.needs.mood()
     parts.append(Frag(mood + " ", colors.UI["dim"]))
+    if game.weather.is_severe():
+        parts.append(Frag("| ", colors.UI["frame"]))
+        parts.append(Frag(game.weather.name + " ", game.weather.defn.color))
     parts.append(Frag("| ", colors.UI["frame"]))
     parts.append(Frag("T%d " % game.turn, colors.UI["dim"]))
     if game.quests.active:

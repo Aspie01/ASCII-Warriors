@@ -11,12 +11,15 @@ from typing import Any, List, Optional, Tuple
 from ..data.descriptors import list_join
 from ..engine import colors, geometry
 from ..engine.screen import Frag
+from . import companions as companion_mod
 from . import quests as quest_mod
+from . import trade as trade_mod
 
 TOPICS: Tuple[str, ...] = (
     "greet", "ask_directions", "ask_rumors", "ask_troubles", "ask_self",
     "ask_family", "request_quest", "report_quest", "trade", "ask_beast",
-    "ask_site", "brag", "insult", "threaten", "farewell",
+    "ask_site", "brag", "insult", "threaten", "farewell", "recruit",
+    "dismiss", "rent_room",
 )
 
 _SAY = colors.UI["accent2"]
@@ -52,8 +55,17 @@ def topics_for(speaker, listener, game) -> List[Tuple[str, str]]:
         if finished:
             out.append(("report_quest", "Report on your task"))
         out.append(("request_quest", "Ask for work"))
-    if role == "merchant" or listener.def_id == "merchant":
+    if trade_mod.is_trader(listener):
         out.append(("trade", "Trade"))
+    if role == "tavern_keeper":
+        out.append(("rent_room", "Rent a room for the night (%d coins)"
+                    % max(4, int(trade_mod.ROOM_PRICE
+                                 * listener.personality.greed_factor()))))
+    if listener.speech.get("companion"):
+        out.append(("dismiss", "Part ways"))
+    elif companion_mod.can_recruit(listener):
+        out.append(("recruit", "Ask them to travel with you (%d coins)"
+                    % companion_mod.hire_price(listener, speaker)))
     out.append(("brag", "Boast of your deeds"))
     out.append(("insult", "Insult them"))
     out.append(("threaten", "Threaten them"))
@@ -282,11 +294,41 @@ def say(speaker, listener, topic: str, game) -> List[Frag]:
         return out
 
     if topic == "trade":
-        return _quote(
-            listener,
-            "I would trade, but my caravan is not unpacked. Ask me again "
-            "another day.",
-        )
+        if not trade_mod.is_trader(listener):
+            return _quote(listener, "I have nothing to sell you.")
+        trade_mod.stock_merchant(listener, rng)
+        speaker.add_exp("negotiation", 8)
+        return _quote(listener, rng.choice([
+            "Let us see what you have.",
+            "Coin first, then we talk.",
+            "Everything here is fairly priced. Mostly.",
+        ]))
+
+    if topic == "rent_room":
+        ok, message = trade_mod.rent_room(game, listener)
+        out.extend(_quote(listener, "Up the stairs. Mind the third step."
+                          if ok else "No coin, no bed."))
+        out.append(Frag(message, colors.UI["good"] if ok else colors.UI["warn"]))
+        return out
+
+    if topic == "recruit":
+        ok, message = companion_mod.recruit(game, listener)
+        if ok:
+            out.extend(_quote(listener, rng.choice([
+                "Aye. I have nothing better to do.",
+                "Lead on, then.",
+                "My blade is yours, while the coin lasts.",
+            ])))
+            out.append(Frag(message, colors.UI["good"]))
+        else:
+            out.append(Frag(message, colors.UI["warn"]))
+        return out
+
+    if topic == "dismiss":
+        ok, message = companion_mod.dismiss(game, listener)
+        out.extend(_quote(listener, "Then this is where we part."))
+        out.append(Frag(message, colors.UI["dim"] if ok else colors.UI["warn"]))
+        return out
 
     if topic == "brag":
         kills = len(speaker.kills)

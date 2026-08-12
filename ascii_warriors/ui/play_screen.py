@@ -252,13 +252,15 @@ class PlayScene(Scene):
         elif key == "o":
             cost = self._open_close()
         elif key == "c":
-            cost = self._craft()
-        elif key == "b":
-            item = self._choose_inventory("Butcher what?", pred=lambda i: i.is_corpse,
-                                          include_ground=True)
-            cost = actions.butcher(game, item) if item else 0
-        elif key == "B":
-            cost = actions.build_fire(game)
+            cost = self._camp()
+        elif key == "~":
+            cost = self._light()
+        elif key == "A":
+            cost = self._treat()
+        elif key == "D":
+            cost = self._diagnose()
+        elif key == "p":
+            self._party()
         elif key == "C":
             from .character_screen import CharacterScene
 
@@ -267,7 +269,7 @@ class PlayScene(Scene):
             from .character_screen import CharacterScene
 
             self.app.push(CharacterScene(self.app, tab=1))
-        elif key == "L":
+        elif key == "G":
             from .legends_screen import LegendsScene
 
             self.app.push(LegendsScene(self.app))
@@ -479,6 +481,146 @@ class PlayScene(Scene):
         from .dialogs import ConversationScene
 
         self.app.push(ConversationScene(self.app, target))
+        return 0
+
+    def _light(self) -> int:
+        """Light or douse a torch or lantern."""
+        game = self.game
+        sources = [i for i in game.player.inventory.items if i.is_light]
+        if not sources:
+            game.log.warn("You have nothing to light.")
+            return 0
+        if len(sources) == 1:
+            return actions.light_source(game, sources[0])
+        items = [
+            MenuItem(
+                list(i.colored_name()) + [Frag(
+                    " (lit)" if i.flags.get("lit") else
+                    " (spent)" if i.charges <= 0 else "",
+                    colors.UI["accent"])],
+                i)
+            for i in sources
+        ]
+        item = choose(self.app.screen, self.app.term, "Light or douse what?", items)
+        return actions.light_source(game, item) if item else 0
+
+    def _patients(self):
+        """Yourself and any companion standing next to you."""
+        from ..game import companions as companion_mod
+
+        game = self.game
+        out = [game.player]
+        for npc in companion_mod.companions_of(game):
+            if game.player.distance_to(npc) <= 1 and npc.z == game.player.z:
+                out.append(npc)
+        return out
+
+    def _treat(self) -> int:
+        """Bind a wound or set a bone."""
+        from ..game import medical
+
+        game = self.game
+        patients = self._patients()
+        patient = patients[0]
+        if len(patients) > 1:
+            items = [
+                MenuItem("Yourself" if c.is_player else c.display_name(), c)
+                for c in patients
+            ]
+            patient = choose(self.app.screen, self.app.term, "Treat whom?", items)
+            if patient is None:
+                return 0
+        hurt = medical.treatable(patient)
+        if not hurt:
+            game.log.info("There is nothing to treat.")
+            return 0
+        options = []
+        for part, treatments in hurt:
+            for t in treatments:
+                ok, why = medical.can_treat(game.player, t)
+                options.append(MenuItem(
+                    "%-22s %s" % (part.name, medical.TREATMENT_NAMES[t]),
+                    (part.id, t), desc="" if ok else why, enabled=ok))
+        if not any(o.enabled for o in options):
+            game.log.warn("You have no supplies for that.")
+            return 0
+        choice = choose(self.app.screen, self.app.term, "Treat what?", options)
+        if choice is None:
+            return 0
+        return actions.treat_wound(game, patient, choice[0], choice[1])
+
+    def _diagnose(self) -> int:
+        """Examine injuries in detail."""
+        game = self.game
+        patients = self._patients() + [
+            c for c in game.visible_creatures()
+            if game.player.distance_to(c) <= 1
+        ]
+        seen = []
+        for c in patients:
+            if c not in seen:
+                seen.append(c)
+        patient = seen[0]
+        if len(seen) > 1:
+            items = [
+                MenuItem("Yourself" if c.is_player else c.display_name(), c)
+                for c in seen
+            ]
+            patient = choose(self.app.screen, self.app.term, "Examine whom?", items)
+            if patient is None:
+                return 0
+        return actions.diagnose(game, patient)
+
+    def _party(self) -> None:
+        """Show and manage your companions."""
+        from ..game import companions as companion_mod
+
+        game = self.game
+        party = companion_mod.companions_of(game)
+        if not party:
+            game.log.info("You travel alone. Ask people in taverns to join you.")
+            return
+        items = [
+            MenuItem("%-24s %3d%% health" % (
+                c.display_name()[:24], int(c.body.health_fraction() * 100)), c)
+            for c in party
+        ]
+        npc = choose(
+            self.app.screen, self.app.term,
+            "Party (%d/%d)" % (len(party), companion_mod.party_limit(game.player)),
+            items)
+        if npc is None:
+            return
+        from .dialogs import ConversationScene
+
+        self.app.push(ConversationScene(self.app, npc))
+
+    def _camp(self) -> int:
+        """Everything you do when you stop walking: craft, butcher, cook, fire."""
+        game = self.game
+        corpses = [i for i in game.player.inventory.items if i.is_corpse]
+        corpses += [i for i in game.items_at(game.player.x, game.player.y,
+                                             game.player.z) if i.is_corpse]
+        options = [
+            MenuItem("Craft something", "craft"),
+            MenuItem("Butcher a corpse", "butcher", enabled=bool(corpses),
+                     desc="" if corpses else "no corpse here"),
+            MenuItem("Build a campfire", "fire"),
+            MenuItem("Rest a while", "rest"),
+        ]
+        choice = choose(self.app.screen, self.app.term, "Make camp", options)
+        if choice == "craft":
+            return self._craft()
+        if choice == "butcher":
+            item = corpses[0]
+            if len(corpses) > 1:
+                item = choose(self.app.screen, self.app.term, "Butcher what?",
+                              [MenuItem(c.colored_name(), c) for c in corpses])
+            return actions.butcher(game, item) if item else 0
+        if choice == "fire":
+            return actions.build_fire(game)
+        if choice == "rest":
+            return actions.rest(game, 600)
         return 0
 
     def _craft(self) -> int:

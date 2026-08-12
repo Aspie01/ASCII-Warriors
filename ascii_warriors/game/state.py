@@ -20,6 +20,7 @@ from .entity import Creature, make_creature
 from .item import Item, corpse_of, starting_kit
 from .log import MessageLog
 from .quests import QuestLog
+from .weather import Weather, starting_weather
 
 #: How many world tiles of wilderness get wildlife when you arrive.
 WILDLIFE_MIN = 3
@@ -47,8 +48,14 @@ class Game:
         self.game_over = False
         self.death_message = ""
         self.travel_target: Optional[Tuple[int, int]] = None
-        self.weather = "clear"
+        self.weather = Weather()
+        #: Ids of the companions following the player.
+        self.companion_ids: List[int] = []
+        #: Companions in transit between local maps.
+        self.travelling_companions: List[Creature] = []
         self._local_cache: Dict[Tuple[int, int], Dict[str, Any]] = {}
+        #: Visit order for the local-map cache, oldest first.
+        self._cache_order: List[Tuple[int, int]] = []
 
     # -- construction ------------------------------------------------------ #
 
@@ -96,12 +103,27 @@ class Game:
             candidates = [
                 s for s in self.world.sites if s.is_settlement and not s.hostile
             ]
+        # Never start somewhere with nowhere to walk to: a one-tile island
+        # would strand the adventurer forever.
+        reachable = [s for s in candidates if self._land_neighbours(s.wx, s.wy) >= 2]
+        if reachable:
+            candidates = reachable
         if candidates:
             site = self.rng.choice(candidates)
             return (site.wx, site.wy)
-        land = self.world.land_tiles()
+        land = [
+            (x, y) for (x, y) in self.world.land_tiles()
+            if self._land_neighbours(x, y) >= 2
+        ] or self.world.land_tiles()
         return self.rng.choice(land) if land else (
             self.world.width // 2, self.world.height // 2
+        )
+
+    def _land_neighbours(self, wx: int, wy: int) -> int:
+        """How many of a world tile's neighbours can be walked onto."""
+        return sum(
+            1 for nx, ny in self.world.neighbours(wx, wy)
+            if not self.world.tile(nx, ny).is_ocean
         )
 
     # -- map management ---------------------------------------------------- #
@@ -149,6 +171,10 @@ class Game:
         self.player.x, self.player.y, self.player.z = pos
         self.creatures[self.player.id] = self.player
 
+        from . import companions as companion_mod
+
+        companion_mod.bring_along(self, None)
+
         self.scheduler = Scheduler()
         self.scheduler.add(self.player.id, self.player.effective_speed(), priority=1)
         for c in self.creatures.values():
@@ -165,6 +191,12 @@ class Game:
             region.name if region is not None else "the wilds"
         )
         self.log.info("You arrive at %s." % where)
+        if self.weather.ticks_left <= 0:
+            tile = self.world.tile(wx, wy)
+            self.weather = starting_weather(
+                self.rng, tile.biome, tile.temperature, self.time.season)
+        if self.weather.kind != "clear":
+            self.log.info(self.weather.describe())
 
     def _entry_position(self, entry: str) -> Tuple[int, int, int]:
         """Where the player appears on a newly entered map."""
@@ -212,20 +244,28 @@ class Game:
         if self.local is None:
             return
         key = (self.local.wx, self.local.wy)
+        companions = [
+            c for c in self.creatures.values() if c.id in self.companion_ids
+        ]
+        self.travelling_companions = companions
         self._local_cache[key] = {
             "map": self.local.to_dict(),
             "creatures": [
-                c.to_dict() for c in self.creatures.values() if not c.is_player
+                c.to_dict() for c in self.creatures.values()
+                if not c.is_player and c.id not in self.companion_ids
             ],
             "items": {
                 "%d,%d,%d" % k: [i.to_dict() for i in v]
                 for k, v in self.items_on_ground.items() if v
             },
         }
-        # Keep the cache from growing without bound on long journeys.
-        if len(self._local_cache) > 24:
-            for k in list(self._local_cache)[:-24]:
-                del self._local_cache[k]
+        # Keep the cache from growing without bound on long journeys, dropping
+        # the tiles the player has not seen for longest.
+        self._cache_order = [c for c in self._cache_order if c != key]
+        self._cache_order.append(key)
+        while len(self._cache_order) > 24:
+            stale = self._cache_order.pop(0)
+            self._local_cache.pop(stale, None)
 
     def spawn_wildlife(self, n: Optional[int] = None) -> None:
         """Populate the wilderness with creatures suited to the biome."""
@@ -379,12 +419,18 @@ class Game:
         if self.local is None:
             return 1.0
         if self.local.is_outside(x, y, z):
-            return self.time.light_level()
-        # Underground: only whatever the player is carrying.
-        for it in self.player.inventory.items:
-            if it.is_light and it.charges > 0:
-                return 0.8
+            return self.time.light_level() * self.weather.light_modifier()
+        # Underground: only whatever the player is actually holding alight.
+        if self.player_light() > 0:
+            return 0.8
         return 0.05
+
+    def player_light(self) -> int:
+        """Burn time remaining on the player's lit light sources."""
+        return sum(
+            it.charges for it in self.player.inventory.items
+            if it.is_light and it.flags.get("lit") and it.charges > 0
+        )
 
     def update_fov(self) -> None:
         """Recompute what the player can see."""
@@ -394,6 +440,8 @@ class Game:
         p = self.player
         light = self.light_at(p.x, p.y, p.z)
         radius = p.sight_radius(light)
+        if self.local.is_outside(p.x, p.y, p.z):
+            radius = max(2, int(radius * self.weather.sight_modifier()))
         z = p.z
 
         def blocks(x: int, y: int) -> bool:
@@ -469,9 +517,19 @@ class Game:
                 self.kill_creature(c)
 
     def _tick_world(self, ticks: int) -> None:
-        """Advance the clock, needs, wounds and item state."""
+        """Advance the clock, weather, needs, wounds and item state."""
         self.time.advance(ticks)
         p = self.player
+
+        tile = self.world.tile(p.wx, p.wy)
+        change = self.weather.tick(
+            ticks, self.rng, tile.biome, tile.temperature, self.time.season)
+        if change:
+            self.log.info(change)
+        if self.weather.is_cold() and self.local is not None \
+                and self.local.is_outside(p.x, p.y, p.z):
+            # Keeping warm burns food faster.
+            p.needs.hunger += ticks // 2
 
         msgs = p.needs.tick(ticks, p, self)
         for m in msgs:
@@ -494,11 +552,19 @@ class Game:
             if c.body.dead:
                 self.kill_creature(c)
 
-        for it in p.inventory.items:
-            if it.is_light and it.charges > 0:
-                it.charges = max(0, it.charges - ticks)
-                if it.charges == 0:
-                    self.log.warn("Your %s burns out." % it.base_name())
+        for it in list(p.inventory.items):
+            if not it.is_light or not it.flags.get("lit"):
+                continue
+            it.charges = max(0, it.charges - ticks)
+            if it.charges == 0:
+                it.flags["lit"] = False
+                self.log.warn("Your %s burns out." % it.base_name())
+                if it.def_id == "torch":
+                    it.count -= 1
+                    if it.count <= 0:
+                        p.inventory.unequip_item(it)
+                        if it in p.inventory.items:
+                            p.inventory.items.remove(it)
 
         if p.body.dead and not self.game_over:
             self.end_game(p.body.death_cause or "died")
@@ -512,6 +578,10 @@ class Game:
             return
         c.on_death(self, c.body.death_cause)
         self.scheduler.remove(c.id)
+        if c.id in self.companion_ids:
+            from . import companions as companion_mod
+
+            companion_mod.on_death(self, c)
         if self.can_see_creature(c):
             self.log.combat("The %s is dead." % c.short_name())
         corpse = corpse_of(c)
@@ -601,10 +671,13 @@ class Game:
             "seen": ["%d,%d,%d" % k for k in self.seen],
             "game_over": self.game_over,
             "death_message": self.death_message,
-            "weather": self.weather,
+            "weather": self.weather.to_dict(),
+            "companion_ids": list(self.companion_ids),
+            "companions": [c.to_dict() for c in self.travelling_companions],
             "cache": {
                 "%d,%d" % k: v for k, v in self._local_cache.items()
             },
+            "cache_order": ["%d,%d" % k for k in self._cache_order],
             "here": [self.player.wx, self.player.wy],
         }
 
@@ -623,11 +696,23 @@ class Game:
         game.mode = str(d.get("mode", "local"))
         game.game_over = bool(d.get("game_over", False))
         game.death_message = str(d.get("death_message", ""))
-        game.weather = str(d.get("weather", "clear"))
+        game.weather = Weather.from_dict(d.get("weather") or {})
+        game.companion_ids = [int(i) for i in d.get("companion_ids", [])]
+        game.travelling_companions = [
+            Creature.from_dict(c) for c in d.get("companions", [])
+        ]
         game._local_cache = {
             tuple(int(v) for v in k.split(",")): v
             for k, v in (d.get("cache") or {}).items()
         }
+        game._cache_order = [
+            tuple(int(v) for v in k.split(","))
+            for k in d.get("cache_order", [])
+            if tuple(int(v) for v in k.split(",")) in game._local_cache
+        ]
+        for key in game._local_cache:
+            if key not in game._cache_order:
+                game._cache_order.append(key)
         game.seen = {
             tuple(int(v) for v in k.split(",")) for k in d.get("seen", [])
         }
@@ -647,6 +732,14 @@ class Game:
                 for k, items in cached["items"].items()
             }
             game.creatures[player.id] = player
+            from . import companions as companion_mod
+
+            companion_mod.bring_along(game, None)
+            game.scheduler = Scheduler.from_dict(d.get("scheduler") or {})
+            for c in game.creatures.values():
+                if not game.scheduler.contains(c.id) and not c.body.dead:
+                    game.scheduler.add(
+                        c.id, c.effective_speed(), priority=1 if c.is_player else 0)
         else:
             game.enter_world_tile(wx, wy, entry="center")
         game.update_fov()

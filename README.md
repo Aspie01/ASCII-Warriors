@@ -118,10 +118,12 @@ python -m ascii_warriors --dump-world - --size small --history 200 | less
 | `e` `q` | eat / drink |
 | `x` `t` `s` | look / talk / search |
 | `S` `R` | sleep eight hours / rest |
-| `o` `c` `b` `B` | open door / craft / butcher / build a fire |
+| `o` `c` | open a door / make camp (craft, butcher, cook, fire) |
+| `~` `A` `D` | light a torch / apply first aid / examine injuries |
 | `a` | attack a direction, aiming at a body part |
 | `f` `F` | fire a readied bow / throw something |
-| `C` `z` `Q` `L` | character / skills / tasks / legends |
+| `C` `z` `Q` `G` | character / skills / tasks / legends |
+| `p` | your party |
 | `T` `M` | travel / view the world map |
 | `?` | help |
 | `Ctrl-S` | save |
@@ -178,8 +180,25 @@ or takes a swing at you for saying the wrong thing.
 
 **Survival.** Hunger, thirst, sleep, fatigue and stress. Butcher corpses for
 meat, bone and hide. Build a fire and cook — raw meat feeds you far less. Fill
-your waterskin at rivers and wells. Torches burn down, and underground you can
-see almost nothing without one.
+your waterskin at rivers and wells. Light a torch before you go underground and
+douse it when you come back out; they only burn while lit.
+
+**Field medicine.** Bleeding is what actually kills people, so bandages matter
+more than anything else you carry. Bind a wound to stop the bleeding, splint a
+broken bone to set it, stitch a deep cut closed. A skilled diagnostician can
+tell you exactly how many turns you have before you bleed out. You can treat
+your companions too.
+
+**Weather.** Rain, storms, snow, blizzards and fog, chosen by biome and season.
+Fog and storms cut how far you can see, cloud darkens the day, and cold weather
+makes you burn through food faster.
+
+**Trade and companions.** Merchants, smiths, priests and tavern keepers buy and
+sell, at prices your Appraiser and Negotiator skills move in your favour and the
+merchant's greed moves back. Tavern keepers rent rooms — the only guaranteed
+safe night's sleep. And people in taverns will travel with you for coin: they
+follow you between world tiles, fight what you fight, and can be patched up when
+they get hurt.
 
 **Conversation and quests.** Ask about this place, its ruler, its troubles, the
 beasts in the region, or for directions, and you get real answers from the

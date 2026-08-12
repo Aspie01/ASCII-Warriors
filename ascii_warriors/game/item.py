@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence
 from ..data import items as item_data
 from ..data import materials as mat_data
 from ..data.descriptors import (
-    indefinite_article, pluralize, quality_name, quality_wrap, wear_name,
+    indefinite_article, quality_name, quality_wrap, wear_name,
 )
 from ..data.items import AttackDef, ItemDef
 from ..data.materials import Material
@@ -108,8 +108,12 @@ class Item:
 
     @property
     def value(self) -> int:
-        """Trade value of the whole stack."""
-        base = self.defn.value * max(1, self.mat.value)
+        """Trade value of the whole stack.
+
+        The material matters, but not linearly: a steel sword should be worth
+        several times an iron one, not thirty times.
+        """
+        base = max(1, self.defn.value * (2 + max(1, self.mat.value)) // 8)
         v = base * QUALITY_VALUE[min(self.quality, 6)]
         v *= (1.0 - 0.15 * self.wear)
         return max(1, int(v * self.count))
@@ -136,7 +140,10 @@ class Item:
             return noun
         if d.category == "corpse":
             return noun
-        return "%s %s" % (self.mat.adjective, noun)
+        adjective = self.mat.adjective
+        if noun.lower().startswith(adjective.lower()):
+            return noun
+        return "%s %s" % (adjective, noun)
 
     def name(
         self, *, article: bool = False, plural: bool = False, full: bool = True
@@ -414,7 +421,7 @@ def make_item(
             quality = 0
     it = Item(def_id, material, quality=quality, count=count)
     if defn.has("LIGHT"):
-        it.charges = rng.randint(600, 2400)
+        it.charges = rng.randint(1800, 4800)
     return it
 
 
@@ -504,7 +511,9 @@ def starting_kit(rng: RNG, race: str, profession: str) -> List[Item]:
     kit.append(Item("meat", "meat", count=rng.randint(3, 6)))
     kit.append(Item("bread", "bread", count=rng.randint(2, 4)))
     kit.append(Item("dwarven_ale", "alcohol", count=rng.randint(2, 4)))
-    kit.append(Item("torch", "oak", count=2))
+    torch = Item("torch", "oak", count=2)
+    torch.charges = 2400
+    kit.append(torch)
     kit.append(Item("rope", "pig_tail_cloth"))
     kit.append(Item("coin", "silver", count=rng.randint(20, 80)))
     if profession in ("archer", "hunter"):
