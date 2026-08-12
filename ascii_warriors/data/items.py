@@ -388,6 +388,20 @@ _add(ItemDef("gem", "gem", "gems", "gem", "*", 10, 100, ("GEM",),
 _add(ItemDef("rough_gem", "rough gem", "rough gems", "gem", "*", 20, 30, ("GEM",),
              stack=False, flags=frozenset({"GEM"})))
 _add(ItemDef("boulder", "boulder", "boulders", "misc", "*", 3000, 3, ("STONE",)))
+# The metal industry. Ore comes out of the rock, fuel out of a furnace or a
+# coal seam, and a bar out of the two of them together.
+_add(ItemDef("ore", "ore", "ore", "misc", "*", 3000, 6, ("METAL",), stack=True,
+             description="Rock with metal in it. Worthless until smelted."))
+_add(ItemDef("bar", "bar", "bars", "misc", "=", 600, 20, ("METAL",), stack=True,
+             description="A smelted bar. Everything the forge makes starts "
+                         "as one of these."))
+_add(ItemDef("coal", "coal", "coal", "misc", "\"", 1500, 4, ("FUEL",),
+             stack=True, flags=frozenset({"FLAMMABLE"}),
+             description="Dug straight out of a seam and burned as it is."))
+_add(ItemDef("charcoal", "charcoal", "charcoal", "misc", "\"", 800, 5,
+             ("FUEL",), stack=True, flags=frozenset({"FLAMMABLE"}),
+             description="A log, burned slowly into something that burns "
+                         "hot."))
 _add(ItemDef("log", "log", "logs", "misc", "/", 4000, 4, ("WOOD",),
              flags=frozenset({"FLAMMABLE"})))
 _add(ItemDef("bone_item", "bone", "bones", "remains", "%", 60, 2, ("BONE",),

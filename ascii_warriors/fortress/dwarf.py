@@ -123,12 +123,24 @@ def _heuristic(a: Cell, b: Cell) -> float:
     return geometry.chebyshev(a[0], a[1], b[0], b[1]) + abs(a[2] - b[2]) * 2.0
 
 
-def work_positions(lm, goal: Cell) -> List[Cell]:
+#: Work a dwarf can do to the tile above or below the one it stands on. You
+#: dig the rock under your feet; you do not drink from a barrel through a
+#: solid floor, and a fortress that thinks you can will crowd every thirsty
+#: dwarf onto the one tile underneath the ale and let them die there.
+VERTICAL_JOBS = frozenset({"dig", "channel", "stairs", "ramp", "smooth"})
+
+
+def vertical_reach(job) -> bool:
+    """True if this job can be done to the tile above or below."""
+    return getattr(job, "kind", "") in VERTICAL_JOBS
+
+
+def work_positions(lm, goal: Cell, *, vertical: bool = True) -> List[Cell]:
     """Every cell a dwarf could stand in and still reach *goal*.
 
-    This has to agree exactly with :func:`at_or_beside`. When it does not, a
-    dwarf paths to a spot it does not believe it has arrived at, and walks on
-    the same tile until it dies of thirst.
+    This has to agree exactly with :func:`at_or_beside`, *vertical* included.
+    When it does not, a dwarf paths to a spot it does not believe it has
+    arrived at, and walks on the same tile until it dies of thirst.
     """
     gx, gy, gz = goal
     out: List[Cell] = []
@@ -136,14 +148,16 @@ def work_positions(lm, goal: Cell) -> List[Cell]:
         cell = (gx + dx, gy + dy, gz)
         if lm.walkable(*cell):
             out.append(cell)
-    for dz in (-1, 1):
-        cell = (gx, gy, gz + dz)
-        if lm.walkable(*cell):
-            out.append(cell)
+    if vertical:
+        for dz in (-1, 1):
+            cell = (gx, gy, gz + dz)
+            if lm.walkable(*cell):
+                out.append(cell)
     return out
 
 
-def path_to(fort, dwarf, goal: Cell, *, adjacent: bool = True) -> bool:
+def path_to(fort, dwarf, goal: Cell, *, adjacent: bool = True,
+            vertical: bool = True) -> bool:
     """Plan a route to a goal. Returns False if there is no way there."""
     state = dwarf.fort
     start = (dwarf.x, dwarf.y, dwarf.z)
@@ -151,7 +165,8 @@ def path_to(fort, dwarf, goal: Cell, *, adjacent: bool = True) -> bool:
         return True
 
     lm = fort.local
-    targets: List[Cell] = work_positions(lm, goal) if adjacent else []
+    targets: List[Cell] = (work_positions(lm, goal, vertical=vertical)
+                           if adjacent else [])
     if lm.walkable(*goal):
         targets.append(goal)
     if not targets:
@@ -231,18 +246,20 @@ def _step_around(fort, dwarf, other, nxt: Cell) -> bool:
     return True
 
 
-def at_or_beside(dwarf, cell: Cell) -> bool:
+def at_or_beside(dwarf, cell: Cell, *, vertical: bool = True) -> bool:
     """True if the dwarf is close enough to work on a cell.
 
-    Adjacent on the same level, or directly above or below it — a miner
-    standing on the floor can dig the rock beneath its feet.
+    Adjacent on the same level, and — for the work that allows it — directly
+    above or below: a miner standing on the floor can dig the rock beneath
+    its feet. Reaching a thing rather than a tile does not allow it, or a
+    dwarf picks a barrel up through the ceiling.
     """
     dx = dwarf.x - cell[0]
     dy = dwarf.y - cell[1]
     dz = dwarf.z - cell[2]
     if dz == 0:
         return abs(dx) <= 1 and abs(dy) <= 1
-    return abs(dz) == 1 and dx == 0 and dy == 0
+    return vertical and abs(dz) == 1 and dx == 0 and dy == 0
 
 
 # --------------------------------------------------------------------------- #
@@ -502,11 +519,11 @@ def _go_drink(fort, dwarf, ticks: int) -> bool:
     item = fort.find_consumable(dwarf, drink=True)
     if item is not None:
         cell = fort.item_cell(item)
-        if cell is None or at_or_beside(dwarf, cell):
+        if cell is None or at_or_beside(dwarf, cell, vertical=False):
             fort.consume(dwarf, item, drink=True)
             return True
         release_job(fort, dwarf)
-        if path_to(fort, dwarf, cell):
+        if path_to(fort, dwarf, cell, vertical=False):
             step_along(fort, dwarf)
             return True
     if _drink_water(fort, dwarf):
@@ -521,11 +538,11 @@ def _go_eat(fort, dwarf, ticks: int) -> bool:
     item = fort.find_consumable(dwarf, drink=False)
     if item is not None:
         cell = fort.item_cell(item)
-        if cell is None or at_or_beside(dwarf, cell):
+        if cell is None or at_or_beside(dwarf, cell, vertical=False):
             fort.consume(dwarf, item, drink=False)
             return True
         release_job(fort, dwarf)
-        if path_to(fort, dwarf, cell):
+        if path_to(fort, dwarf, cell, vertical=False):
             step_along(fort, dwarf)
             return True
     elif dwarf.needs.hunger > HUNGER_URGENT * 1.5:
@@ -570,13 +587,13 @@ def _drink_water(fort, dwarf) -> bool:
     cell = fort.nearest_water(dwarf)
     if cell is None:
         return False
-    if at_or_beside(dwarf, cell):
+    if at_or_beside(dwarf, cell, vertical=False):
         dwarf.needs.thirst = 0
         dwarf.needs.add_thought("had to drink water", 4)
         fort.clear_warning("thirst")
         return True
     release_job(fort, dwarf)
-    if path_to(fort, dwarf, cell):
+    if path_to(fort, dwarf, cell, vertical=False):
         step_along(fort, dwarf)
         return True
     return False
@@ -588,7 +605,7 @@ def _claim_job(fort, dwarf) -> Optional[Job]:
     for job in fort.jobs.for_dwarf(dwarf)[:12]:
         if not fort.prepare_job(dwarf, job):
             continue
-        if not path_to(fort, dwarf, job.cell):
+        if not path_to(fort, dwarf, job.cell, vertical=vertical_reach(job)):
             fort.jobs.release(job)
             fort.cancel_preparation(dwarf, job)
             continue
@@ -615,18 +632,21 @@ def _work_job(fort, dwarf, job: Job, ticks: int) -> None:
 
     fetch = fort.fetch_target(dwarf, job)
     if fetch is not None:
-        if at_or_beside(dwarf, fetch):
+        # Items are picked up, not reached through the floor.
+        if at_or_beside(dwarf, fetch, vertical=False):
             if not fort.pick_up_for(dwarf, job):
                 fort.abandon_job(dwarf, job)
                 state.job = None
             return
-        if not path_to(fort, dwarf, fetch) or not step_along(fort, dwarf):
+        if not path_to(fort, dwarf, fetch, vertical=False) \
+                or not step_along(fort, dwarf):
             fort.abandon_job(dwarf, job)
             state.job = None
         return
 
-    if not at_or_beside(dwarf, job.cell):
-        if not path_to(fort, dwarf, job.cell):
+    reach = vertical_reach(job)
+    if not at_or_beside(dwarf, job.cell, vertical=reach):
+        if not path_to(fort, dwarf, job.cell, vertical=reach):
             fort.abandon_job(dwarf, job)
             state.job = None
             return

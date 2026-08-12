@@ -252,6 +252,18 @@ half whether you meant it to or not. Build a floodgate, a drawbridge, a door
 or a hatch, link it to a lever, and pull the lever: a dwarf walks over and
 throws it. The same drawbridge that keeps the water out keeps the goblins out.
 
+**A metal industry.** Veins are made of something in particular — copper,
+iron, tin, silver, gold, coal, gems — decided when the map is made and drawn
+in the colour of the metal, so you can dig towards what you want. Mining one
+gives ore, and ore is a rock until it is smelted.
+
+A wood furnace burns logs into charcoal. A smelter turns ore and fuel into
+bars, copper and tin into bronze, and iron, flux stone and a great deal of
+fuel into steel. The forge works in bars: weapons, armour, bolts and
+mechanisms, in whatever metal you fed it. The same axe in steel cuts through
+armour that copper bounces off, so the militia is only ever as good as the
+industry behind it.
+
 **Rooms, nobles and tempers.** Furniture defines rooms and rooms have quality:
 a bed in a corridor is a meagre bedroom, the same bed in a smoothed room with
 a door, a cabinet and a statue is a great one, and the dwarf sleeping in it

@@ -211,8 +211,14 @@ class FortScene(Scene):
         cell = (cx, cy, fort.z)
         from ...world import tiles as tile_data
 
-        lines: List = [Frag(tile_data.get(fort.local.tile(*cell)).name,
-                            colors.UI["title"])]
+        name = tile_data.get(fort.local.tile(*cell)).name
+        vein = fort.local.veins.get(cell)
+        if vein:
+            # "an ore vein" tells you nothing; "a native gold vein" is a plan.
+            from ...data import materials as mat_data
+
+            name = "%s %s" % (mat_data.get(vein).adjective, name)
+        lines: List = [Frag(name, colors.UI["title"])]
         b = fort.building_at(*cell)
         if b is not None:
             lines.append("%s (%s)" % (

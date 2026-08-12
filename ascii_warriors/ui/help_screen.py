@@ -97,6 +97,28 @@ complain about it. On a dry embark there is no such mercy: brew, or die.
 Your workshops will not touch the last week of food, and your farmers will not
 eat the last of the seed.
 
+METAL
+
+Veins in the rock are made of something in particular, and they are drawn in
+the colour of it: copper and iron are common, tin is what bronze needs, and
+gold is mostly for showing off. Coal seams are fuel lying in the wall.
+
+Mining a vein gives you ore, which is a rock until you smelt it. The chain is
+short and it is the whole industry:
+
+  wood furnace   log         -> charcoal
+  smelter        ore + fuel  -> a bar of that metal
+  smelter        copper bar + tin bar + fuel   -> two bronze bars
+  smelter        iron bar + flux stone + fuel  -> a steel bar
+  forge          bars + fuel -> weapons, armour, bolts, mechanisms
+
+Flux is limestone, marble or chalk. Steel is worth the trouble: the same axe
+in steel cuts through armour that copper bounces off.
+
+Nobody smelts or forges unless somebody has the labor for it. The starting
+craftsdwarf can run a furnace; a real smith arrives with the migrants, or you
+enable the labor yourself with u.
+
 DEFENCE
 
 Goblins come once you have something worth taking. Raise a squad with m, pick

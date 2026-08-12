@@ -125,11 +125,21 @@ _add(_m("lead", "lead", "lead", "metal", 11340, colors.Color(120, 124, 136),
         60000, 90000, 15000, 25000, 1000, 4, ("METAL", "ARMOR_OK"), 10725))
 _add(_m("nickel", "nickel", "nickel", "metal", 8900, colors.Color(190, 190, 176),
         380000, 655000, 110000, 190000, 8000, 12, _METAL, 13494))
+_add(_m("tin", "tin", "tin", "metal", 7300, colors.Color(196, 200, 206),
+        60000, 100000, 20000, 30000, 2000, 5, ("METAL", "ARMOR_OK"), 10505))
 
 #: Weapon metals ordered from worst to best.
 WEAPON_METALS: List[str] = [
     "copper", "bismuth_bronze", "bronze", "iron", "steel", "adamantine",
 ]
+
+#: What a smelter can turn ore into, and what a vein can be made of.
+ORE_METALS: List[str] = [
+    "copper", "tin", "iron", "nickel", "silver", "gold", "platinum",
+]
+
+#: Stone the smelter burns off to make steel. Any of these will do.
+FLUX_STONES: List[str] = ["limestone", "marble", "chalk"]
 
 # -- stone ------------------------------------------------------------------ #
 _add(_m("granite", "granite", "granite", "stone", 2700, colors.Color(146, 138, 132),
@@ -158,6 +168,15 @@ _add(_m("schist", "schist", "schist", "stone", 2670, colors.Color(122, 126, 118)
         1000, 1000, 800, 800, 0, 3, _STONE, 25000))
 _add(_m("shale", "shale", "shale", "stone", 2670, colors.Color(96, 100, 104),
         1000, 1000, 800, 800, 0, 3, _STONE, 25000))
+
+# -- fuel ------------------------------------------------------------------- #
+# Neither is a building material: nobody makes a wall out of the coal they
+# were going to smelt with. No STONE or WOOD flag, so nothing will try.
+_add(_m("coal", "coal", "coal", "fuel", 1350, colors.Color(48, 46, 52),
+        1000, 1000, 800, 800, 0, 3, ("FUEL", "FLAMMABLE"), 25000))
+_add(_m("charcoal", "charcoal", "charcoal", "fuel", 400,
+        colors.Color(72, 66, 62),
+        1000, 1000, 800, 800, 0, 3, ("FUEL", "FLAMMABLE"), 25000))
 
 STONE_LAYERS: Dict[str, List[str]] = {
     "sedimentary": ["limestone", "sandstone", "shale", "chalk", "slate"],

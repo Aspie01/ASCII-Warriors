@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import Optional, Tuple
 
+from ...data import materials as mat_data
 from ...engine import colors
 from ...engine.colors import Color
 from ...engine.screen import Screen
@@ -43,6 +44,12 @@ def cell_appearance(fort, x: int, y: int, z: int) -> Tuple[str, Color, Color]:
             depth += 1
             zz -= 1
         return (" ", colors.UI["bg"], colors.UI["bg"])
+    if t.has("ORE") or t.has("GEM"):
+        # Veins are drawn in the colour of what is in them, so a wall of gold
+        # and a wall of tin are not the same wall.
+        material = lm.veins.get((x, y, z))
+        if material:
+            return (t.glyph, mat_data.get(material).color, bg)
     return (t.glyph, t.color, bg)
 
 

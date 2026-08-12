@@ -264,17 +264,53 @@ class TestMovement(unittest.TestCase):
     def test_reach_matches_pathing_targets(self):
         """Anywhere you can path to must count as arriving.
 
-        When these disagree a dwarf walks on the spot until it dies.
+        When these disagree a dwarf walks on the spot until it dies. Both
+        senses of reach have to agree, not just the generous one.
         """
         lm = self.fort.local
         d = self.fort.dwarves()[0]
         goal = (d.x, d.y, d.z - 1)
-        for cell in dwarf_mod.work_positions(lm, goal):
-            probe = type("Probe", (), {"x": cell[0], "y": cell[1],
-                                       "z": cell[2]})()
-            self.assertTrue(dwarf_mod.at_or_beside(probe, goal),
-                            "%s can be pathed to but is not 'beside' %s"
-                            % (cell, goal))
+        for vertical in (True, False):
+            for cell in dwarf_mod.work_positions(lm, goal, vertical=vertical):
+                probe = type("Probe", (), {"x": cell[0], "y": cell[1],
+                                           "z": cell[2]})()
+                self.assertTrue(
+                    dwarf_mod.at_or_beside(probe, goal, vertical=vertical),
+                    "%s can be pathed to but is not 'beside' %s"
+                    % (cell, goal))
+
+    def test_only_digging_reaches_through_a_floor(self):
+        """A miner digs the rock under its feet. Nobody drinks through it."""
+        d = self.fort.dwarves()[0]
+        above = (d.x, d.y, d.z + 1)
+        self.assertTrue(dwarf_mod.at_or_beside(d, above))
+        self.assertFalse(dwarf_mod.at_or_beside(d, above, vertical=False))
+        self.assertTrue(dwarf_mod.vertical_reach(Job(1, "dig", *above)))
+        self.assertFalse(dwarf_mod.vertical_reach(Job(2, "haul", *above)))
+        self.assertNotIn(
+            (d.x, d.y, d.z),
+            dwarf_mod.work_positions(self.fort.local, above, vertical=False))
+
+    def test_a_dwarf_does_not_drink_through_the_ceiling(self):
+        """It has to walk round to the barrel like everybody else.
+
+        Standing directly below a barrel used to count as standing beside it,
+        so every thirsty dwarf in the fortress crowded onto that one tile,
+        shoved each other off it, and died of thirst under the ale.
+        """
+        from ascii_warriors.game.item import Item
+
+        fort = embark("ceiling")
+        for cell, pile in list(fort.items_on_ground.items()):
+            fort.items_on_ground[cell] = [i for i in pile if not i.is_drink]
+        d = fort.dwarves()[0]
+        barrel = (d.x, d.y, d.z + 1)
+        fort.drop_item(Item("dwarven_ale", "alcohol", count=10), *barrel)
+        d.needs.thirst = dwarf_mod.THIRST_URGENT * 2
+        before = d.needs.thirst
+        dwarf_mod.take_turn(fort, d, 10)
+        self.assertEqual(d.needs.thirst, before,
+                         "the dwarf drank through a solid floor")
 
     def test_movement_graph_is_symmetric(self):
         """If you can walk from A to B you can walk back.
@@ -585,6 +621,14 @@ class TestProduction(unittest.TestCase):
                 self.assertGreater(count, 0, recipe.id)
                 if requirement in production.CLASS_ITEMS:
                     continue
+                if ":" in requirement:
+                    # "bar:copper": both halves have to be real.
+                    from ascii_warriors.data import materials as mat_data
+
+                    def_id, _, material = requirement.partition(":")
+                    self.assertTrue(item_data.exists(def_id), recipe.id)
+                    self.assertIn(material, mat_data.MATERIALS, recipe.id)
+                    continue
                 self.assertTrue(item_data.exists(requirement),
                                 "%s needs a nonexistent %s"
                                 % (recipe.id, requirement))
@@ -610,6 +654,222 @@ class TestProduction(unittest.TestCase):
         recipe = production.RECIPES["wood_bed"]
         log = Item("log", "oak")
         self.assertEqual(production.output_material(recipe, [(log, 1)]), "oak")
+
+
+class TestIndustry(unittest.TestCase):
+    """Ore in the rock, fuel in the furnace, metal out of the forge."""
+
+    def setUp(self):
+        from ascii_warriors.data import materials as mat_data
+        from ascii_warriors.game.item import Item
+
+        self.mats = mat_data
+        self.Item = Item
+
+    def _shop(self, fort, kind):
+        """A built workshop of this kind, near the dwarves."""
+        spot = _open_spot(fort, kind)
+        self.assertIsNotNone(spot, "nowhere to put a %s" % kind)
+        b = Building(kind, *spot)
+        b.built = True
+        fort.buildings.append(b)
+        return b
+
+    def _vein(self, fort, tile_id):
+        """A cell of vein of the given kind, or None."""
+        return next((c for c in sorted(fort.local.veins)
+                     if fort.local.tile(*c) == tile_id), None)
+
+    # -- geology ----------------------------------------------------------- #
+
+    def test_a_map_has_veins_and_they_are_made_of_something(self):
+        """Every vein cell knows its material, and the material is real."""
+        fort = embark("geology")
+        self.assertTrue(fort.local.veins, "no veins anywhere on the map")
+        for cell, material in fort.local.veins.items():
+            self.assertIn(material, self.mats.MATERIALS, str(cell))
+            self.assertIn(fort.local.tile(*cell),
+                          ("ore_vein", "gem_vein", "coal_seam"), str(cell))
+
+    def test_a_vein_is_the_same_metal_all_the_way_through(self):
+        """You dig towards the iron and you get iron, not a lottery ticket."""
+        fort = embark("geology")
+        cell = self._vein(fort, "ore_vein")
+        self.assertIsNotNone(cell, "no ore on this map")
+        material = fort.local.veins[cell]
+        self.assertEqual(fort._stone_here(cell), material)
+        self.assertEqual(fort._stone_here(cell), material,
+                         "asking twice gave two answers")
+
+    def test_veins_survive_a_save(self):
+        """What is in the rock has to still be there after a reload."""
+        fort = embark("veinsave")
+        again = Fortress.from_dict(fort.to_dict())
+        self.assertEqual(again.local.veins, fort.local.veins)
+
+    def test_mining_a_vein_yields_what_is_in_it(self):
+        """Ore, coal and gems, not a boulder of generic rock."""
+        fort = embark("mining")
+        wanted = {"ore_vein": "ore", "coal_seam": "coal",
+                  "gem_vein": "rough_gem"}
+        seen = 0
+        for tile_id, def_id in wanted.items():
+            cell = self._vein(fort, tile_id)
+            if cell is None:
+                continue
+            seen += 1
+            item = fort._mined_item(cell, fort._stone_here(cell))
+            self.assertEqual(item.def_id, def_id, tile_id)
+            if tile_id == "ore_vein":
+                self.assertEqual(item.material, fort.local.veins[cell])
+        self.assertGreater(seen, 0, "the map had no veins to mine at all")
+
+    def test_plain_rock_still_gives_a_boulder(self):
+        """The ordinary case has to keep working."""
+        fort = embark("mining")
+        lm = fort.local
+        cell = next(c for c in
+                    ((x, y, z) for z in range(lm.zmin, 0)
+                     for y in range(lm.height) for x in range(lm.width))
+                    if lm.tile(*c) == "rock_wall")
+        item = fort._mined_item(cell, fort._stone_here(cell))
+        self.assertEqual(item.def_id, "boulder")
+
+    # -- the smelter ------------------------------------------------------- #
+
+    def test_smelting_gives_a_bar_of_the_ore_s_metal(self):
+        """Iron ore makes an iron bar and nothing else."""
+        recipe = production.RECIPES["smelt_ore"]
+        ore = self.Item("ore", "iron")
+        fuel = self.Item("charcoal", "charcoal")
+        chosen = production.find_inputs(recipe, [ore, fuel])
+        self.assertIsNotNone(chosen)
+        self.assertEqual(production.output_material(recipe, chosen), "iron")
+
+    def test_smelting_needs_fuel(self):
+        """Ore alone is a rock."""
+        recipe = production.RECIPES["smelt_ore"]
+        self.assertIsNone(
+            production.find_inputs(recipe, [self.Item("ore", "iron")]))
+        self.assertIsNotNone(production.find_inputs(
+            recipe, [self.Item("ore", "iron"), self.Item("coal", "coal")]))
+
+    def test_bronze_needs_both_metals(self):
+        """Copper on its own is copper."""
+        recipe = production.RECIPES["make_bronze"]
+        copper = self.Item("bar", "copper", count=4)
+        fuel = self.Item("charcoal", "charcoal", count=4)
+        self.assertIsNone(production.find_inputs(recipe, [copper, fuel]))
+        chosen = production.find_inputs(
+            recipe, [copper, self.Item("bar", "tin"), fuel])
+        self.assertIsNotNone(chosen)
+        self.assertEqual(production.output_material(recipe, chosen), "bronze")
+
+    def test_steel_needs_flux(self):
+        """Iron and fuel are not enough; the flux stone is the trick."""
+        recipe = production.RECIPES["make_steel"]
+        base = [self.Item("bar", "iron"),
+                self.Item("charcoal", "charcoal", count=4)]
+        self.assertIsNone(production.find_inputs(
+            recipe, base + [self.Item("boulder", "granite")]))
+        chosen = production.find_inputs(
+            recipe, base + [self.Item("boulder", "limestone")])
+        self.assertIsNotNone(chosen)
+        self.assertEqual(production.output_material(recipe, chosen), "steel")
+
+    def test_charcoal_is_charcoal_and_not_oak(self):
+        """A burnt log stops being a log."""
+        recipe = production.RECIPES["burn_charcoal"]
+        chosen = production.find_inputs(recipe, [self.Item("log", "oak")])
+        self.assertIsNotNone(chosen)
+        self.assertEqual(production.output_material(recipe, chosen), "charcoal")
+
+    # -- the forge --------------------------------------------------------- #
+
+    def test_the_forge_works_in_metal_not_stone(self):
+        """A pile of boulders is no longer a sword."""
+        recipe = production.RECIPES["iron_sword"]
+        stone = [self.Item("boulder", "granite", count=8),
+                 self.Item("charcoal", "charcoal", count=4)]
+        self.assertIsNone(production.find_inputs(recipe, stone))
+        chosen = production.find_inputs(
+            recipe, [self.Item("bar", "steel", count=3),
+                     self.Item("charcoal", "charcoal")])
+        self.assertIsNotNone(chosen)
+        self.assertEqual(production.output_material(recipe, chosen), "steel")
+
+    def test_a_better_bar_makes_a_better_weapon(self):
+        """The whole point of the industry: metal you dig for is metal you
+        fight with."""
+        copper = self.Item("axe", "copper")
+        steel = self.Item("axe", "steel")
+        self.assertGreater(steel.value, copper.value)
+        self.assertGreater(steel.mat.shear_yield, copper.mat.shear_yield)
+
+    # -- the chain, in a running fortress ----------------------------------- #
+
+    def test_the_whole_chain_runs(self):
+        """Logs and ore go in one end; an axe comes out of the other."""
+        fort = embark("chain")
+        for d in fort.dwarves():
+            d.fort.labors.enabled.update(
+                {"smelting", "smithing", "weaponsmithing"})
+        furnace = self._shop(fort, "wood_furnace")
+        smelter = self._shop(fort, "smelter")
+        forge = self._shop(fort, "smith")
+        fort.drop_item(self.Item("log", "oak", count=8), *furnace.center)
+        fort.drop_item(self.Item("ore", "iron", count=8), *smelter.center)
+        furnace.orders.append(
+            {"recipe": "burn_charcoal", "count": 4, "repeat": False})
+        smelter.orders.append(
+            {"recipe": "smelt_ore", "count": 4, "repeat": False})
+        forge.orders.append(
+            {"recipe": "iron_axe", "count": 1, "repeat": False})
+        before = sum(1 for i in fort.all_items() if i.def_id == "axe")
+
+        sim.run(fort, 900)
+
+        self.assertGreater(fort.stock_count("charcoal") + 4, 4,
+                           "the furnace never burned anything")
+        axes = [i for i in fort.all_items() if i.def_id == "axe"]
+        self.assertGreater(len(axes), before, "the forge made nothing")
+        self.assertTrue(any(a.mat.is_metal for a in axes))
+
+    def test_a_workshop_nobody_will_staff_says_so(self):
+        """A job no dwarf accepts must not sit on the board in silence."""
+        fort = embark("nolabor")
+        for d in fort.dwarves():
+            d.fort.labors.enabled.discard("smelting")
+        smelter = self._shop(fort, "smelter")
+        smelter.orders.append(
+            {"recipe": "smelt_ore", "count": 1, "repeat": False})
+        sim.scan_jobs(fort)
+        self.assertEqual(fort.jobs.count("craft"), 0)
+        self.assertTrue(any("furnace operating" in m.text.lower()
+                            for m in fort.log.all()),
+                        "nothing explained why the smelter is idle")
+
+    # -- hauling and building ---------------------------------------------- #
+
+    def test_ore_is_not_a_building_material(self):
+        """Ore is for the smelter; bars are for the wall."""
+        self.assertFalse(building_mod.material_matches(
+            self.Item("ore", "iron"), "floodgate"))
+        self.assertFalse(building_mod.material_matches(
+            self.Item("charcoal", "charcoal"), "floodgate"))
+        self.assertTrue(building_mod.material_matches(
+            self.Item("bar", "iron"), "floodgate"))
+
+    def test_a_metal_stockpile_takes_the_industry_and_nothing_else(self):
+        """Ore beside the smelter, not scattered through the bedrooms."""
+        pile = Stockpile("metal", 0, 0, 0, 3, 3)
+        for def_id, material in (("ore", "iron"), ("bar", "steel"),
+                                 ("coal", "coal"), ("charcoal", "charcoal")):
+            self.assertTrue(pile.accepts(self.Item(def_id, material)), def_id)
+        self.assertFalse(pile.accepts(self.Item("boulder", "granite")))
+        self.assertFalse(pile.accepts(self.Item("meat", "meat")))
+        stone = Stockpile("stone", 0, 0, 0, 3, 3)
+        self.assertFalse(stone.accepts(self.Item("ore", "iron")))
 
 
 class TestWorkRate(unittest.TestCase):
@@ -1017,6 +1277,12 @@ class TestHospital(unittest.TestCase):
         for d in fort.dwarves():
             if doctors:
                 d.fort.labors.enable("medicine")
+                # A hospital is beds, bandages and somebody who knows what
+                # they are doing. With nobody trained, whether a bleeding
+                # dwarf lives is a coin flip on the fumble roll, and this
+                # helper is used to test the hospital, not the dice.
+                d.skills.set_level("wound_dressing", 5)
+                d.skills.set_level("diagnose", 4)
             else:
                 d.fort.labors.disable("medicine")
         sim.run(fort, 700)

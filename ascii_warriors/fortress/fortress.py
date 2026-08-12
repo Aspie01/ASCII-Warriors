@@ -255,6 +255,10 @@ class Fortress:
             ("meat", "meat", 20),
             ("log", "oak", 14),
             ("boulder", "granite", 8),
+            # Enough metal for one thing at the forge. After that you dig for
+            # it, or you buy it.
+            ("bar", "copper", 4),
+            ("charcoal", "charcoal", 6),
             ("bandage", "pig_tail_cloth", 8),
             ("splint", "oak", 4),
             ("torch", "oak", 6),
@@ -624,7 +628,7 @@ class Fortress:
             cell = self.item_cell(item)
             if cell is None:
                 continue
-            if not dwarf_mod.at_or_beside(dwarf, cell):
+            if not dwarf_mod.at_or_beside(dwarf, cell, vertical=False):
                 continue
             self.take_item(item)
             # Appended rather than added: stacking would change the item's
@@ -723,57 +727,69 @@ class Fortress:
         self.pull_lever(lever)
 
     def _stone_here(self, cell: Cell) -> str:
-        """Which stone a wall at this cell is made of."""
+        """Which material a wall at this cell is made of."""
         tid = self.local.tile(*cell)
-        if tid == "ore_vein":
-            return self.rng.choice(["copper", "iron", "silver", "gold"])
-        if tid == "gem_vein":
-            return self.rng.choice(
-                ["ruby", "sapphire", "emerald", "amethyst", "topaz", "diamond"])
+        if tid in ("ore_vein", "gem_vein", "coal_seam"):
+            # What the vein is made of was decided when the map was made, so a
+            # fortress can plan around what it has found.
+            return self.local.veins.get(cell, "copper")
         if tid == "soil_wall":
             return ""
         return self.local.stone
 
+    def _mined_item(self, cell: Cell, material: str) -> Optional[Item]:
+        """What falls out of a wall when it is dug: ore, coal, gem or rock."""
+        if not material:
+            return None
+        tid = self.local.tile(*cell)
+        if tid == "coal_seam":
+            return Item("coal", "coal", count=2)
+        if tid == "gem_vein":
+            return Item("rough_gem", material)
+        if tid == "ore_vein":
+            return Item("ore", material)
+        return Item("boulder", material)
+
     def _finish_dig(self, dwarf, job: Job) -> None:
         cell = job.cell
         material = self._stone_here(cell)
+        found = self._mined_item(cell, material)
+        rich = self.local.tile(*cell) in ("ore_vein", "gem_vein")
         self.dig_out(cell, "floor")
-        if material:
-            boulder = Item("boulder", material)
-            self.drop_item(boulder, *cell)
-            if material in ("ruby", "sapphire", "emerald", "amethyst", "topaz",
-                            "diamond"):
+        if found is not None:
+            self.drop_item(found, *cell)
+            if rich:
                 self.log.good("%s has struck %s!" % (dwarf.name, material))
                 dwarf.needs.add_thought("struck a rich vein", -10)
         self._reveal_around(cell)
 
     def _finish_channel(self, dwarf, job: Job) -> None:
         cell = job.cell
-        material = self._stone_here(cell)
+        found = self._mined_item(cell, self._stone_here(cell))
         self.dig_out(cell, "air")
         below = (cell[0], cell[1], cell[2] - 1)
         if self.local.in_bounds(*below):
             # Through dig_out as well: channelling cuts two tiles open, and
             # the lower one is as good a way into an aquifer as the upper.
             self.dig_out(below, "ramp_up")
-            if material:
-                self.drop_item(Item("boulder", material), *below)
+            if found is not None:
+                self.drop_item(found, *below)
         self._reveal_around(cell)
 
     def _finish_stairs(self, dwarf, job: Job) -> None:
         cell = job.cell
-        material = self._stone_here(cell)
+        found = self._mined_item(cell, self._stone_here(cell))
         self.dig_out(cell, "stair_updown")
-        if material:
-            self.drop_item(Item("boulder", material), *cell)
+        if found is not None:
+            self.drop_item(found, *cell)
         self._reveal_around(cell)
 
     def _finish_ramp(self, dwarf, job: Job) -> None:
         cell = job.cell
-        material = self._stone_here(cell)
+        found = self._mined_item(cell, self._stone_here(cell))
         self.dig_out(cell, "ramp_up")
-        if material:
-            self.drop_item(Item("boulder", material), *cell)
+        if found is not None:
+            self.drop_item(found, *cell)
         self._reveal_around(cell)
 
     def _finish_smooth(self, dwarf, job: Job) -> None:

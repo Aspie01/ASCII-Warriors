@@ -1427,9 +1427,10 @@ class DwarfState: labors job path path_goal blocked sleeping nickname bed
                   mood mood_ticks idle_ticks squad carrying workshop
 def attach(creature, profession) -> Creature      # adds .fort, .labors, .job
 def make_dwarf(rng, profession, *, race="dwarf") -> Creature
-def work_positions(lm, goal) -> list[Cell]
-def at_or_beside(dwarf, cell) -> bool
-def path_to(fort, dwarf, goal, *, adjacent=True) -> bool
+def work_positions(lm, goal, *, vertical=True) -> list[Cell]
+def at_or_beside(dwarf, cell, *, vertical=True) -> bool
+def vertical_reach(job) -> bool                   # VERTICAL_JOBS: dig, channel, ...
+def path_to(fort, dwarf, goal, *, adjacent=True, vertical=True) -> bool
 def step_along(fort, dwarf) -> bool
 def take_turn(fort, dwarf, ticks)     # danger -> needs -> job -> claim -> idle
 ```
@@ -1437,9 +1438,14 @@ def take_turn(fort, dwarf, ticks)     # danger -> needs -> job -> claim -> idle
 Two invariants here are load-bearing, and breaking either kills a fortress
 silently:
 
-- **`work_positions()` and `at_or_beside()` must agree exactly.** If a dwarf can
-  path to a cell it does not believe it has arrived at, it walks on the spot
-  until it dies of thirst.
+- **`work_positions()` and `at_or_beside()` must agree exactly**, `vertical`
+  included. If a dwarf can path to a cell it does not believe it has arrived
+  at, it walks on the spot until it dies of thirst.
+- **Only digging reaches through a floor.** A miner cuts the rock under its
+  feet, but reaching a *thing* — a barrel, an item to haul, a patient — needs
+  real adjacency. With the generous rule everywhere, every thirsty dwarf in
+  the fortress paths to the single tile under the ale, shoves the others off
+  it in turn, and the whole crowd dies of thirst one tile from a drink.
 - **Needs are served most-urgent-first, not in a fixed order.** A dwarf on a
   long walk to the ale barrel must be allowed to lie down before exhaustion
   kills it two tiles short.
@@ -1679,7 +1685,44 @@ plants all pass through here and must leave the river where it is.
   `.pending`.
 - `ui/fort/levers.py`, and depth-shaded water in `ui/fort/render.py`.
 
-## 55. Style
+## 55. The metal industry (v2.6)
+
+Veins are decided at generation and remembered cell by cell, so a fortress can
+dig *towards* something:
+```python
+LocalMap.veins: dict[Cell, str]   # cell -> metal, gem or coal; saved with the map
+localmap.ORE_WEIGHTS              # copper and iron common, platinum a story
+localmap._add_ore(lm, rng)        # blobs that stay inside the rock
+tiles: ore_vein / gem_vein / coal_seam
+Fortress._stone_here(cell)        # reads lm.veins, never rolls a die
+Fortress._mined_item(cell, mat)   # ore, coal, rough gem, or a plain boulder
+```
+Rolling the metal when the wall is mined would mean the player could not plan
+around what they had found, which is most of what a fortress does.
+
+The chain is three workshops and four recipes:
+```
+wood_furnace  WOOD 1                          -> charcoal x2
+smelter       ore 1 + FUEL 1                  -> bar (the ore's own metal)
+smelter       bar:copper + bar:tin + FUEL     -> bar x2, forced to bronze
+smelter       bar:iron + FLUX + FUEL x2       -> bar, forced to steel
+smith         BAR n + FUEL 1                  -> weapons, armour, bolts, mechanisms
+```
+Three small additions to `production.py` carry it:
+
+- **Classes.** `BAR`, `ORE`, `FUEL` (charcoal or coal) and `FLUX` (limestone,
+  marble or chalk) join `STONE`/`WOOD`/`PLANT`/`FOOD`. `METAL` now means a
+  bar, not a metal boulder.
+- **`bar:copper`.** A requirement may name one material after a colon, which
+  is what makes an alloy an alloy.
+- **`Recipe.out_material`.** Bronze is not made of copper and charcoal is not
+  made of oak, so a recipe may force what comes out.
+
+`sim._anybody_does(fort, labor)` gates every workshop job: if no living dwarf
+has the labor, nothing is posted and the log says so once. A job nobody will
+take used to sit on the board looking like a broken workshop.
+
+## 56. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

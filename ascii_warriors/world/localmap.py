@@ -49,6 +49,8 @@ class LocalMap:
         }
         #: Column surface heights, indexed like a level.
         self.surface: List[int] = [0] * (width * height)
+        #: Cell -> what the vein there is made of: a metal, a gem, or coal.
+        self.veins: Dict[Tuple[int, int, int], str] = {}
         self.stone = "granite"
         self.soil = "dirt"
         self.entry_points: Dict[str, Tuple[int, int, int]] = {}
@@ -251,6 +253,7 @@ class LocalMap:
             "wx": self.wx, "wy": self.wy, "biome": self.biome,
             "site": self.site_id, "stone": self.stone, "soil": self.soil,
             "surface": self.surface,
+            "veins": {"%d,%d,%d" % c: m for c, m in self.veins.items()},
             "entries": {k: list(v) for k, v in self.entry_points.items()},
             "levels": {
                 str(z): _rle_encode(level) for z, level in self.levels.items()
@@ -267,6 +270,10 @@ class LocalMap:
         lm.stone = str(d.get("stone", "granite"))
         lm.soil = str(d.get("soil", "dirt"))
         lm.surface = [int(v) for v in d.get("surface", lm.surface)]
+        lm.veins = {
+            tuple(int(v) for v in k.split(",")): str(m)
+            for k, m in (d.get("veins") or {}).items()
+        }
         lm.entry_points = {
             k: (int(v[0]), int(v[1]), int(v[2]))
             for k, v in (d.get("entries") or {}).items()
@@ -527,19 +534,79 @@ def _connect_levels(lm: LocalMap, rng: RNG) -> None:
             made += 1
 
 
+#: How likely each metal is to be the one a vein is made of. Copper and iron
+#: are what a fortress is built on; platinum is a story you tell afterwards.
+ORE_WEIGHTS: Tuple[Tuple[str, int], ...] = (
+    ("copper", 26), ("iron", 24), ("tin", 14), ("nickel", 8),
+    ("silver", 8), ("gold", 5), ("platinum", 2),
+)
+
+GEM_KINDS: Tuple[str, ...] = (
+    "ruby", "sapphire", "emerald", "amethyst", "topaz", "diamond",
+)
+
+
+def _vein_material(rng: RNG, kind: str) -> str:
+    """What one vein is made of."""
+    if kind == "gem_vein":
+        return rng.choice(list(GEM_KINDS))
+    if kind == "coal_seam":
+        return "coal"
+    roll = rng.randint(1, sum(w for _m, w in ORE_WEIGHTS))
+    for metal, weight in ORE_WEIGHTS:
+        roll -= weight
+        if roll <= 0:
+            return metal
+    return "copper"
+
+
 def _add_ore(lm: LocalMap, rng: RNG) -> None:
-    """Seed ore and gem veins in the rock."""
-    for _ in range(rng.randint(4, 14)):
+    """Seed ore, coal and gem veins in the rock.
+
+    A vein is one material all the way through, recorded cell by cell in
+    ``lm.veins``. Rolling the metal when the wall is mined instead would mean
+    a fortress could not plan around what it had found, which is most of what
+    a fortress does.
+    """
+    for _ in range(rng.randint(10, 20)):
+        start = _rock_cell(lm, rng)
+        if start is None:
+            return
+        x, y, z = start
+        roll = rng.randint(1, 10)
+        kind = ("gem_vein" if roll <= 2 else
+                "coal_seam" if roll <= 5 else "ore_vein")
+        material = _vein_material(rng, kind)
+        for _ in range(rng.randint(10, 30)):
+            lm.set_tile(x, y, z, kind)
+            lm.veins[(x, y, z)] = material
+            # in_bounds first: reading off the edge of the map returns rock,
+            # which would walk the vein straight out of the world.
+            options = [
+                (x + dx, y + dy) for dx, dy in _DIRS8
+                if lm.in_bounds(x + dx, y + dy, z)
+                and lm.tile(x + dx, y + dy, z) == "rock_wall"
+            ]
+            if not options:
+                # The seam has run into open ground. Veins are not endless.
+                break
+            x, y = rng.choice(options)
+
+
+_DIRS8: Tuple[Tuple[int, int], ...] = (
+    (0, -1), (1, -1), (1, 0), (1, 1), (0, 1), (-1, 1), (-1, 0), (-1, -1),
+)
+
+
+def _rock_cell(lm: LocalMap, rng: RNG) -> Optional[Tuple[int, int, int]]:
+    """A random cell of plain rock, or None if the map is mostly hollow."""
+    for _ in range(200):
         z = rng.randint(lm.zmin, min(-1, lm.zmax))
         x = rng.randint(2, lm.width - 3)
         y = rng.randint(2, lm.height - 3)
-        kind = "gem_vein" if rng.one_in(5) else "ore_vein"
-        for _ in range(rng.randint(3, 12)):
-            if lm.tile(x, y, z) == "rock_wall":
-                lm.set_tile(x, y, z, kind)
-            dx, dy = rng.dir8()
-            x = max(1, min(lm.width - 2, x + dx))
-            y = max(1, min(lm.height - 2, y + dy))
+        if lm.tile(x, y, z) == "rock_wall":
+            return (x, y, z)
+    return None
 
 
 def _add_cave_entrance(lm: LocalMap, rng: RNG) -> None:

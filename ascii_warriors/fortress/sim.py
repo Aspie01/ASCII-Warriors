@@ -70,7 +70,7 @@ SKILL_LABOR: Dict[str, str] = {
 WORKSHOP_LABOR: Dict[str, str] = {
     "carpenter": "carpentry", "mason": "masonry", "craftsdwarf": "crafting",
     "smith": "smithing", "still": "brewing", "kitchen": "cooking",
-    "butcher": "butchery",
+    "butcher": "butchery", "smelter": "smelting", "wood_furnace": "smelting",
 }
 
 #: Odds per step of a dwarf being seized. About one mood every three months —
@@ -700,11 +700,26 @@ def _scan_workshops(fort, budget: int) -> int:
             b.orders.pop(0)
             continue
         labor = SKILL_LABOR.get(recipe.skill) or WORKSHOP_LABOR.get(b.kind, "")
+        if not _anybody_does(fort, labor):
+            # A job nobody will take sits on the board for ever, looking like
+            # the workshop is broken. Say what is actually wrong.
+            fort.warn_once(
+                "labor-" + labor,
+                "Nobody has %s enabled, so %s waits. Press u to change that."
+                % (LABORS[labor].name.lower(), recipe.name.lower()))
+            continue
         cx, cy, cz = b.center
         fort.jobs.make("craft", cx, cy, cz, labor=labor, skill=recipe.skill,
                        work=recipe.work, target=b.id, priority=5)
         posted += 1
     return posted
+
+
+def _anybody_does(fort, labor: str) -> bool:
+    """True if some living dwarf will accept work needing this labor."""
+    if not labor or labor not in LABORS:
+        return True
+    return any(d.fort.labors.has(labor) for d in fort.dwarves())
 
 
 def _scan_stockpiles(fort, budget: int) -> int:
@@ -1014,6 +1029,11 @@ def _caravan_goods(fort) -> List[Item]:
         Item("log", "oak", count=rng.randint(6, 20)),
         Item("bandage", "pig_tail_cloth", count=rng.randint(4, 12)),
         Item("splint", "oak", count=rng.randint(2, 6)),
+        # An embark with no tin in the rock buys its bronze, and one with no
+        # trees buys the fuel to smelt with.
+        Item("bar", rng.choice(["copper", "tin", "iron"]),
+             count=rng.randint(2, 8)),
+        Item("coal", "coal", count=rng.randint(4, 14)),
     ]
     for _ in range(rng.randint(2, 5)):
         stock.append(Item(

@@ -70,6 +70,11 @@ def _draw_stocks(scr: Screen, x: int, row: int, w: int, fort, dwarves) -> int:
              colors.UI["dim"])
     scr.text_right(x + w - 1, row, "%d wood" % fort.stock_count("log"),
                    colors.UI["dim"])
+    row += 1
+    scr.text(x, row, "  %-6s %4d" % ("Bars", fort.stock_count("bar")),
+             colors.UI["dim"])
+    scr.text_right(x + w - 1, row, "%d fuel"
+                   % fort.stock_count("charcoal", "coal"), colors.UI["dim"])
     return row + 1
 
 

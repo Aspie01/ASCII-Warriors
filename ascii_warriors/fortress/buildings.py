@@ -63,6 +63,14 @@ KINDS: Dict[str, BuildingKind] = {
            3, 3, ("STONE",), 1, 260, "building", "smithing",
            "floor_constructed", "Workshops", True,
            "Forges weapons and armour. Needs fuel."),
+        _b("smelter", "Smelter", "&", colors.Color(220, 150, 70),
+           3, 3, ("STONE",), 1, 260, "building", "smelting",
+           "floor_constructed", "Workshops", True,
+           "Ore and fuel in, metal bars out. Also where alloys are made."),
+        _b("wood_furnace", "Wood furnace", "&", colors.Color(160, 110, 70),
+           3, 3, ("STONE",), 1, 220, "building", "smelting",
+           "floor_constructed", "Workshops", True,
+           "Burns logs into charcoal, which is what everything else burns."),
         _b("still", "Still", "S", colors.Color(180, 140, 90), 3, 3,
            ("WOOD", "STONE"), 1, 180, "building", "brewing",
            "floor_constructed", "Workshops", True,
@@ -177,7 +185,8 @@ GATE_TILES: Dict[str, Tuple[str, str]] = {
 }
 
 WORKSHOP_KINDS: Tuple[str, ...] = (
-    "carpenter", "mason", "craftsdwarf", "smith", "still", "kitchen", "butcher",
+    "carpenter", "mason", "craftsdwarf", "smith", "smelter", "wood_furnace",
+    "still", "kitchen", "butcher",
 )
 
 BUILD_CATEGORIES: Tuple[str, ...] = (
@@ -306,6 +315,7 @@ STOCKPILE_TYPES: Dict[str, Tuple[str, ...]] = {
     "weapons": ("weapon", "ammo"),
     "armor": ("armor", "clothing", "shield"),
     "goods": ("gem", "coin", "tool", "container", "book", "remains"),
+    "metal": ("misc",),
     "refuse": ("corpse", "remains"),
     "all": ("weapon", "armor", "clothing", "shield", "ammo", "food", "drink",
             "tool", "container", "gem", "coin", "book", "furniture", "misc",
@@ -320,6 +330,7 @@ STOCKPILE_COLORS: Dict[str, Color] = {
     "weapons": colors.Color(180, 180, 195),
     "armor": colors.Color(160, 170, 195),
     "goods": colors.Color(190, 160, 200),
+    "metal": colors.Color(210, 150, 90),
     "refuse": colors.Color(140, 130, 120),
     "all": colors.Color(170, 170, 170),
 }
@@ -358,6 +369,11 @@ class Stockpile:
             return item.def_id == "log"
         if self.kind == "refuse":
             return item.is_corpse or item.def_id in ("bone_item", "skull")
+        if self.kind == "metal":
+            return item.def_id in ("ore", "bar", "coal", "charcoal")
+        if item.def_id in ("ore", "bar", "coal", "charcoal"):
+            # Ore beside the smelter, not scattered through the bedrooms.
+            return self.kind == "all"
         if item.def_id in ("boulder", "log"):
             return self.kind == "all"
         return item.category in self.categories
@@ -431,6 +447,12 @@ def material_matches(item, kind: str) -> bool:
         return "STONE" in k.materials
     if item.def_id == "log":
         return "WOOD" in k.materials
+    if item.def_id == "bar":
+        return "METAL" in k.materials
+    if item.def_id in ("ore", "coal", "charcoal"):
+        # Raw ore and fuel are the smelter's business. Nobody builds a wall
+        # out of the coal they were going to burn.
+        return False
     if item.category in ("weapon", "armor", "food", "drink", "corpse"):
         return False
     flags = item.mat.flags

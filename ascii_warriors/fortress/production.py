@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from ..data import items as item_data
+from ..data import materials as mat_data
 
 
 @dataclass(frozen=True)
@@ -16,19 +17,25 @@ class Recipe:
     name: str
     workshop: str
     skill: str
-    #: ``(item def id or "STONE"/"WOOD"/"METAL"/"FOOD"/"PLANT", count)``
+    #: ``(requirement, count)``. A requirement is an item def id, a class
+    #: (``STONE``/``WOOD``/``METAL``/``BAR``/``FUEL``/``FLUX``/``FOOD``/
+    #: ``PLANT``), or ``bar:iron`` for one particular metal.
     inputs: Tuple[Tuple[str, int], ...]
     output: str
     out_count: int
     work: int
     description: str = ""
+    #: Forced output material, for alloys: bronze is not made of copper.
+    out_material: str = ""
 
 
 RECIPES: Dict[str, Recipe] = {}
 
 
-def _r(rid, name, shop, skill, inputs, output, out_count=1, work=200, desc=""):
-    rec = Recipe(rid, name, shop, skill, inputs, output, out_count, work, desc)
+def _r(rid, name, shop, skill, inputs, output, out_count=1, work=200, desc="",
+       out_material=""):
+    rec = Recipe(rid, name, shop, skill, inputs, output, out_count, work, desc,
+                 out_material)
     RECIPES[rid] = rec
     return rec
 
@@ -75,27 +82,51 @@ _r("mechanisms", "Mechanisms", "craftsdwarf", "mechanics", (("STONE", 1),),
    "mechanism", 2, 240,
    "Everything a fortress does cleverly needs one of these.")
 
+# -- wood furnace ------------------------------------------------------------ #
+_r("burn_charcoal", "Burn charcoal", "wood_furnace", "smelting",
+   (("WOOD", 1),), "charcoal", 2, 240,
+   "One log, slowly, into the fuel everything else needs.",
+   out_material="charcoal")
+
+# -- smelter ----------------------------------------------------------------- #
+_r("smelt_ore", "Smelt ore", "smelter", "smelting",
+   (("ore", 1), ("FUEL", 1)), "bar", 1, 300,
+   "Whatever metal the ore was, the bar is.")
+_r("make_bronze", "Alloy bronze", "smelter", "smelting",
+   (("bar:copper", 1), ("bar:tin", 1), ("FUEL", 1)), "bar", 2, 360,
+   "Copper and tin. Twice the metal and better than either.",
+   out_material="bronze")
+_r("make_steel", "Make steel", "smelter", "smelting",
+   (("bar:iron", 1), ("FLUX", 1), ("FUEL", 2)), "bar", 1, 480,
+   "Iron, flux stone and a great deal of fuel. The best a fortress makes.",
+   out_material="steel")
+
 # -- forge ------------------------------------------------------------------- #
-_r("iron_dagger", "Forge dagger", "smith", "weaponsmithing", (("STONE", 2),),
-   "dagger", 1, 340)
-_r("iron_sword", "Forge short sword", "smith", "weaponsmithing", (("STONE", 3),),
-   "short_sword", 1, 420)
-_r("iron_axe", "Forge axe", "smith", "weaponsmithing", (("STONE", 3),),
-   "axe", 1, 420)
-_r("iron_spear", "Forge spear", "smith", "weaponsmithing", (("STONE", 2),),
-   "spear", 1, 380)
-_r("iron_hammer", "Forge war hammer", "smith", "weaponsmithing", (("STONE", 3),),
-   "warhammer", 1, 420)
-_r("iron_helm", "Forge helm", "smith", "armorsmithing", (("STONE", 2),),
-   "helm", 1, 380)
-_r("iron_mail", "Forge mail shirt", "smith", "armorsmithing", (("STONE", 4),),
-   "mail_shirt", 1, 520)
-_r("iron_greaves", "Forge greaves", "smith", "armorsmithing", (("STONE", 3),),
-   "greaves", 1, 440)
-_r("iron_shield", "Forge shield", "smith", "armorsmithing", (("STONE", 2),),
-   "shield", 1, 360)
-_r("iron_bolts", "Forge bolts", "smith", "weaponsmithing", (("STONE", 1),),
-   "bolt", 20, 300)
+# Everything here takes bars and fuel. A forge with no smelter behind it is an
+# expensive floor.
+_r("iron_dagger", "Forge dagger", "smith", "weaponsmithing",
+   (("BAR", 1), ("FUEL", 1)), "dagger", 1, 340)
+_r("iron_sword", "Forge short sword", "smith", "weaponsmithing",
+   (("BAR", 2), ("FUEL", 1)), "short_sword", 1, 420)
+_r("iron_axe", "Forge axe", "smith", "weaponsmithing",
+   (("BAR", 2), ("FUEL", 1)), "axe", 1, 420)
+_r("iron_spear", "Forge spear", "smith", "weaponsmithing",
+   (("BAR", 1), ("FUEL", 1)), "spear", 1, 380)
+_r("iron_hammer", "Forge war hammer", "smith", "weaponsmithing",
+   (("BAR", 2), ("FUEL", 1)), "warhammer", 1, 420)
+_r("iron_helm", "Forge helm", "smith", "armorsmithing",
+   (("BAR", 1), ("FUEL", 1)), "helm", 1, 380)
+_r("iron_mail", "Forge mail shirt", "smith", "armorsmithing",
+   (("BAR", 3), ("FUEL", 1)), "mail_shirt", 1, 520)
+_r("iron_greaves", "Forge greaves", "smith", "armorsmithing",
+   (("BAR", 2), ("FUEL", 1)), "greaves", 1, 440)
+_r("iron_shield", "Forge shield", "smith", "armorsmithing",
+   (("BAR", 1), ("FUEL", 1)), "shield", 1, 360)
+_r("iron_bolts", "Forge bolts", "smith", "weaponsmithing",
+   (("BAR", 1), ("FUEL", 1)), "bolt", 20, 300)
+_r("metal_mechanisms", "Forge mechanisms", "smith", "mechanics",
+   (("BAR", 1), ("FUEL", 1)), "mechanism", 4, 320,
+   "Metal ones, for when the stone ones keep jamming.")
 
 # -- still ------------------------------------------------------------------- #
 _r("brew_ale", "Brew dwarven ale", "still", "brewing", (("PLANT", 2),),
@@ -117,7 +148,11 @@ _r("butcher_corpse", "Butcher a corpse", "butcher", "butchery",
 CLASS_ITEMS: Dict[str, Tuple[str, ...]] = {
     "STONE": ("boulder",),
     "WOOD": ("log",),
-    "METAL": ("boulder",),
+    "METAL": ("bar",),
+    "BAR": ("bar",),
+    "ORE": ("ore",),
+    "FUEL": ("charcoal", "coal"),
+    "FLUX": ("boulder",),
     "PLANT": ("plump_helmet", "cave_wheat", "berries"),
     "FOOD": ("meat", "cooked_meat", "fish_food", "plump_helmet", "cheese",
              "bread", "berries", "cave_wheat"),
@@ -131,12 +166,15 @@ def recipes_for(workshop: str) -> List[Recipe]:
 
 def satisfies(item, requirement: str) -> bool:
     """True if an item can serve as one unit of a recipe input."""
+    if ":" in requirement:
+        # ``bar:copper``: this item, and this material. Alloys care.
+        def_id, _, material = requirement.partition(":")
+        return item.def_id == def_id and item.material == material
     allowed = CLASS_ITEMS.get(requirement)
     if allowed is not None:
-        if requirement == "METAL":
-            return item.def_id == "boulder" and item.mat.is_metal
-        if requirement == "STONE":
-            return item.def_id == "boulder"
+        if requirement == "FLUX":
+            return (item.def_id == "boulder"
+                    and item.material in mat_data.FLUX_STONES)
         return item.def_id in allowed
     return item.def_id == requirement
 
@@ -167,6 +205,8 @@ def find_inputs(recipe: Recipe, pool: Sequence) -> Optional[List]:
 
 def output_material(recipe: Recipe, inputs: Sequence) -> str:
     """What material the product comes out as."""
+    if recipe.out_material:
+        return recipe.out_material
     defn = item_data.get(recipe.output)
     if recipe.output in ("dwarven_ale", "wine"):
         return "alcohol"

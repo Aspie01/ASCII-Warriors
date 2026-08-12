@@ -104,6 +104,8 @@ _s("wound_dressing", "Wound Dresser", "medical", ("agility", "empathy"), "")
 _s("butchery", "Butcher", "craft", ("strength", "agility"), "")
 _s("cooking", "Cook", "craft", ("creativity", "kinesthetic_sense"), "")
 _s("brewing", "Brewer", "craft", ("creativity", "patience"), "")
+_s("smelting", "Furnace Operator", "craft", _CRAFT_ATTRS,
+   "Turning ore and fuel into metal.")
 _s("smithing", "Metalcrafter", "craft", _CRAFT_ATTRS, "")
 _s("weaponsmithing", "Weaponsmith", "craft", _CRAFT_ATTRS, "")
 _s("armorsmithing", "Armorsmith", "craft", _CRAFT_ATTRS, "")
