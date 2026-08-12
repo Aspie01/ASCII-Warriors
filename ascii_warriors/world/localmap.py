@@ -169,6 +169,27 @@ class LocalMap:
                     return (xx, yy, zz)
         return (self.width // 2, self.height // 2, 0)
 
+    def central_open(self, rng: RNG) -> Tuple[int, int, int]:
+        """The walkable cell closest to the middle of the map.
+
+        Arriving at a settlement should put you in it, not in a corner.
+        """
+        cx, cy = self.width // 2, self.height // 2
+        best: Optional[Tuple[int, int, int]] = None
+        best_d = 1 << 30
+        for y in range(self.height):
+            for x in range(self.width):
+                z = self.surface_z(x, y)
+                if not self.walkable(x, y, z):
+                    continue
+                t = tile_data.get(self.tile(x, y, z))
+                if t.has("WATER") or t.has("FURNITURE"):
+                    continue
+                d = (x - cx) ** 2 + (y - cy) ** 2
+                if d < best_d:
+                    best, best_d = (x, y, z), d
+        return best if best is not None else self.random_open(rng)
+
     def edge_entry(self, rng: RNG, side: str) -> Tuple[int, int, int]:
         """A walkable cell on one edge of the map, for arriving on foot."""
         candidates: List[Tuple[int, int, int]] = []
@@ -547,5 +568,5 @@ def generate_local(
         population = sitegen.build_site(lm, world, site, rng)
         # Building carves cliffs; re-cut ramps so the site stays walkable.
         _add_ramps(lm)
-    lm.entry_points.setdefault("center", lm.random_open(rng))
+    lm.entry_points.setdefault("center", lm.central_open(rng))
     return lm, population
