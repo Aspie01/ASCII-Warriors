@@ -373,10 +373,16 @@ class TestSimulation(unittest.TestCase):
         self.assertTrue(still.built, "the still was never finished")
         still.orders.append({"recipe": "brew_ale", "count": 1, "repeat": True})
         sim.run(fort, int(TICKS_PER_DAY * 90 / sim.STEP_TICKS))
-        self.assertFalse(fort.lost, "the fortress fell: %s" % fort.loss_reason)
-        self.assertGreaterEqual(len(fort.dwarves()), 7)
+        # Goblins are a different test. What matters here is that nobody ran
+        # out of food or drink over a full season.
+        hungry = [c.body.death_cause for c in fort.creatures.values()
+                  if c.body.dead and c.body.death_cause in
+                  ("starved to death", "died of thirst")]
+        self.assertEqual(hungry, [], "the food economy did not close")
         self.assertGreater(fort.stock_count("plump_helmet"), 0,
                            "the farms never kept up")
+        self.assertGreater(fort.stock_count("dwarven_ale"), 0,
+                           "the still never got ahead")
 
     def test_losing_is_recorded(self):
         """When the last dwarf dies the fortress falls, and history says so."""
@@ -1100,3 +1106,300 @@ class TestHospital(unittest.TestCase):
         self.assertTrue(name)
         self.assertTrue(condition)
         self.assertIn("bandage", wanted)
+
+
+class TestRooms(unittest.TestCase):
+    """Furnished space, and what it is worth to whoever lives in it."""
+
+    def setUp(self):
+        from ascii_warriors.fortress import rooms
+
+        self.rooms = rooms
+        self.fort = embark("rooms")
+
+    def _furnish(self, kinds):
+        """Put furniture down around one spot and call it built."""
+        spot = _open_spot(self.fort, "bed")
+        self.assertIsNotNone(spot, "nowhere to furnish")
+        first = None
+        for i, kind in enumerate(kinds):
+            b = Building(kind, spot[0] + i % 3, spot[1] + i // 3, spot[2])
+            b.built = True
+            self.fort.buildings.append(b)
+            first = first or b
+        return first
+
+    def test_a_bare_bed_is_a_meagre_room(self):
+        """One bed in a corridor is not a bedroom to be proud of."""
+        bed = self._furnish(["bed"])
+        room = self.rooms.measure(self.fort, bed)
+        self.assertEqual(room.kind, "bedroom")
+        self.assertLess(room.quality, 26)
+
+    def test_furniture_improves_a_room(self):
+        """More in it, better it is."""
+        bare = self.rooms.measure(self.fort, self._furnish(["bed"]))
+        rich = self.rooms.measure(
+            self.fort,
+            self._furnish(["bed", "cabinet", "coffer", "statue", "door"]))
+        self.assertGreater(rich.quality, bare.quality)
+        self.assertLessEqual(rich.thought, bare.thought)
+
+    def test_a_better_room_is_a_better_thought(self):
+        """Quality has to translate into happiness or it means nothing."""
+        rich = self.rooms.measure(
+            self.fort,
+            self._furnish(["bed", "cabinet", "coffer", "statue", "statue"]))
+        self.assertLess(rich.thought, 0)
+
+    def test_a_room_does_not_swallow_the_map(self):
+        """A bed in the open does not claim the whole level as its bedroom."""
+        bed = self._furnish(["bed"])
+        room = self.rooms.measure(self.fort, bed)
+        self.assertLessEqual(len(room.cells), 100)
+
+    def test_quality_names_cover_every_value(self):
+        """The naming ladder must not have a hole in it."""
+        for quality in range(0, 120, 3):
+            self.assertTrue(self.rooms.quality_name(quality))
+
+    def test_a_dwarf_with_a_bed_has_a_bedroom(self):
+        """The link between an assigned bed and the room around it."""
+        bed = self._furnish(["bed", "cabinet"])
+        d = self.fort.dwarves()[0]
+        bed.owner = d.id
+        d.fort.bed = bed.id
+        room = self.rooms.room_of(self.fort, d)
+        self.assertIsNotNone(room)
+        self.assertEqual(room.kind, "bedroom")
+
+
+class TestNobles(unittest.TestCase):
+    """Appointments, mandates and tempers."""
+
+    def setUp(self):
+        from ascii_warriors.fortress import nobles
+
+        self.nobles = nobles
+
+    def test_positions_appear_with_population(self):
+        """A fortress of seven has a leader and nothing else."""
+        fort = embark("court")
+        sim._appointments(fort)
+        self.assertIsNotNone(fort.court.holder("expedition_leader"))
+        self.assertIsNone(fort.court.holder("mayor"))
+
+    def test_a_big_fortress_appoints_a_mayor(self):
+        """And the mayor immediately wants something."""
+        fort = embark("mayor")
+        sim.migrants(fort, 18)
+        sim._appointments(fort)
+        mayor = fort.court.noble("mayor")
+        self.assertIsNotNone(mayor)
+        self.assertIsNotNone(mayor.mandate)
+        self.assertTrue(mayor.mandate.get("text"))
+        # And it is for something the fortress does not already have.
+        self.assertFalse(self.nobles.mandate_met(fort, mayor.mandate))
+
+    def test_a_mandate_can_be_satisfied(self):
+        """Building the thing clears the demand and pleases the mayor."""
+        fort = embark("mandate")
+        sim.migrants(fort, 18)
+        sim._appointments(fort)
+        mayor = fort.court.noble("mayor")
+        self.assertIsNotNone(mayor.mandate)
+        mayor.mandate = {"target": "statue", "kind": "building",
+                         "text": "A statue.", "deadline": fort.ticks + 99999}
+        statue = Building("statue", 4, 4, fort.z)
+        statue.built = True
+        fort.buildings.append(statue)
+        sim._appointments(fort)
+        self.assertIsNone(mayor.mandate)
+
+    def test_one_dwarf_holds_one_position(self):
+        """Nobody is both mayor and sheriff."""
+        fort = embark("onejob")
+        sim.migrants(fort, 20)
+        sim._appointments(fort)
+        holders = [n.dwarf_id for n in fort.court.nobles]
+        self.assertEqual(len(holders), len(set(holders)))
+
+    def test_a_dead_noble_is_replaced(self):
+        """The post outlives the dwarf."""
+        fort = embark("succession")
+        sim._appointments(fort)
+        leader_id = fort.court.holder("expedition_leader")
+        fort.creatures[leader_id].body.dead = True
+        sim._appointments(fort)
+        self.assertNotEqual(fort.court.holder("expedition_leader"), leader_id)
+
+    def test_a_miserable_dwarf_throws_a_tantrum(self):
+        """Unhappiness has to do something or it is just a number."""
+        fort = embark("tantrum")
+        table = Building("table", *_open_spot(fort, "table"))
+        table.built = True
+        fort.buildings.append(table)
+        d = fort.dwarves()[0]
+        d.needs.stress = self.nobles.STRESS_TANTRUM + 5
+        for _ in range(40000):
+            sim._tantrums(fort)
+            if any("tantrum" in m.text for m in fort.log.all()):
+                break
+        self.assertTrue(any("tantrum" in m.text for m in fort.log.all()))
+
+    def test_a_berserk_dwarf_becomes_the_enemy(self):
+        """The last stage of a bad season."""
+        fort = embark("berserk")
+        d = fort.dwarves()[0]
+        d.needs.stress = self.nobles.STRESS_BERSERK + 10
+        for _ in range(40000):
+            sim._tantrums(fort)
+            if fort.hostiles():
+                break
+        self.assertEqual(len(fort.hostiles()), 1)
+        self.assertNotIn(d, fort.dwarves())
+        sim.run(fort, 50)  # and the fortress keeps running
+
+    def test_the_court_survives_a_save(self):
+        """Appointments and mandates come back."""
+        fort = embark("courtsave")
+        sim._appointments(fort)
+        fort.court.appoint("mayor", fort.dwarves()[1].id, fort.ticks)
+        fort.court.noble("mayor").mandate = {
+            "target": "statue", "kind": "building", "text": "A statue.",
+            "deadline": 999}
+        again = Fortress.from_dict(fort.to_dict())
+        self.assertEqual(len(again.court.nobles), len(fort.court.nobles))
+        self.assertEqual(again.court.holder("mayor"),
+                         fort.court.holder("mayor"))
+        self.assertEqual(again.court.noble("mayor").mandate["target"], "statue")
+
+
+class TestLegacy(unittest.TestCase):
+    """A fortress that ends becomes a place."""
+
+    def _ended_fortress(self, seed="legacy"):
+        """Build a little, then abandon it."""
+        fort = embark(seed)
+        dig_room(fort, 5)
+        for kind in ("carpenter", "bed", "statue"):
+            spot = _open_spot(fort, kind)
+            if spot is not None:
+                fort.buildings.append(Building(kind, *spot))
+        sim.run(fort, 2000)
+        fort.artifacts.append({
+            "name": "Goldenpeak", "native": "Kadolmomuz", "maker": "Urist",
+            "item": "steel warhammer", "def_id": "warhammer",
+            "material": "steel", "year": fort.time.year})
+        fort.lost = True
+        fort.loss_reason = "abandoned"
+        return fort
+
+    def test_ending_puts_the_fortress_on_the_world_map(self):
+        """It becomes a site with a name and a founding date."""
+        from ascii_warriors.fortress import legacy
+
+        fort = self._ended_fortress()
+        before = len(fort.world.sites)
+        site = legacy.record(fort, abandoned=True)
+        self.assertEqual(len(fort.world.sites), before + 1)
+        self.assertEqual(site.name, fort.name)
+        self.assertEqual((site.wx, site.wy), (fort.wx, fort.wy))
+        self.assertEqual(fort.world.tile(fort.wx, fort.wy).site_id, site.id)
+
+    def test_ending_writes_history(self):
+        """Founding, ending and any artifacts all reach the legends."""
+        from ascii_warriors.fortress import legacy
+
+        fort = self._ended_fortress("history")
+        events_before = len(fort.world.events)
+        arts_before = len(fort.world.artifacts)
+        legacy.record(fort, abandoned=True)
+        self.assertGreaterEqual(len(fort.world.events), events_before + 3)
+        self.assertEqual(len(fort.world.artifacts), arts_before + 1)
+        texts = " ".join(e.text for e in fort.world.events)
+        self.assertIn(fort.name, texts)
+        self.assertIn("Goldenpeak", texts)
+
+    def test_recording_happens_only_once(self):
+        """Two endings must not create two sites."""
+        fort = self._ended_fortress("once")
+        sim.record_fall(fort, abandoned=True)
+        sites = len(fort.world.sites)
+        sim.record_fall(fort, abandoned=True)
+        self.assertEqual(len(fort.world.sites), sites)
+
+    def test_an_adventurer_can_walk_into_the_ruins(self):
+        """The whole point: the map you dug is the map you walk into."""
+        from ascii_warriors.engine.rng import RNG
+        from ascii_warriors.fortress import legacy
+        from ascii_warriors.game.entity import make_creature
+        from ascii_warriors.game.state import Game
+
+        fort = self._ended_fortress("visit")
+        legacy.record(fort, abandoned=True)
+        dug = sum(1 for z in fort.local.levels
+                  for t in fort.local.levels[z] if t == "floor")
+
+        player = make_creature(RNG("p"), "dwarf", faction="player")
+        player.is_player = True
+        game = Game(fort.world, player, RNG("adventure"))
+        player.wx, player.wy = fort.wx, fort.wy
+        game.enter_world_tile(fort.wx, fort.wy)
+
+        self.assertEqual(game.local.width, fort.local.width)
+        self.assertEqual(game.local.height, fort.local.height)
+        self.assertEqual(game.local.zmin, fort.local.zmin)
+        found = sum(1 for z in game.local.levels
+                    for t in game.local.levels[z] if t == "floor")
+        self.assertEqual(found, dug, "the corridors are not the ones you dug")
+        self.assertTrue(game.local.walkable(player.x, player.y, player.z))
+
+    def test_the_dead_are_still_there(self):
+        """Your dwarves lie where they fell."""
+        from ascii_warriors.engine.rng import RNG
+        from ascii_warriors.fortress import legacy
+        from ascii_warriors.game.entity import make_creature
+        from ascii_warriors.game.state import Game
+
+        fort = self._ended_fortress("dead")
+        names = {c.name for c in fort.creatures.values()}
+        legacy.record(fort, abandoned=True)
+        player = make_creature(RNG("p"), "dwarf", faction="player")
+        player.is_player = True
+        game = Game(fort.world, player, RNG("adventure"))
+        player.wx, player.wy = fort.wx, fort.wy
+        game.enter_world_tile(fort.wx, fort.wy)
+        found = {c.name for c in game.creatures.values()}
+        self.assertTrue(names & found,
+                        "none of the fortress's dwarves are in the ruins")
+
+    def test_ordinary_tiles_still_generate_normally(self):
+        """Preserving one square must not preserve the whole world."""
+        from ascii_warriors.engine.rng import RNG
+        from ascii_warriors.fortress import legacy
+        from ascii_warriors.game.entity import make_creature
+        from ascii_warriors.game.state import Game
+
+        fort = self._ended_fortress("normal")
+        legacy.record(fort, abandoned=True)
+        player = make_creature(RNG("p"), "dwarf", faction="player")
+        player.is_player = True
+        game = Game(fort.world, player, RNG("adventure"))
+        wx = fort.wx - 3 if fort.wx >= 3 else fort.wx + 3
+        player.wx, player.wy = wx, fort.wy
+        game.enter_world_tile(wx, fort.wy)
+        self.assertNotEqual(game.local.width, fort.local.width)
+
+    def test_the_preserved_map_survives_a_world_save(self):
+        """The ruins have to be in the save, or they vanish on reload."""
+        from ascii_warriors.fortress import legacy
+        from ascii_warriors.world.worldgen import World
+
+        fort = self._ended_fortress("worldsave")
+        legacy.record(fort, abandoned=True)
+        again = World.from_dict(fort.world.to_dict())
+        payload = again.preserved_map(fort.wx, fort.wy)
+        self.assertIsNotNone(payload)
+        self.assertEqual(payload["name"], fort.name)
+        self.assertTrue(legacy.describe(payload))

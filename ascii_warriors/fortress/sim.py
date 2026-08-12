@@ -107,6 +107,7 @@ def step(fort) -> None:
     _watch(fort)
     _crops(fort, ticks)
     _moods(fort, ticks)
+    _tantrums(fort)
     _calendar(fort)
     _check_loss(fort)
 
@@ -718,6 +719,7 @@ def _calendar(fort) -> None:
     fort.log.system("It is now %s of %d." % (fort.time.season, year))
     fort.wealth = appraise(fort)
     _season_thoughts(fort)
+    _appointments(fort)
 
     if fort.time.season == "Spring" or fort.time.season == "Autumn":
         _maybe_migrants(fort)
@@ -729,17 +731,149 @@ def _calendar(fort) -> None:
 
 def _season_thoughts(fort) -> None:
     """Dwarves notice how they are living."""
+    from . import rooms
+
     beds = sum(1 for b in fort.buildings if b.kind == "bed" and b.built)
-    dining = sum(1 for b in fort.buildings
-                 if b.kind in ("table", "chair") and b.built)
+    dining = rooms.dining_quality(fort)
     dwarves = fort.dwarves()
     for d in dwarves:
         if beds < len(dwarves):
-            d.needs.add_thought("slept on the floor", 4)
+            d.needs.add_thought("has no bed of its own", 4)
+        else:
+            room = rooms.room_of(fort, d)
+            if room is not None:
+                d.needs.add_thought("has %s" % room.name, room.thought)
         if dining <= 0:
-            d.needs.add_thought("ate without a table", 2)
+            d.needs.add_thought("ate without a table", 3)
+        else:
+            d.needs.add_thought("dined in %s dining room"
+                                % rooms.quality_name(dining),
+                                -min(8, dining // 4))
         if fort.stock_count("dwarven_ale", "wine", "beer") <= 0:
             d.needs.add_thought("had no drink to speak of", 8)
+
+
+# --------------------------------------------------------------------------- #
+# Nobles and tempers
+# --------------------------------------------------------------------------- #
+
+
+def _appointments(fort) -> None:
+    """Fill the positions the fortress has grown into."""
+    from .nobles import MANDATES, MANDATE_TICKS, POSITIONS, mandate_met
+
+    dwarves = fort.dwarves()
+    if not dwarves:
+        return
+    court = fort.court
+    population = len(dwarves)
+    held = {n.dwarf_id for n in court.nobles}
+
+    for position in POSITIONS.values():
+        if population < position.at_population:
+            continue
+        current = court.holder(position.id)
+        if current is not None and any(d.id == current for d in dwarves):
+            continue
+        # Prefer somebody with the right labor and nothing else to do.
+        candidates = [d for d in dwarves if d.id not in held]
+        if position.labor:
+            fit = [d for d in candidates if d.fort.labors.has(position.labor)]
+            candidates = fit or candidates
+        if not candidates:
+            continue
+        chosen = max(candidates, key=lambda d: d.skills.total_levels())
+        court.appoint(position.id, chosen.id, fort.ticks)
+        held.add(chosen.id)
+        fort.log.good("%s is the new %s." % (chosen.name, position.title))
+
+    mayor = court.noble("mayor")
+    if mayor is None:
+        return
+    holder = fort.creatures.get(mayor.dwarf_id)
+    if holder is None or holder.body.dead:
+        return
+    if mayor.mandate is None:
+        # Only demand things the fortress has not already got. A mandate you
+        # have already met is not a demand, it is a formality.
+        wanted = [m for m in MANDATES
+                  if not mandate_met(fort, {"target": m[0], "kind": m[1]})]
+        if not wanted:
+            return
+        target, kind, text = fort.rng.choice(wanted)
+        mayor.mandate = {"target": target, "kind": kind, "text": text,
+                         "deadline": fort.ticks + MANDATE_TICKS}
+        fort.log.warn("%s the mayor demands: %s" % (holder.name, text))
+        return
+    if mandate_met(fort, mayor.mandate):
+        fort.log.good("The mayor's demand has been met.")
+        holder.needs.add_thought("had a mandate obeyed", -8)
+        mayor.mandate = None
+    elif fort.ticks > int(mayor.mandate.get("deadline", 0)):
+        fort.log.bad("%s is furious that the mandate was ignored."
+                     % holder.name)
+        holder.needs.add_thought("had a mandate ignored", 25)
+        mayor.mandate = None
+
+
+def _tantrums(fort) -> None:
+    """A dwarf that has had enough stops being useful about it."""
+    from .nobles import STRESS_BERSERK, STRESS_TANTRUM, STRESS_UNHAPPY
+    from .nobles import TANTRUM_ODDS
+
+    for dwarf in fort.dwarves():
+        stress = dwarf.needs.stress
+        if stress < STRESS_UNHAPPY:
+            continue
+        if not fort.rng.one_in(TANTRUM_ODDS):
+            continue
+        if stress >= STRESS_BERSERK:
+            _go_berserk(fort, dwarf)
+        elif stress >= STRESS_TANTRUM:
+            _throw_tantrum(fort, dwarf)
+        else:
+            fort.log.warn("%s is unhappy." % dwarf.name)
+            dwarf.needs.add_thought("brooded over its lot", 0)
+
+
+def _throw_tantrum(fort, dwarf) -> None:
+    """Break something, and upset everybody who sees it."""
+    from . import dwarf as dwarf_mod
+
+    dwarf_mod.release_job(fort, dwarf)
+    breakable = [b for b in fort.buildings
+                 if b.built and b.z == dwarf.z
+                 and b.kind in ("table", "chair", "cabinet", "coffer", "door",
+                                "statue", "bed")]
+    if breakable:
+        target = min(breakable, key=lambda b: geometry.chebyshev(
+            dwarf.x, dwarf.y, b.x, b.y))
+        fort.buildings.remove(target)
+        for cx, cy, cz in target.cells():
+            fort.local.set_tile(cx, cy, cz, "floor")
+        fort.log.bad("%s throws a tantrum and destroys a %s!"
+                     % (dwarf.name, target.defn.name.lower()))
+    else:
+        fort.log.bad("%s throws a tantrum." % dwarf.name)
+    dwarf.needs.stress = max(0, dwarf.needs.stress - 40)
+    for other in fort.dwarves():
+        if other is not dwarf:
+            other.needs.add_thought("saw a tantrum", 4)
+
+
+def _go_berserk(fort, dwarf) -> None:
+    """The end of a long unhappy season."""
+    from ..game import combat
+    from . import dwarf as dwarf_mod
+
+    dwarf_mod.release_job(fort, dwarf)
+    fort.military.discharge(dwarf.id)
+    fort.court.vacate(dwarf.id)
+    dwarf.faction = "hostile"
+    dwarf.fort = None
+    fort.log.bad("%s has gone berserk!" % dwarf.name)
+    for other in fort.dwarves():
+        other.needs.add_thought("saw a friend lose their mind", 10)
 
 
 def _maybe_migrants(fort) -> None:
@@ -977,15 +1111,15 @@ def _check_loss(fort) -> None:
     record_fall(fort)
 
 
-def record_fall(fort) -> None:
-    """Write the fortress into world history, so an adventurer can find it."""
-    from ..world.history import HistoricalEvent
+def record_fall(fort, *, abandoned: bool = False) -> None:
+    """Write the fortress into the world, map and all.
 
-    world = fort.world
-    event = HistoricalEvent(
-        world.next_id("event"), fort.time.year, "site_destroyed",
-        "The fortress of %s fell, %s." % (fort.name, fort.loss_reason),
-    )
-    if fort.site_id is not None:
-        event.sites.append(fort.site_id)
-    world.events.append(event)
+    Afterwards the place exists: an adventurer in this world can travel to it
+    and walk through the corridors you dug.
+    """
+    from . import legacy
+
+    if fort.recorded:
+        return
+    fort.recorded = True
+    legacy.record(fort, abandoned=abandoned)

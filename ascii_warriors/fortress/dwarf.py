@@ -309,7 +309,7 @@ def _handle_danger(fort, dwarf) -> bool:
     dist = geometry.chebyshev(dwarf.x, dwarf.y, foe.x, foe.y)
 
     if dist <= 1 and foe.z == dwarf.z:
-        _release_job(fort, dwarf)
+        release_job(fort, dwarf)
         combat.melee_attack(dwarf, foe, rng=fort.rng, log=fort.log)
         if foe.body.dead:
             fort.kill_creature(foe)
@@ -320,7 +320,7 @@ def _handle_danger(fort, dwarf) -> bool:
         return False
 
     if squad is not None:
-        _release_job(fort, dwarf)
+        release_job(fort, dwarf)
         if path_to(fort, dwarf, (foe.x, foe.y, foe.z)):
             step_along(fort, dwarf)
             return True
@@ -328,7 +328,7 @@ def _handle_danger(fort, dwarf) -> bool:
 
     # Civilians run for the burrow if there is one, and away if there is not.
     if dist <= CIVILIAN_SIGHT:
-        _release_job(fort, dwarf)
+        release_job(fort, dwarf)
         if _retreat_to_burrow(fort, dwarf):
             return True
         dx, dy = geometry.normalize_dir(dwarf.x - foe.x, dwarf.y - foe.y)
@@ -361,7 +361,7 @@ def _handle_wounds(fort, dwarf, ticks: int) -> bool:
             and any(hospital.is_critical(p) for p in hospital.patients(fort)):
         return False
 
-    _release_job(fort, dwarf)
+    release_job(fort, dwarf)
     bed = hospital.free_bed(fort, dwarf)
     here = (dwarf.x, dwarf.y, dwarf.z)
     if bed is None or here == bed.center:
@@ -395,7 +395,7 @@ def _hold_position(fort, dwarf, squad) -> bool:
                                   squad.station[1]) <= 2 \
                     and here[2] == squad.station[2]:
                 return True
-            _release_job(fort, dwarf)
+            release_job(fort, dwarf)
             if path_to(fort, dwarf, squad.station):
                 step_along(fort, dwarf)
                 return True
@@ -403,7 +403,7 @@ def _hold_position(fort, dwarf, squad) -> bool:
     if fort.military.alarm and fort.military.burrow is not None:
         if fort.military.in_burrow(dwarf.x, dwarf.y, dwarf.z):
             return False
-        _release_job(fort, dwarf)
+        release_job(fort, dwarf)
         return _retreat_to_burrow(fort, dwarf)
     return False
 
@@ -462,7 +462,7 @@ def _go_drink(fort, dwarf, ticks: int) -> bool:
         if cell is None or at_or_beside(dwarf, cell):
             fort.consume(dwarf, item, drink=True)
             return True
-        _release_job(fort, dwarf)
+        release_job(fort, dwarf)
         if path_to(fort, dwarf, cell):
             step_along(fort, dwarf)
             return True
@@ -481,7 +481,7 @@ def _go_eat(fort, dwarf, ticks: int) -> bool:
         if cell is None or at_or_beside(dwarf, cell):
             fort.consume(dwarf, item, drink=False)
             return True
-        _release_job(fort, dwarf)
+        release_job(fort, dwarf)
         if path_to(fort, dwarf, cell):
             step_along(fort, dwarf)
             return True
@@ -515,7 +515,7 @@ def _go_sleep(fort, dwarf, ticks: int) -> bool:
             else:
                 needs.add_thought("slept on the floor", 3)
         return True
-    _release_job(fort, dwarf)
+    release_job(fort, dwarf)
     if path_to(fort, dwarf, target, adjacent=False):
         step_along(fort, dwarf)
         return True
@@ -532,7 +532,7 @@ def _drink_water(fort, dwarf) -> bool:
         dwarf.needs.add_thought("had to drink water", 4)
         fort.clear_warning("thirst")
         return True
-    _release_job(fort, dwarf)
+    release_job(fort, dwarf)
     if path_to(fort, dwarf, cell):
         step_along(fort, dwarf)
         return True
@@ -556,7 +556,7 @@ def _claim_job(fort, dwarf) -> Optional[Job]:
     return None
 
 
-def _release_job(fort, dwarf) -> None:
+def release_job(fort, dwarf) -> None:
     """Drop whatever the dwarf was doing."""
     state = dwarf.fort
     if state.job is not None:

@@ -123,6 +123,17 @@ class TravelScene(Scene):
                 scr.text(x, row, "population %d" % site.population,
                          colors.UI["fg"])
             row += 1
+
+        # A place the player built in fortress mode, still standing.
+        preserved = world.preserved_map(self.cx, self.cy)
+        if preserved:
+            from ..fortress import legacy
+
+            row += 1
+            scr.text(x, row, "Your fortress", colors.UI["accent"])
+            row += 1
+            for line in legacy.describe(preserved):
+                row += scr.wrapped(x, row, w, line, colors.UI["dim"])
             civ = world.civ(site.civ_id) if site.civ_id else None
             if civ is not None:
                 row += scr.wrapped(x, row, w, civ.name, colors.UI["dim"])

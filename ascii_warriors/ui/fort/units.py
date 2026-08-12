@@ -52,6 +52,9 @@ class UnitsScene(Scene):
         """One dwarf's line."""
         state = d.fort
         name = state.nickname or d.name
+        title = self.fort.court.title_of(d.id)
+        if title:
+            name = "%s the %s" % (name, title)
         if state.mood:
             what, colour = "possessed", colors.MAGIC
         elif state.job is not None:
@@ -123,9 +126,27 @@ class UnitsScene(Scene):
 
     def _describe(self, creature) -> None:
         """A full account of one dwarf."""
+        from ...fortress import rooms
+
         lines: List = list(creature.describe())
         state = getattr(creature, "fort", None)
         if state is not None:
+            noble = self.fort.court.position_of(creature.id)
+            room = rooms.room_of(self.fort, creature)
+            squad = self.fort.military.squad_of(creature.id)
+            if noble is not None or room is not None or squad is not None:
+                lines.append("")
+            if noble is not None:
+                lines.append(Frag("The %s of %s" % (noble.defn.title,
+                                                    self.fort.name),
+                                  colors.UI["accent"]))
+            if squad is not None:
+                lines.append("Serves in %s as a %s"
+                             % (squad.name, squad.defn.name.lower()))
+            if room is not None:
+                lines.append("Sleeps in %s" % room.name)
+            else:
+                lines.append(Frag("Has no bedroom", colors.UI["warn"]))
             lines.append("")
             lines.append(Frag("Thoughts", colors.UI["accent"]))
             thoughts = creature.needs.recent_thoughts(6)

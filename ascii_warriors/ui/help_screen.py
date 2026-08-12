@@ -75,6 +75,9 @@ WHAT TO DO FIRST
   o      queue work at a workshop. A still with a repeating 'brew ale' order is
          the difference between a fortress and a graveyard.
 
+  m      the militia: raise squads, arm them, order them about
+  w      mark the safe burrow civilians retreat into
+  h      health: who is hurt and who can treat them
   u      units: everybody, what they are doing, and their labors
   z      stocks: everything you own
   j      what work is outstanding
@@ -92,6 +95,54 @@ complain about it. On a dry embark there is no such mercy: brew, or die.
 
 Your workshops will not touch the last week of food, and your farmers will not
 eat the last of the seed.
+
+DEFENCE
+
+Goblins come once you have something worth taking. Raise a squad with m, pick
+a uniform, and enlist somebody; they will find their own weapons and armour
+out of your stockpiles and then train at a barracks until they are dangerous.
+
+A squad ordered to train is a squad taken off the labour force. Order it to
+defend instead if you need the hands back.
+
+Weapon traps do not miss and cannot be parried, and cost you nothing but a
+weapon and a mechanic. They are the cheapest defence in the game.
+
+When something hostile appears the alarm raises itself and your civilians run
+for the burrow you painted with w. Your soldiers do not.
+
+THE WOUNDED
+
+Bleeding kills in minutes, so a hospital is a race. Build hospital beds, keep
+bandages in stock, and turn the medicine labor on for somebody who is not
+otherwise busy. The nearest doctor is sent immediately, without waiting for
+the ordinary job scan.
+
+A dwarf that is hurt stops working and lies down. Resting closes wounds on its
+own, slowly. A bandage does it at once, which is the difference between a
+scar and a funeral.
+
+ROOMS AND NOBLES
+
+Furniture makes rooms, and rooms make dwarves happy. A bed in a corridor is a
+meagre bedroom; the same bed in a smoothed room with a door, a cabinet and a
+statue is a great one, and the dwarf sleeping in it says so every season.
+
+As the fortress grows it appoints a manager, a broker, a chief medical dwarf,
+a sheriff and eventually a mayor. The mayor will demand things. Ignoring the
+demands makes the mayor furious, and a furious dwarf in a fortress full of
+unhappy dwarves is how tantrums start: broken furniture, then somebody going
+berserk with an axe.
+
+WHEN IT ENDS
+
+Abandon the fortress, or lose it, and it does not disappear. It becomes a real
+site on the world map with everything you built still in place, and the
+world's history records its founding, its fall and any artifacts made in it.
+
+Press a on the ending screen to roll an adventurer in the same world and walk
+back into your own fortress: the corridors you dug, the workshops you raised,
+the goods on the floor and your dwarves lying where they fell.
 
 WHAT WILL GO WRONG
 

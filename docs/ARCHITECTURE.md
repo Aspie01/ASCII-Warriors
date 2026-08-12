@@ -1524,7 +1524,97 @@ no command key is shadowed by `scroll_delta`.
 - `world/tiles.py`: `farm`, `farm_planted`. `data/items.py`: `coffer`, `bin`,
   and jewellery (`crown`, `amulet`, `ring`, `earring`, `bracelet`).
 
-## 53. Style
+## 53. Military, health, rooms and legacy (v2.1 - v2.4)
+
+### `fortress/military.py`
+```python
+UNIFORMS: dict[str, Uniform]     # axe hammer sword spear marksdwarf
+SQUAD_SIZE = 10 ; ORDERS = ("train", "station", "defend", "kill")
+class Squad:   id name uniform members order station target barracks
+class Military:
+    squads: list[Squad] ; alert: str ; burrow: tuple|None
+    def enlist/discharge/squad_of/soldiers/sound_alarm/all_clear/in_burrow
+def wanted_items(squad, dwarf) -> list[str]   # one weapon, one per armour slot
+def armed(squad, dwarf) -> bool ; def readiness(squad, fort) -> (armed, total)
+def combat_level(dwarf) -> int
+```
+Equipment jobs are posted at priority 9 and **assigned directly** rather than
+left on the board. Training jobs are posted one per squad member, at priority
+8: with a single job the same dwarf takes it every time and the rest of the
+militia never picks up a shield. A squad ordered to train is off the labour
+force, which is the cost of having one.
+
+### `fortress/hospital.py`
+```python
+REST_BLOOD / REST_PAIN / CRITICAL_BLOOD ; TREAT_WORK = 30
+def is_hurt(dwarf) / is_critical(dwarf) -> bool
+def needs_care(dwarf) -> list[(part id, treatment)]
+def patients(fort) / doctors(fort) / hospital_beds(fort) -> list
+def free_bed(fort, dwarf) / release_bed(fort, dwarf)
+def supplies(fort, treatment) / can_supply(fort, treatment)
+def treat(fort, healer, patient, part_id, treatment) -> None
+def summary(fort) -> list[(name, condition, wanted)]
+```
+`sim._triage()` runs **every step**, not on the once-a-minute job scan: a dwarf
+with a severed artery does not have a minute. The nearest free doctor is
+assigned directly for the same reason.
+
+### `fortress/rooms.py`
+```python
+ROOM_KINDS: dict[str, str] ; FURNITURE_VALUE: dict[str, int]
+def room_cells(lm, centre) -> list[Cell]   # flood fill, stops at walls & doors
+def measure(fort, building) -> Room        # quality from furniture + smoothing + size
+def rooms(fort) / room_of(fort, dwarf) / dining_quality(fort) / value(fort)
+```
+`Room.thought` is the seasonal stress change from living there.
+
+### `fortress/nobles.py`
+```python
+POSITIONS: dict[str, Position]   # leader, manager, broker, chief medical,
+                                 # sheriff, mayor — each at a population
+MANDATES: tuple[(target, kind, text), ...]
+STRESS_UNHAPPY / STRESS_TANTRUM / STRESS_BERSERK ; TANTRUM_ODDS
+class Noble: position dwarf_id since mandate
+class Court: appoint/vacate/holder/position_of/title_of
+def mandate_met(fort, mandate) -> bool
+```
+`sim._appointments()` fills posts each season and only issues mandates for
+things the fortress does *not* already have. `sim._tantrums()` turns stress
+into broken furniture and then into a berserk dwarf, which is an ordinary
+hostile with a name you recognise.
+
+### `fortress/legacy.py`
+```python
+def preserve(fort) -> dict            # map, creatures, items, buildings
+def make_site(fort) -> Site           # the fortress on the world map
+def record(fort, *, abandoned=False) -> Site
+def describe(payload) -> list[str]    # for the travel screen
+def restore(payload) -> dict|None     # into the local-map cache shape
+```
+This is the bridge between the two modes. `World.preserved` keeps hand-built
+local maps keyed `"wx,wy"`, and `Game.enter_world_tile()` checks it before
+generating, so a fortress you abandoned is the map you walk into as an
+adventurer — same corridors, same workshops, same corpses. The founding, the
+fall and any strange-mood artifacts become real history the legends viewer
+shows.
+
+### Additions elsewhere
+
+- `world/worldgen.py`: `World.preserved`, `preserve()`, `preserved_map()`,
+  serialised with the world.
+- `world/tiles.py`: `barracks`, `trap`, `hatch`.
+- `game/combat.py`: `trap_strike()` — traps do not miss and cannot be parried,
+  but armour still counts.
+- `game/body.py`: `REST_CLOT_TICKS`. `rest_heal()` used to zero the bleeding on
+  every wound and delete the wounds outright, so lying down for one tick was a
+  complete cure, in adventure mode as much as in the fortress.
+- `fortress/jobs.py`: `JobBoard.assign()` releases any job the dwarf already
+  holds. Without it a dwarf given a second job orphaned the first for ever —
+  it never returned to the board and nobody could ever do it.
+- `ui/fort/`: `military_screen.py`, `health.py`; `BurrowScene` in
+  `build_menu.py`.
+
+## 54. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

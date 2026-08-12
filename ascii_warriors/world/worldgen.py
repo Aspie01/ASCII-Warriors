@@ -155,8 +155,20 @@ class World:
         self._next_event = 1
         self._next_site = 1
         self._next_artifact = 1
+        #: Maps of places the player built and left behind, keyed ``"wx,wy"``.
+        #: An abandoned fortress is a real location an adventurer can walk into,
+        #: with its corridors, its furniture and its dead exactly as they were.
+        self.preserved: Dict[str, Any] = {}
 
     # -- access ------------------------------------------------------------ #
+
+    def preserve(self, wx: int, wy: int, payload: Any) -> None:
+        """Keep a hand-built local map so it can be revisited."""
+        self.preserved["%d,%d" % (wx, wy)] = payload
+
+    def preserved_map(self, wx: int, wy: int) -> Optional[Any]:
+        """A preserved map for a world square, if there is one."""
+        return self.preserved.get("%d,%d" % (wx, wy))
 
     def tile(self, x: int, y: int) -> WorldTile:
         """The tile at ``(x, y)``, clamped to the map."""
@@ -282,6 +294,7 @@ class World:
                 self._next_hf, self._next_event, self._next_site,
                 self._next_artifact,
             ],
+            "preserved": self.preserved,
         }
 
     @classmethod
@@ -305,6 +318,7 @@ class World:
         }
         w.events = [HistoricalEvent.from_dict(e) for e in d.get("events", [])]
         w.artifacts = [Artifact.from_dict(a) for a in d.get("artifacts", [])]
+        w.preserved = dict(d.get("preserved") or {})
         counters = d.get("counters") or [1, 1, 1, 1]
         (w._next_hf, w._next_event, w._next_site, w._next_artifact) = (
             int(counters[0]), int(counters[1]), int(counters[2]), int(counters[3])

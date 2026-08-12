@@ -57,11 +57,21 @@ fortnight of both, and no more. A farm plot of plump helmets feeds six dwarves;
 a second plot gives the still enough surplus to brew. Get that loop running
 before the wagon empties, because a fortress without drink is a short one.
 
-Then migrants arrive and eat it all. Then goblins arrive. Then somebody is
-seized by a strange mood and locks themselves in a workshop.
+Then migrants arrive and eat it all. Then goblins arrive, and you find out
+whether your militia trained. Then somebody is seized by a strange mood and
+locks themselves in a workshop; later the mayor demands a statue.
 
-When the last dwarf dies, the fortress falls and its fall is written into the
-world's history, where an adventurer can later come and find the ruins.
+### One world, two games
+
+When the fortress ends — because you abandoned it, or because the last dwarf
+died — it does not disappear. It becomes a real site on the world map, with
+everything you built still standing. The world's history records its founding,
+its fall, and any artifacts made in it.
+
+Press `a` on the ending screen and you roll an adventurer in the same world.
+Travel to your own fortress and walk into it: the corridors you dug, the
+workshops you raised, the goods still on the floor, and your dwarves lying
+where they fell.
 
 Losing is fun.
 
@@ -163,9 +173,10 @@ python -m ascii_warriors --dump-world - --size small --history 200 | less
 | `< >` | up and down a level |
 | arrows | scroll the view (`PgUp`/`PgDn`/`Home`/`End` to scroll fast) |
 | `d` | designate: dig, channel, stairs, ramp, smooth, chop, gather |
-| `b` | build a workshop, furniture or wall |
-| `p` | place a stockpile |
+| `b` | build a workshop, furniture, wall or trap |
+| `p` `w` | place a stockpile / mark the safe burrow |
 | `o` | queue work orders at a workshop |
+| `m` `h` | the militia / health |
 | `u` `z` `j` | units / stocks / outstanding jobs |
 | `k` `t` | look / trade with the caravan |
 | `?` | help |
@@ -214,6 +225,28 @@ when they are too tired to stand.
 
 Time runs in real time at four speeds, and pauses whenever you want to think.
 Everything is saved, including who was halfway through what.
+
+**A militia.** Squads of up to ten with a uniform — axedwarf, hammerdwarf,
+swordsdwarf, speardwarf or marksdwarf. Soldiers find their own weapons and
+armour out of your stockpiles, train at a barracks until they are dangerous,
+and can be stationed, sent to defend, or pointed at something specific. The
+alarm raises itself when something hostile appears and your civilians run for
+a burrow you painted; your soldiers do not. Weapon and spike traps do not miss
+and cannot be parried.
+
+**A hospital.** Bleeding kills in minutes, so treatment is a race. Wounded
+dwarves stop working and take to a bed; the nearest dwarf with the medicine
+labor is sent immediately rather than waiting for the next job scan. Bandages
+stop bleeding at once, splints set bones, sutures close what is already
+closed. Rest closes wounds too, slowly, which is not always fast enough.
+
+**Rooms, nobles and tempers.** Furniture defines rooms and rooms have quality:
+a bed in a corridor is a meagre bedroom, the same bed in a smoothed room with
+a door, a cabinet and a statue is a great one, and the dwarf sleeping in it
+notices every season. A growing fortress appoints a manager, a broker, a chief
+medical dwarf, a sheriff and eventually a mayor, who will demand things.
+Ignore enough of it and dwarves start breaking furniture, and then each
+other.
 
 **World generation.** Fractal-noise continents with droplet erosion, ocean by
 threshold, temperature from latitude and altitude, orographic rainfall, drainage,
@@ -297,7 +330,7 @@ forgotten beasts with their own names, shapes, materials and special abilities.
 ## Development
 
 ```sh
-python -m unittest discover -s tests -v     # 308 tests
+python -m unittest discover -s tests -v     # 347 tests
 python -m tools.smoke                       # headless adventure play-through
 python -m tools.smoke --mode fortress       # headless fortress play-through
 python -m tools.fuzz --mode fortress        # random keys, looking for crashes

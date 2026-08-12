@@ -251,7 +251,7 @@ class FortScene(Scene):
             if self.app.confirm("Abandon %s? Losing is fun." % self.fort.name):
                 self.fort.lost = True
                 self.fort.loss_reason = "abandoned"
-                sim.record_fall(self.fort)
+                sim.record_fall(self.fort, abandoned=True)
                 self.app.push(FortEndScene(self.app, self.fort))
         elif choice == "quit":
             self._save()
@@ -335,12 +335,32 @@ class FortEndScene(Scene):
             scr.text_center(y, "%s, a %s" % (art["name"], art["item"]),
                             colors.MAGIC)
             y += 1
-        y += 1
+        y += 2
         scr.text_center(y, "Losing is fun.", colors.UI["accent"])
-        key_hint(scr, 2, scr.height - 2, [(keys.ENTER, "back to the menu")])
+        y += 2
+        scr.text_center(
+            y, "%s stands on the world map now, exactly as you left it."
+            % fort.name, colors.UI["dim"])
+        key_hint(scr, 2, scr.height - 2, [
+            ("a", "walk into it as an adventurer"),
+            (keys.ENTER, "back to the menu"),
+        ])
 
     def handle(self, key: str) -> None:
-        """Any key returns to the main menu."""
+        """Return to the menu, or take up the story from the other side."""
+        if key == "a":
+            self._become_adventurer()
+            return
         from ..menus import MainMenu
 
         self.app.reset_to(MainMenu(self.app))
+
+    def _become_adventurer(self) -> None:
+        """Roll a character in this world, who can go and find the ruins."""
+        from ...fortress import sim as sim_mod
+        from ..charcreate import CharCreateScene
+
+        fort = self.fort
+        if not fort.recorded:
+            sim_mod.record_fall(fort, abandoned=fort.loss_reason == "abandoned")
+        self.app.reset_to(CharCreateScene(self.app, fort.world, fort.rng))

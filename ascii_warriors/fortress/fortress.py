@@ -20,6 +20,7 @@ from .designations import KINDS as DESIGNATION_KINDS
 from .designations import Designations
 from .jobs import Job, JobBoard
 from .military import Military
+from .nobles import Court
 
 Cell = Tuple[int, int, int]
 
@@ -59,6 +60,7 @@ class Fortress:
         self.buildings: List[Building] = []
         self.stockpiles: List[Stockpile] = []
         self.military = Military()
+        self.court = Court()
         self.creatures: Dict[int, Creature] = {}
         self.items_on_ground: Dict[Cell, List[Item]] = {}
         self.weather = Weather()
@@ -85,6 +87,8 @@ class Fortress:
         self._warned: Set[str] = set()
         self._next_scan = 0
         self.site_id: Optional[int] = None
+        #: Set once the fortress has been written into world history.
+        self.recorded = False
 
     # -- construction ------------------------------------------------------ #
 
@@ -878,6 +882,7 @@ class Fortress:
             "buildings": [b.to_dict() for b in self.buildings],
             "stockpiles": [s.to_dict() for s in self.stockpiles],
             "military": self.military.to_dict(),
+            "court": self.court.to_dict(),
             "creatures": [c.to_dict() for c in self.creatures.values()],
             "dwarf_state": {
                 str(c.id): c.fort.to_dict()
@@ -903,6 +908,7 @@ class Fortress:
             "warned": sorted(self._warned),
             "next_scan": self._next_scan,
             "site_id": self.site_id,
+            "recorded": self.recorded,
         }
 
     @classmethod
@@ -922,6 +928,7 @@ class Fortress:
         fort.buildings = [Building.from_dict(b) for b in d.get("buildings", [])]
         fort.stockpiles = [Stockpile.from_dict(s) for s in d.get("stockpiles", [])]
         fort.military = Military.from_dict(d.get("military") or {})
+        fort.court = Court.from_dict(d.get("court") or {})
 
         states = d.get("dwarf_state") or {}
         for cd in d.get("creatures", []):
@@ -957,6 +964,7 @@ class Fortress:
         fort._warned = set(d.get("warned", []))
         fort._next_scan = int(d.get("next_scan", 0))
         fort.site_id = d.get("site_id")
+        fort.recorded = bool(d.get("recorded", False))
         return fort
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid

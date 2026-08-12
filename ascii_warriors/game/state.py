@@ -140,6 +140,13 @@ class Game:
 
         site = self.world.site_at(wx, wy)
         cached = self._local_cache.get((wx, wy))
+        if cached is None:
+            # A place the player built in fortress mode is kept whole, not
+            # regenerated: the corridors, the workshops and the dead are all
+            # exactly where they were left.
+            from ..fortress import legacy
+
+            cached = legacy.restore(self.world.preserved_map(wx, wy))
         if cached is not None:
             self.local = LocalMap.from_dict(cached["map"])
             population: List[Dict[str, Any]] = []
