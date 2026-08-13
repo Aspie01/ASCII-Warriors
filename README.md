@@ -281,6 +281,14 @@ medical dwarf, a sheriff and eventually a mayor, who will demand things.
 Ignore enough of it and dwarves start breaking furniture, and then each
 other.
 
+**Engravings.** Smooth a wall, then carve it. An engraver picks something that
+actually happened out of the world's history — the siege you survived last
+spring, a beast slain three hundred years before you arrived — and the look
+cursor reads it back: *"On the wall is a masterful engraving of Smenok the
+goblin. They are fighting. The artwork relates to the battle at Boatspring in
+the year 16."* Quality depends on the engraver, good work makes a room worth
+more, and dwarves are cheered up by walking past it.
+
 **Animals.** You embark with dogs, a cat, cows and sheep. The pets belong to
 particular dwarves and follow them about; the livestock grazes, breeds, gives
 milk and wool, and ends up as meat, hide and bone when you mark it for

@@ -884,6 +884,150 @@ class TestIndustry(unittest.TestCase):
         self.assertFalse(stone.accepts(self.Item("ore", "iron")))
 
 
+class TestArt(unittest.TestCase):
+    """Engravings, and the history they are carved out of."""
+
+    def setUp(self):
+        from ascii_warriors.fortress import art as art_mod
+
+        self.art = art_mod
+        self.fort = embark("art")
+        self.engraver = self.fort.dwarves()[0]
+        self.engraver.skills.set_level("engraving", 10)
+
+    def _wall(self, fort, smoothed=True):
+        """A wall cell, smoothed if asked."""
+        lm = fort.local
+        for z in (fort.z, fort.z - 1, fort.z - 2):
+            for y in range(lm.height):
+                for x in range(lm.width):
+                    if lm.tile(x, y, z) == "rock_wall":
+                        if smoothed:
+                            fort.dig_out((x, y, z), "wall_constructed")
+                        return (x, y, z)
+        return None
+
+    # -- what gets carved --------------------------------------------------- #
+
+    def test_an_engraving_describes_something_that_happened(self):
+        """The whole point: the fortress carves the world's own history."""
+        fort = self.fort
+        found = 0
+        for i in range(12):
+            art = self.art.engrave(fort, self.engraver, (5, 5 + i, fort.z))
+            self.assertTrue(art.text)
+            self.assertTrue(art.describe().startswith("On the wall is a")
+                            or art.describe().startswith("On the wall is an"))
+            if art.event_id is not None:
+                found += 1
+                event = next(e for e in fort.world.events
+                             if e.id == art.event_id)
+                self.assertIn("year %d" % event.year, art.describe())
+        self.assertGreater(found, 0, "nothing was carved from real history")
+
+    def test_the_caption_reads_as_a_caption(self):
+        """A noun phrase, not the historian's whole sentence."""
+        fort = self.fort
+        from ascii_warriors.world import history as history_mod
+
+        beast = history_mod._spawn_megabeast(fort.world, fort.rng,
+                                             fort.time.year)
+        hero = history_mod.new_figure(fort.world, fort.rng, "dwarf", None,
+                                      None, year=fort.time.year,
+                                      profession="warrior")
+        from ascii_warriors.world import livingworld
+
+        livingworld.slay(fort.world, fort.time.year, hero, beast, "in the deep")
+        for _ in range(30):
+            art = self.art.engrave(fort, self.engraver, (6, 6, fort.z))
+            if art.event_id is not None and "slaying" in art.describe():
+                self.assertIn("the slaying of", art.describe())
+                return
+        self.skipTest("the carver never picked the slaying")
+
+    def test_a_masterwork_is_worth_more_than_a_rough_scratch(self):
+        """Quality has to mean something to the room around it."""
+        rough = self.art.Engraving(0, "a dwarf.")
+        great = self.art.Engraving(6, "a dwarf.")
+        self.assertLess(rough.value, great.value)
+        self.assertEqual(great.quality_name, "masterful")
+
+    def test_skill_makes_better_engravings(self):
+        """Over enough walls, a legendary engraver is visibly better."""
+        from ascii_warriors.engine.rng import RNG
+
+        novice = dwarf_mod.make_dwarf(RNG("a"), "")
+        expert = dwarf_mod.make_dwarf(RNG("a"), "")
+        expert.skills.set_level("engraving", 18)
+        rng = RNG("quality")
+        low = sum(self.art.quality_for(novice, rng) for _ in range(40))
+        high = sum(self.art.quality_for(expert, rng) for _ in range(40))
+        self.assertGreater(high, low)
+
+    # -- how it gets carved -------------------------------------------------- #
+
+    def test_you_cannot_engrave_rough_rock(self):
+        """Smoothing comes first."""
+        fort = self.fort
+        rough = self._wall(fort, smoothed=False)
+        self.assertIsNotNone(rough)
+        self.assertFalse(fort.designations.valid(fort.local, *rough, "engrave"))
+        fort.dig_out(rough, "wall_constructed")
+        self.assertTrue(fort.designations.valid(fort.local, *rough, "engrave"))
+
+    def test_the_job_carves_the_wall(self):
+        """Designate, and a dwarf with the labor turns up and does it."""
+        fort = self.fort
+        for d in fort.dwarves():
+            d.fort.labors.enable("engraving")
+        cell = self._wall(fort)
+        self.assertTrue(fort.designations.set(fort.local, *cell, "engrave"))
+        sim.run(fort, 1200)
+        self.assertIn(cell, fort.engravings,
+                      "the wall was designated and never carved")
+        self.assertNotIn(cell, fort.designations.cells)
+
+    def test_engravings_make_a_room_better(self):
+        """A carved bedroom is worth more than a bare one."""
+        fort = self.fort
+        d = fort.dwarves()[0]
+        bed = Building("bed", d.x, d.y, d.z)
+        bed.built = True
+        fort.buildings.append(bed)
+        from ascii_warriors.fortress import rooms as rooms_mod
+
+        bare = rooms_mod.measure(fort, bed)
+        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            fort.engravings[(d.x + dx, d.y + dy, d.z)] = \
+                self.art.Engraving(6, "a dwarf.")
+        rich = rooms_mod.measure(fort, bed)
+        self.assertGreater(rich.quality, bare.quality)
+
+    def test_dwarves_notice_good_work(self):
+        """And only good work."""
+        fort = self.fort
+        d = fort.dwarves()[0]
+        before = d.needs.stress
+        fort.engravings[(d.x + 1, d.y, d.z)] = self.art.Engraving(0, "a dwarf.")
+        self.art.admire(fort, d)
+        self.assertEqual(d.needs.stress, before)
+        fort.engravings[(d.x + 1, d.y, d.z)] = self.art.Engraving(6, "a dwarf.")
+        self.art.admire(fort, d)
+        self.assertLess(d.needs.stress, before)
+
+    def test_engravings_survive_a_save(self):
+        """A fortress's art is most of what it leaves behind."""
+        fort = self.fort
+        cell = (7, 7, fort.z)
+        made = self.art.engrave(fort, self.engraver, cell)
+        again = Fortress.from_dict(fort.to_dict())
+        back = again.engravings.get(cell)
+        self.assertIsNotNone(back)
+        self.assertEqual(back.text, made.text)
+        self.assertEqual(back.quality, made.quality)
+        self.assertEqual(back.maker, made.maker)
+
+
 class TestWar(unittest.TestCase):
     """Sieges by civilizations that exist, and what beating one costs them."""
 

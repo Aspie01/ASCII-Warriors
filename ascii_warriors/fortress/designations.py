@@ -48,6 +48,9 @@ KINDS: Dict[str, DesignationKind] = {
         DesignationKind("smooth", "Smooth", "=", colors.Color(180, 190, 200),
                         "masonry", "masonry", 70,
                         "Smooth a rough wall or floor."),
+        DesignationKind("engrave", "Engrave", "&", colors.Color(210, 200, 160),
+                        "engraving", "engraving", 90,
+                        "Carve a smoothed wall with something that happened."),
         DesignationKind("chop", "Fell trees", "T", colors.Color(150, 200, 130),
                         "woodcutting", "woodcutting", 80,
                         "Cut a tree down for logs."),
@@ -61,7 +64,7 @@ KINDS: Dict[str, DesignationKind] = {
 }
 
 #: Designations that need a wall or tree present to make sense.
-_NEEDS_SOLID = ("dig", "smooth", "remove")
+_NEEDS_SOLID = ("dig", "smooth", "remove", "engrave")
 
 
 class Designations:
@@ -88,6 +91,9 @@ class Designations:
             return t.has("WALL") or t.walk
         if kind == "smooth":
             return t.has("WALL") and not t.has("CONSTRUCTED")
+        if kind == "engrave":
+            # Smoothed first: you cannot carve a picture into rough rock.
+            return tid == "wall_constructed"
         if kind == "chop":
             return t.has("TREE")
         if kind == "gather":

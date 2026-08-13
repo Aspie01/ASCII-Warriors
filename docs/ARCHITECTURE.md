@@ -1898,7 +1898,42 @@ result is an act on it:
 Everything the living world does to civ relations — declaring war, making peace
 — feeds `enemies()` without any further plumbing.
 
-## 60. Style
+## 60. Engravings (v3.1)
+
+### `fortress/art.py`
+```python
+class Engraving: quality text event_id maker
+QUALITY_NAMES ; QUALITY_VALUE ; ADMIRE_AT = 4
+SUBJECTS: event kind -> the picture   # "%(a)s is striking down %(b)s."
+RELATES:  event kind -> the caption   # "the slaying of %(b)s by %(a)s"
+def subject(fort, rng) -> (text, event_id)
+def engrave(fort, dwarf, cell) / at / room_value / admire
+```
+An engraver smooths a wall and then carves a real event out of `world.events`
+into it, phrased in two halves: the picture ("Urist the dwarf and a dragon.
+The dragon is striking down Urist.") and the caption ("The artwork relates to
+the slaying of Urist by the dragon Uzol in the year 174."). Reading only —
+nothing here writes to history.
+
+Three details that make it read right rather than merely work:
+
+- **Recent history first.** Sixty per cent of subjects come from the last
+  twenty-five events, and anything that happened at this fortress is weighted
+  again on top. Otherwise a fortress spends its life carving the fourteenth
+  village its civilization founded three centuries ago.
+- **The caption is a noun phrase**, per event kind, falling back to the first
+  sentence of the historian's text. "The artwork relates to the battle at
+  Boatspring" reads; "relates to the Diamond Bridges broke against Boatspring.
+  4 of them died" does not.
+- **Plain names in pictures.** "Urist the dwarf", not "Urist Ironhand the
+  Brave the dwarf": the engraving is a picture, not a citation.
+
+`engrave` is designation `engrave` -> job -> `Fortress._finish_engrave`, valid
+only on `wall_constructed` (a smoothed wall), with its own labor and the
+existing engraving skill. `rooms.measure` counts `art.room_value` of the walls
+around a room, and `sim._season_thoughts` calls `art.admire`.
+
+## 61. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

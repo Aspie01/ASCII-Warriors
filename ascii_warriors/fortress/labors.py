@@ -38,6 +38,8 @@ LABORS: Dict[str, Labor] = {
         Labor("fishing", "Fishing", "Farming", "fishing", ""),
         Labor("carpentry", "Carpentry", "Crafts", "carpentry", ""),
         Labor("masonry", "Masonry", "Crafts", "masonry", ""),
+        Labor("engraving", "Engraving", "Crafts", "engraving",
+              "Carve smoothed walls with what has happened."),
         Labor("crafting", "Stonecrafting", "Crafts", "crafting", ""),
         Labor("smelting", "Furnace operating", "Crafts", "smelting",
               "Run the smelter and the wood furnace."),
@@ -70,7 +72,7 @@ DEFAULT_LABORS: FrozenSet[str] = frozenset({
 PROFESSION_LABORS: Dict[str, Tuple[str, ...]] = {
     "miner": ("mining",),
     "woodcutter": ("woodcutting", "carpentry"),
-    "mason": ("masonry", "crafting"),
+    "mason": ("masonry", "crafting", "engraving"),
     "carpenter": ("carpentry", "woodcutting"),
     "farmer": ("farming", "herbalism", "brewing", "cooking"),
     "smith": ("smithing", "weaponsmithing", "armorsmithing", "smelting"),
@@ -86,7 +88,7 @@ PROFESSION_LABORS: Dict[str, Tuple[str, ...]] = {
 PROFESSION_SKILLS: Dict[str, Dict[str, int]] = {
     "miner": {"mining": 5, "fighter": 1},
     "woodcutter": {"woodcutting": 5, "carpentry": 2, "axe": 2},
-    "mason": {"masonry": 5, "crafting": 2},
+    "mason": {"masonry": 5, "crafting": 2, "engraving": 3},
     "carpenter": {"carpentry": 5, "woodcutting": 2},
     "farmer": {"herbalism": 4, "brewing": 4, "cooking": 3},
     "smith": {"smithing": 4, "weaponsmithing": 3, "armorsmithing": 3,

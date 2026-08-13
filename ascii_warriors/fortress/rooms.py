@@ -133,8 +133,11 @@ def measure(fort, building) -> Room:
 
     # Size counts, but only up to a point: a bedroom is not improved by being
     # a hall, and a hall is not a bedroom.
+    from . import art as art_mod
+
     size = min(len(cells), 24)
-    quality = furniture * 2 + smoothed // 2 + size // 3
+    quality = (furniture * 2 + smoothed // 2 + size // 3
+               + art_mod.room_value(fort, cells))
     return Room(kind, building.id, building.owner, cells, quality,
                 furniture, smoothed)
 

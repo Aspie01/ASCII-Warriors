@@ -20,6 +20,7 @@ from ..game import combat
 from ..game.entity import make_creature
 from ..game.item import Item
 from . import animals
+from . import art
 from . import dwarf as dwarf_mod
 from . import production
 from . import war
@@ -1025,6 +1026,7 @@ def _season_thoughts(fort) -> None:
                                 -min(8, dining // 4))
         if fort.stock_count("dwarven_ale", "wine", "beer") <= 0:
             d.needs.add_thought("had no drink to speak of", 8)
+        art.admire(fort, d)
 
 
 # --------------------------------------------------------------------------- #

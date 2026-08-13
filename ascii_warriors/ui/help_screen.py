@@ -98,6 +98,17 @@ complain about it. On a dry embark there is no such mercy: brew, or die.
 Your workshops will not touch the last week of food, and your farmers will not
 eat the last of the seed.
 
+ENGRAVINGS
+
+Smooth a wall with d, then engrave it with d again. An engraver carves
+something that actually happened -- a siege you survived, a beast somebody
+killed, a nation founded four hundred years ago -- out of the same history the
+legends screen reads from, and the look cursor will read it back to you.
+
+Quality depends on the engraver. A masterful engraving makes the room it is in
+worth considerably more, and dwarves who walk past good work are cheered up by
+it. Rough scratchings do nothing for anybody.
+
 ANIMALS
 
 You arrive with two dogs, a cat, two cows and two sheep. The dogs and the cat

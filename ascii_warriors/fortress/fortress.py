@@ -69,6 +69,8 @@ class Fortress:
         self.pastures: List[Any] = []
         #: Cell -> the tick its grass was eaten, so it can grow back.
         self.grazed: Dict[Cell, int] = {}
+        #: Cell -> what an engraver carved on that wall.
+        self.engravings: Dict[Cell, Any] = {}
         self.items_on_ground: Dict[Cell, List[Item]] = {}
         self.weather = Weather()
         self.water = Water()
@@ -970,6 +972,12 @@ class Fortress:
         self.dig_out(cell, "wall_constructed")
         dwarf.needs.add_thought("admired a smoothed wall", -1)
 
+    def _finish_engrave(self, dwarf, job: Job) -> None:
+        """Carve something that happened into a wall that has been smoothed."""
+        from . import art as art_mod
+
+        art_mod.engrave(self, dwarf, job.cell)
+
     def _finish_chop(self, dwarf, job: Job) -> None:
         cell = job.cell
         self.dig_out(cell, "grass")
@@ -1236,6 +1244,8 @@ class Fortress:
             "stockpiles": [s.to_dict() for s in self.stockpiles],
             "pastures": [p.to_dict() for p in self.pastures],
             "grazed": {"%d,%d,%d" % c: t for c, t in self.grazed.items()},
+            "engravings": {"%d,%d,%d" % c: a.to_dict()
+                           for c, a in self.engravings.items()},
             "animal_state": {
                 str(c.id): c.animal.to_dict()
                 for c in self.creatures.values()
@@ -1310,6 +1320,12 @@ class Fortress:
         fort.grazed = {
             tuple(int(v) for v in k.split(",")): int(t)
             for k, t in (d.get("grazed") or {}).items()
+        }
+        from . import art as art_mod
+
+        fort.engravings = {
+            tuple(int(v) for v in k.split(",")): art_mod.Engraving.from_dict(a)
+            for k, a in (d.get("engravings") or {}).items()
         }
         fort.military = Military.from_dict(d.get("military") or {})
         fort.court = Court.from_dict(d.get("court") or {})
