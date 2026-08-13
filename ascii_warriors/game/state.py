@@ -355,8 +355,15 @@ class Game:
         ]
 
     def move_creature(self, c: Creature, x: int, y: int, z: int) -> None:
-        """Place a creature on a new cell."""
+        """Place a creature on a new cell.
+
+        Moving is louder than standing still, which is the only thing that
+        makes standing still a tactic.
+        """
+        from . import stealth
+
         c.x, c.y, c.z = x, y, z
+        stealth.note_action(c, "move")
         if c.is_player:
             self.update_fov()
 
@@ -479,6 +486,7 @@ class Game:
         for c in self.creatures_at(x, y, z):
             out.append(Frag("", colors.UI["fg"]))
             out.extend(c.describe())
+            out.extend(self._awareness(c))
         pile = self.items_at(x, y, z)
         if pile:
             out.append(Frag("", colors.UI["fg"]))
@@ -486,6 +494,29 @@ class Game:
             for it in pile[:8]:
                 out.append(Frag("  " + it.name(article=True), it.color))
         return out
+
+    def _awareness(self, c: Creature) -> List[Frag]:
+        """Whether this creature has noticed the player, while sneaking.
+
+        The single most useful thing a stealth game can tell you, and the only
+        way the roll is playable rather than a hidden dice cup: look at the
+        guard and find out whether the guard is looking at you.
+        """
+        from . import stealth
+
+        p = self.player
+        if c is p or c.body.dead or not stealth.is_sneaking(p):
+            return []
+        if not c.is_hostile_to(p) and not p.is_hostile_to(c):
+            return []
+        chance = stealth.hide_chance(self, p, c)
+        if chance >= 0.75:
+            word, colour = "It has no idea you are there.", colors.UI["good"]
+        elif chance >= 0.4:
+            word, colour = "It might not see you.", colors.UI["warn"]
+        else:
+            word, colour = "It will see you.", colors.UI["danger"]
+        return [Frag(word, colour)]
 
     # -- time and turns ---------------------------------------------------- #
 

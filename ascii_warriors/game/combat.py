@@ -44,6 +44,8 @@ class AttackResult:
     blocked: bool = False
     dodged: bool = False
     parried: bool = False
+    #: Set when the defender had not noticed the attacker.
+    ambush: bool = False
 
     def add(self, text: str, color=None) -> None:
         """Append a message fragment."""
@@ -264,11 +266,24 @@ def melee_attack(
     target_part: Optional[str] = None,
     rng: RNG,
     log=None,
+    world=None,
 ) -> AttackResult:
-    """Resolve one melee strike."""
+    """Resolve one melee strike.
+
+    Pass *world* to let the strike know whether the defender had noticed the
+    attacker. Without it every attack is a fair fight, which is what the two
+    fortress loops want and is why it is optional.
+    """
     result = AttackResult()
     if attacker.body.dead or defender.body.dead:
         return result
+
+    from . import stealth
+
+    ambush = world is not None and stealth.unnoticed(world, attacker, defender)
+    if ambush:
+        result.ambush = True
+        target_part = target_part or stealth.ambush_part(defender, rng)
 
     if weapon is None:
         weapon = attacker.inventory.weapon()
@@ -279,8 +294,11 @@ def melee_attack(
 
     skill_id = _skill_for_weapon(attacker, weapon)
     chance = to_hit_chance(attacker, defender, skill_id)
-    if target_part:
+    if target_part and not ambush:
         chance *= 0.7  # aimed strikes are harder
+    if ambush:
+        # It is not defending. Aiming is the easy part.
+        chance = max(chance, AMBUSH_HIT)
 
     subject = _subject(attacker)
     obj = _object(defender)
@@ -298,7 +316,7 @@ def melee_attack(
         _emit(log, result)
         return result
 
-    if try_block(defender, rng):
+    if not ambush and try_block(defender, rng):
         result.blocked = True
         shield = defender.inventory.shield()
         result.add(
@@ -313,7 +331,7 @@ def melee_attack(
         _emit(log, result)
         return result
 
-    if try_parry(defender, rng):
+    if not ambush and try_parry(defender, rng):
         result.parried = True
         result.add(
             "%s %s at %s, but the blow is parried." % (subject, verb, obj),
@@ -335,6 +353,8 @@ def melee_attack(
 
     kind = effective_kind(weapon, attack_def)
     momentum = compute_momentum(attacker, weapon, attack_def)
+    if ambush:
+        momentum *= stealth.AMBUSH_MOMENTUM
     absorbed, outer = armor_protection(defender, part.id, kind)
     delivered = momentum - absorbed
     result.damage = max(0.0, delivered)
@@ -342,6 +362,9 @@ def melee_attack(
     head = "%s %s %s in the %s%s" % (
         subject, verb, obj, part.name, _weapon_phrase(weapon)
     )
+    if ambush:
+        head = "%s, unseen, %s %s in the %s%s" % (
+            subject, verb, obj, part.name, _weapon_phrase(weapon))
 
     if delivered <= 0:
         if outer is not None:
@@ -380,6 +403,8 @@ def melee_attack(
     attacker.add_exp("fighter", 10)
     if weapon is not None:
         weapon.wear_tick(rng)
+    if ambush:
+        stealth.on_ambush(world, attacker, defender)
 
     # A bite from something cursed is how the curse travels. What matters is
     # the attack that landed, not whether the thing also owns a sword.
@@ -397,6 +422,11 @@ def melee_attack(
         result.add(_slain_line(defender), colors.UI["danger"])
     _emit(log, result)
     return result
+
+
+#: An ambusher barely has to aim. Not certainty -- you can still fumble a
+#: knife in the dark -- but it is not a fight the defender is having yet.
+AMBUSH_HIT = 0.92
 
 
 #: Natural attacks that put teeth into a wound. Only these carry a curse:

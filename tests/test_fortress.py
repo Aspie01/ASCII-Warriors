@@ -4231,3 +4231,73 @@ class TestNight(unittest.TestCase):
         """The night block is only written when the night has been involved."""
         rng = RNG("plain")
         self.assertNotIn("night", make_creature(rng, "dwarf").to_dict())
+
+
+class TestStealthInTheFortress(unittest.TestCase):
+    """The skills the data files have always handed out, finally read."""
+
+    def setUp(self):
+        from ascii_warriors.game import stealth as stealth_mod
+
+        self.stealth = stealth_mod
+
+    def test_a_fortress_can_answer_the_light_question(self):
+        """The stealth roll asks it in both modes and must not care which."""
+        fort = embark("fortlight")
+        d = fort.dwarves()[0]
+        deep = (d.x, d.y, fort.local.zmin + 2)
+        self.assertLess(fort.light_at(*deep), 0.3)
+        self.assertGreaterEqual(fort.light_at(d.x, d.y, d.z), 0.0)
+        self.assertLessEqual(fort.light_at(d.x, d.y, d.z), 1.0)
+
+    def test_the_thief_is_actually_sneaky(self):
+        """It has had sneak 8 since v3.3 and nothing ever read it."""
+        fort = embark("sneakythief")
+        d = fort.dwarves()[0]
+        thief = make_creature(fort.rng, "kobold", faction="hostile", level=1)
+        thief.thief = True
+        thief.skills.set_level("sneak", 8)
+        thief.x, thief.y, thief.z = d.x + 2, d.y, d.z
+        fort.add_creature(thief)
+        self.assertTrue(self.stealth.natural_sneak(thief))
+        seen = sum(1 for _ in range(200)
+                   if self.stealth.noticed_by(fort, thief, d))
+        self.assertLess(seen, 100, "the thief is spotted every time")
+
+    def test_an_ordinary_goblin_is_in_plain_sight(self):
+        """Stealth is for things that have the skill for it."""
+        fort = embark("plainsight")
+        d = fort.dwarves()[0]
+        foe = make_creature(fort.rng, "goblin", faction="hostile")
+        foe.skills.set_level("sneak", 0)
+        foe.skills.set_level("ambusher", 0)
+        foe.x, foe.y, foe.z = d.x + 2, d.y, d.z
+        fort.add_creature(foe)
+        self.assertFalse(self.stealth.hidden(foe))
+        for _ in range(20):
+            self.assertTrue(self.stealth.noticed_by(fort, foe, d))
+
+    def test_a_siege_is_still_noticed(self):
+        """Whatever else changes, an army at the gate is not a stealth puzzle."""
+        fort = embark("siegeseen")
+        fort.wealth = 9000
+        from ascii_warriors.fortress import war as war_mod
+
+        plan = war_mod.plan(fort)
+        self.assertIsNotNone(plan)
+        army = war_mod.launch(fort, plan)
+        self.assertTrue(army)
+        plain = [c for c in army if not self.stealth.hidden(c)]
+        self.assertTrue(plain, "the whole army crept in unseen")
+
+    def test_the_fortress_still_runs_with_stealth_in_the_loop(self):
+        """The danger scan asks the roll every step for every hostile."""
+        fort = embark("stealthloop")
+        d = fort.dwarves()[0]
+        thief = make_creature(fort.rng, "kobold", faction="hostile", level=1)
+        thief.thief = True
+        thief.skills.set_level("sneak", 8)
+        thief.x, thief.y, thief.z = d.x + 3, d.y, d.z
+        fort.add_creature(thief)
+        sim.run(fort, 200)
+        self.assertFalse(fort.lost)

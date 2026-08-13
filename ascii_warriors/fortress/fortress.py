@@ -846,6 +846,18 @@ class Fortress:
         """Every built lever."""
         return [b for b in self.buildings if b.kind == "lever" and b.built]
 
+    def light_at(self, x: int, y: int, z: int) -> float:
+        """Ambient light at a cell, 0..1.
+
+        The same question a Game answers, so the stealth roll can be asked in
+        either mode without knowing which one it is standing in. A fortress
+        has no torches to track: underground is dark, and the surface follows
+        the sky.
+        """
+        if self.local.is_outside(x, y, z):
+            return self.time.light_level() * self.weather.light_modifier()
+        return 0.12
+
     def tavern(self) -> Optional[Building]:
         """Where the fortress drinks, if it has built anywhere to."""
         for b in self.buildings:

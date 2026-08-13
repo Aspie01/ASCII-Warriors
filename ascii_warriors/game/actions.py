@@ -20,6 +20,26 @@ NORMAL = ACTION_COST
 SLOW = ACTION_COST * 2
 
 
+def toggle_sneak(game) -> int:
+    """Start or stop moving quietly.
+
+    Free: deciding to be careful is not an action, it is a posture. What it
+    costs you is speed, light and the ability to run, all of which the rest of
+    the game charges for on its own.
+    """
+    from . import stealth
+
+    p = game.player
+    on = stealth.set_sneaking(p, not stealth.is_sneaking(p))
+    if on:
+        game.log.info("You move quietly.")
+        if stealth._carrying_light(p):
+            game.log.warn("Your light gives you away. Douse it with ~.")
+    else:
+        game.log.info("You stop sneaking.")
+    return FREE
+
+
 def move_or_attack(game, dx: int, dy: int) -> int:
     """Walk one step, or attack whatever is in the way."""
     p = game.player
@@ -31,7 +51,8 @@ def move_or_attack(game, dx: int, dy: int) -> int:
     target = game.creature_at(nx, ny, nz)
     if target is not None:
         if p.is_hostile_to(target) or target.is_hostile_to(p):
-            combat.melee_attack(p, target, rng=game.rng, log=game.log)
+            combat.melee_attack(p, target, rng=game.rng, log=game.log,
+                                world=game)
             if target.body.dead:
                 game.kill_creature(target)
             p.needs.exert(8)
@@ -319,7 +340,8 @@ def attack_dir(game, dx: int, dy: int, *, part: Optional[str] = None) -> int:
     if target is None:
         game.log.info("There is nothing there to attack.")
         return FREE
-    combat.melee_attack(p, target, target_part=part, rng=game.rng, log=game.log)
+    combat.melee_attack(p, target, target_part=part, rng=game.rng,
+                        log=game.log, world=game)
     if target.body.dead:
         game.kill_creature(target)
     p.needs.exert(10)

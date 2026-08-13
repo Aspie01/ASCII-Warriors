@@ -243,6 +243,8 @@ class PlayScene(Scene):
             cost = self._fire()
         elif key == "F":
             cost = self._throw()
+        elif key == "v":
+            cost = actions.toggle_sneak(game)
         elif key == "s":
             cost = actions.search(game)
         elif key == "S":
@@ -300,8 +302,15 @@ class PlayScene(Scene):
     # -- action helpers ---------------------------------------------------- #
 
     def _run(self, direction) -> int:
-        """Walk in one direction until something interesting happens."""
+        """Walk in one direction until something interesting happens.
+
+        Running is not sneaking, and pretending otherwise would make the
+        stealth roll free. Breaking into a run breaks cover.
+        """
+        from ..game import stealth
+
         game = self.game
+        stealth.set_sneaking(game.player, False)
         if direction is None:
             return 0
         dx, dy = direction

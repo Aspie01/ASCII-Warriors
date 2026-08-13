@@ -283,6 +283,25 @@ medical dwarf, a sheriff and eventually a mayor, who will demand things.
 Ignore enough of it and dwarves start breaking furniture, and then each
 other.
 
+**Stealth.** Press `v` and you move quietly. Whether that works is a roll made
+separately for every creature that might look at you: your sneaking against
+their observation, plus how far away you are, whether you are standing still or
+walking, whether they are asleep, and — the one that bites — how much light you
+are standing in. The torch you need to see the corridor is the thing that gives
+you away, and the status bar tells you so.
+
+It is a skill, not a posture. Untrained and adjacent, you are seen almost
+always. A rogue four tiles off in the dark is a coin flip. A legendary sneak at
+eight tiles in the dark is a rumour. And look at any hostile while sneaking and
+the panel tells you plainly whether it has noticed you.
+
+Attacking something that has not noticed you is an ambush: no block, no parry,
+you barely have to aim, it goes into the neck, and it hits about two and a half
+times as hard. Then it is over — one devastating blow, and after it an ordinary
+fight against somebody who now knows exactly where you are. Kobold thieves,
+bandits and ambushing wolves have had the skills for this all along; now they
+use them, and your dwarves have to actually spot the thief.
+
 **The night.** The world has always generated necromancers, given them towers
 and stocked those towers with the dead. Now they use them. A necromancer
 raises whatever corpses it can see — including the ones you just made — so a

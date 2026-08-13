@@ -29,6 +29,7 @@ CONTROLS: List[Tuple[str, str]] = [
     ("e / q", "eat / drink"),
     ("x", "look around with a cursor"),
     ("t", "talk to somebody"),
+    ("v", "move quietly; attack unseen for an ambush"),
     ("s", "search the area carefully"),
     ("S", "sleep for eight hours"),
     ("R", "rest a while"),
@@ -251,6 +252,23 @@ a sheriff and eventually a mayor. The mayor will demand things. Ignoring the
 demands makes the mayor furious, and a furious dwarf in a fortress full of
 unhappy dwarves is how tantrums start: broken furniture, then somebody going
 berserk with an axe.
+
+STEALTH
+
+Press v to move quietly. Whether it works is rolled separately for every
+creature that might look at you: your sneak against their observer, plus
+distance, whether you are moving, whether they are asleep, and how much light
+you are standing in. A lit torch is the single worst thing you can carry while
+sneaking, and the status bar says (lit!) when it is the problem.
+
+It is a skill. Untrained and next to somebody, you are seen. A trained rogue in
+the dark at a distance is a real chance. Look (x) at anything while sneaking
+and the panel says whether it has noticed you.
+
+Attack something that has not noticed you and it is an ambush: it cannot block
+or parry, you hardly have to aim, the blow goes into the neck and lands about
+two and a half times as hard. Then you are visible, and it is an ordinary
+fight.
 
 THE NIGHT
 

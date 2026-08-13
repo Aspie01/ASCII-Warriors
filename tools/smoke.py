@@ -37,6 +37,8 @@ DEFAULT_SCRIPT: List[str] = (
     + ["?", "TAB", "TAB", "ESC"]
     # World map
     + ["M", "l", "l", "j", "ESC"]
+    # Sneak, look at something while hidden, stop sneaking
+    + ["v", "x", "TAB", "ESC", "v"]
     # Search, rest, wait
     + ["s", ".", ".", "R"]
     # Pause menu -> save -> resume

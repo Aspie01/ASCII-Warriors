@@ -101,6 +101,10 @@ class Creature:
         self.gold_reward = 0
         #: Set for uniquely generated creatures (forgotten beasts, titans).
         self.unique_def: Optional[CreatureDef] = None
+        #: Set while this creature is deliberately trying not to be seen,
+        #: and what it last did loudly enough for anybody to hear.
+        self.sneaking = False
+        self.noise = "move"
         #: What the night has done to this creature: "werebeast", "vampire"
         #: or nothing. ``changed`` is set while it is wearing the other shape.
         self.curse = ""
@@ -390,6 +394,8 @@ class Creature:
         if self.thief:
             d["thief"] = {"since": self.thief_since, "loot": self.loot,
                           "name": self.loot_name}
+        if self.sneaking:
+            d["sneaking"] = True
         if self.curse or self.changed or self.raised_by is not None:
             d["night"] = {"curse": self.curse, "changed": self.changed,
                           "was": self.shape_was, "faction_was": self.faction_was,
@@ -436,6 +442,8 @@ class Creature:
         c.kills = list(d.get("kills", []))
         c.gold_reward = int(d.get("gold_reward", 0))
         c.speech = dict(d.get("speech") or {})
+
+        c.sneaking = bool(d.get("sneaking", False))
 
         night = d.get("night")
         if night:

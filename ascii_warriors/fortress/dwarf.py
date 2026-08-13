@@ -359,11 +359,16 @@ def _handle_danger(fort, dwarf) -> bool:
     squad = fort.military.squad_of(dwarf.id)
     reach = SOLDIER_SIGHT if squad is not None else CIVILIAN_SIGHT
 
+    from ..game import stealth
+
     enemies = [
         c for c in fort.creatures.values()
         if not c.body.dead and c.faction == "hostile"
         and abs(c.z - dwarf.z) <= 2
         and geometry.chebyshev(dwarf.x, dwarf.y, c.x, c.y) <= reach
+        # A kobold with sneak 8 is not standing in plain sight. It has had
+        # that skill since v3.3 and nothing has ever read it.
+        and stealth.noticed_by(fort, c, dwarf)
     ]
     if not enemies:
         return _hold_position(fort, dwarf, squad)

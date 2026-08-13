@@ -2172,7 +2172,68 @@ werebeast on a full moon or a named necromancer with a handful of thralls.
 The status line shows FULL MOON, the units list shows TRANSFORMED, and the
 character sheet carries an Affliction block that tells you which moon to fear.
 
-## 65. Style
+## 65. Stealth (v3.6)
+
+### `game/stealth.py`
+```python
+UNTRAINED = -40.0 ; SKILL_WEIGHT = 6.0 ; CURVE = 12.0   # logistic, 3%..97%
+NOISE = {still: -3, move: +2, run: +8, fight: +24, open: +6}
+TORCH_PENALTY = 14 ; ASLEEP_HELP = 40 ; DISTANCE_HELP = 0.9 ; COVER_HELP = 5
+AMBUSH_MOMENTUM = 2.4 ; AMBUSH_PARTS = (neck, throat, head, upper_body)
+def is_sneaking / set_sneaking / natural_sneak / hidden / note_action
+def hide_chance(world, sneaker, watcher) -> 0..1
+def noticed_by(world, sneaker, watcher) / unnoticed(world, attacker, defender)
+def ambush_part(defender, rng) / on_ambush(world, attacker, defender)
+```
+The game has had a rogue class since the beginning — dagger 4, sneak 5,
+dodging 4, observer 3 — and sneaking did nothing at all. `sneak` and
+`ambusher` were handed to kobolds, bandits, wolves, four character classes and
+the thief that robs your fortress, and no line of code ever read either. The
+numbers to build a stealth system with were already in the save file.
+
+**Hidden is a fact about a pair, not a property of a creature.** The guard by
+the fire has not seen you; the one on the wall has. `noticed_by(world,
+sneaker, watcher)` is the whole interface and everything is built on it:
+`ai.hostile_targets` filters through it, so line of sight stops meaning
+"noticed"; `dwarf._handle_danger` filters through it, so the kobold thief is
+finally as sneaky as its skill says. The roll is made fresh each time rather
+than stored, because stepping into the light should be enough for the guard
+that missed you a second ago to see you.
+
+**Sneaking is a skill, and `UNTRAINED` is what makes it one.** The first cut
+centred the logistic on zero, which handed a character who had never sneaked
+in their life a 58% chance of standing next to a bandit unnoticed. With a −40
+floor the curve reads: untrained and adjacent 4.5%, a rogue four tiles off in
+the dark 50%, the same rogue in daylight 6%, a legendary sneak at eight tiles
+in the dark 97% (the cap). Moving costs about ten points of it.
+
+**The torch you need to see is the thing they see.** `light_at` was already on
+`Game`; `Fortress` grew the same method so the roll can be asked in either
+mode without knowing which one it is in. Carrying something lit costs
+`TORCH_PENALTY`, which finally charges for the trade the torch system has
+implied since v1.
+
+**An ambush is a different weapon.** `melee_attack` takes an optional *world*;
+with it, an attack on somebody who has not noticed you skips block and parry,
+takes an `AMBUSH_HIT` floor instead of the aimed-strike penalty, aims for the
+neck, and multiplies momentum by 2.4. Measured: 172 hits per 200 against 93,
+mean damage 65k against 27k, landing in the neck 162 times out of 172. Then
+`on_ambush` drops you out of stealth — one devastating blow, and after it an
+ordinary fight against somebody who knows exactly where you are. Without a
+*world* nothing is ever an ambush, which is why the two fortress combat loops
+stay fair by default.
+
+**The player opts in; NPCs do not have to.** `natural_sneak` hides a creature
+whose skills say it moves quietly anyway — but never the player. A character
+that hides without being asked is one the status bar is lying about, and it
+takes away the decision stealth is actually made of.
+
+`v` toggles it (free — a posture, not an action), running breaks it, the
+status line shows SNEAKING and `(lit!)` when your own torch is the problem,
+and the look panel tells you whether each hostile has noticed you, which is
+the only thing that makes a hidden roll playable rather than a dice cup.
+
+## 66. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

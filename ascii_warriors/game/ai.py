@@ -93,7 +93,14 @@ def can_see(creature, other, game) -> bool:
 
 
 def hostile_targets(creature, game) -> List[Any]:
-    """Every visible creature this one would attack, nearest first."""
+    """Every creature this one would attack and has actually noticed.
+
+    Line of sight is not the same as having seen something. Somebody moving
+    quietly in the dark is in plain view and still unnoticed, which is the
+    entire point of moving quietly in the dark.
+    """
+    from . import stealth
+
     out = []
     for other in game.creatures.values():
         if other is creature or other.body.dead:
@@ -101,6 +108,8 @@ def hostile_targets(creature, game) -> List[Any]:
         if not creature.is_hostile_to(other):
             continue
         if not can_see(creature, other, game):
+            continue
+        if not stealth.noticed_by(game, other, creature):
             continue
         out.append(other)
     out.sort(key=creature.distance_to)

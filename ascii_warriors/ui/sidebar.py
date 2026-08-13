@@ -154,6 +154,13 @@ def draw_status_line(scr: Screen, x: int, y: int, w: int, game) -> None:
     if here is not None:
         parts.append(Frag("%s " % here.name, here.color))
         parts.append(Frag("| ", colors.UI["frame"]))
+    from ..game import stealth as stealth_mod
+
+    if stealth_mod.is_sneaking(p):
+        parts.append(Frag("SNEAKING ", colors.UI["accent2"]))
+        if stealth_mod._carrying_light(p):
+            parts.append(Frag("(lit!) ", colors.UI["danger"]))
+        parts.append(Frag("| ", colors.UI["frame"]))
     enc = p.encumbrance()
     if enc > 1.0:
         parts.append(Frag("overloaded ", colors.UI["danger"]))

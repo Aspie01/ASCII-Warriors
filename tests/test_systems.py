@@ -794,3 +794,317 @@ class TestNightAdventure(GameFixture):
         back = save_mod.load_game(path)
         self.assertEqual(self.night.cursed_with(back.player), "vampire")
         path.unlink()
+
+
+class TestStealth(GameFixture):
+    """Moving unseen, and what happens the moment you are not."""
+
+    def setUp(self):
+        super().setUp()
+        from ascii_warriors.game import stealth as stealth_mod
+
+        self.stealth = stealth_mod
+
+    def _pair(self, sneak=0, ambusher=0, observer=0, dist=1):
+        """A sneaker and a watcher, *dist* tiles apart, in a real game."""
+        from ascii_warriors.game.entity import make_creature
+
+        game = self.game
+        a = make_creature(game.rng, "human", faction="wild", equip=False)
+        b = make_creature(game.rng, "bandit", faction="hostile", equip=False)
+        a.skills.set_level("sneak", sneak)
+        a.skills.set_level("ambusher", ambusher)
+        b.skills.set_level("observer", observer)
+        a.x, a.y, a.z = 0, 0, 0
+        b.x, b.y, b.z = dist, 0, 0
+        return a, b
+
+    # -- the roll ----------------------------------------------------------- #
+
+    def test_standing_in_the_open_is_never_hidden(self):
+        """And costs no roll at all."""
+        a, b = self._pair(sneak=0, dist=9)
+        self.assertFalse(self.stealth.is_sneaking(a))
+        self.assertEqual(self.stealth.hide_chance(self.game, a, b), 0.0)
+        self.assertTrue(self.stealth.noticed_by(self.game, a, b))
+
+    def test_the_player_is_only_hidden_when_it_says_so(self):
+        """A character that hides unasked is one the status bar lies about."""
+        p = self.game.player
+        p.skills.set_level("sneak", 20)
+        p.skills.set_level("ambusher", 20)
+        self.assertFalse(self.stealth.natural_sneak(p))
+        self.assertFalse(self.stealth.hidden(p))
+        self.stealth.set_sneaking(p, True)
+        self.assertTrue(self.stealth.hidden(p))
+
+    def test_sneaking_is_a_skill_not_a_posture(self):
+        """Somebody who has never sneaked does not get even odds."""
+        a, b = self._pair(sneak=0, dist=1)
+        self.stealth.set_sneaking(a, True)
+        self.assertLess(self.stealth.hide_chance(self.game, a, b), 0.2)
+        c, d = self._pair(sneak=12, ambusher=6, dist=6)
+        self.stealth.set_sneaking(c, True)
+        self.assertGreater(self.stealth.hide_chance(self.game, c, d), 0.8)
+
+    def test_an_observer_is_worth_a_sneak(self):
+        """The watcher's skill is on the other side of the same scale."""
+        a, b = self._pair(sneak=8, observer=0, dist=4)
+        self.stealth.set_sneaking(a, True)
+        blind = self.stealth.hide_chance(self.game, a, b)
+        b.skills.set_level("observer", 8)
+        sharp = self.stealth.hide_chance(self.game, a, b)
+        self.assertLess(sharp, blind)
+
+    def test_distance_and_noise_move_the_odds(self):
+        """Far and still beats near and moving."""
+        a, b = self._pair(sneak=8, dist=1)
+        self.stealth.set_sneaking(a, True)
+        self.stealth.note_action(a, "still")
+        near_still = self.stealth.hide_chance(self.game, a, b)
+        self.stealth.note_action(a, "move")
+        near_moving = self.stealth.hide_chance(self.game, a, b)
+        self.assertLess(near_moving, near_still)
+        b.x = 8
+        self.stealth.note_action(a, "still")
+        self.assertGreater(self.stealth.hide_chance(self.game, a, b), near_still)
+
+    def test_a_sleeping_watcher_is_not_watching(self):
+        """Which is what makes a sleeping camp a thing to creep through."""
+        a, b = self._pair(sneak=2, dist=2)
+        self.stealth.set_sneaking(a, True)
+        awake = self.stealth.hide_chance(self.game, a, b)
+        b.body.unconscious = 500
+        self.assertGreater(self.stealth.hide_chance(self.game, a, b), awake)
+
+    def test_nothing_is_ever_certain(self):
+        """A legendary sneak can be unlucky and a blind guard can turn round."""
+        a, b = self._pair(sneak=20, ambusher=20, dist=20)
+        self.stealth.set_sneaking(a, True)
+        self.assertLessEqual(self.stealth.hide_chance(self.game, a, b),
+                             self.stealth.MAX_CHANCE)
+        c, d = self._pair(sneak=0, observer=20, dist=1)
+        self.stealth.set_sneaking(c, True)
+        self.assertGreaterEqual(self.stealth.hide_chance(self.game, c, d),
+                                self.stealth.MIN_CHANCE)
+
+    def test_a_lit_torch_gives_you_away(self):
+        """The thing that lets you see the corridor is the thing they see."""
+        from ascii_warriors.game.item import make_item
+
+        a, b = self._pair(sneak=10, dist=5)
+        self.stealth.set_sneaking(a, True)
+        dark = self.stealth.hide_chance(self.game, a, b)
+        torch = make_item(self.game.rng, "torch")
+        torch.flags["lit"] = True
+        torch.charges = max(1, torch.charges)
+        a.inventory.add(torch)
+        self.assertTrue(self.stealth._carrying_light(a))
+        self.assertLess(self.stealth.hide_chance(self.game, a, b), dark)
+
+    # -- who does it at all --------------------------------------------------- #
+
+    def test_some_creatures_sneak_without_being_told(self):
+        """Which is what makes the skills the data files hand out mean something."""
+        from ascii_warriors.game.entity import make_creature
+
+        thief = make_creature(self.game.rng, "kobold", faction="hostile")
+        thief.skills.set_level("sneak", 8)
+        self.assertTrue(self.stealth.natural_sneak(thief))
+        self.assertTrue(self.stealth.hidden(thief))
+        ox = make_creature(self.game.rng, "cow", faction="wild")
+        self.assertFalse(self.stealth.natural_sneak(ox))
+        self.assertFalse(self.stealth.hidden(ox))
+
+    def test_the_ai_does_not_chase_what_it_has_not_noticed(self):
+        """Line of sight is not the same as having seen something."""
+        from ascii_warriors.game import ai
+        from ascii_warriors.game.entity import make_creature
+
+        game = self.game
+        p = game.player
+        p.skills.set_level("sneak", 20)
+        p.skills.set_level("ambusher", 20)
+        foe = make_creature(game.rng, "bandit", faction="hostile", equip=False)
+        foe.x, foe.y, foe.z = p.x + 1, p.y, p.z
+        game.add_creature(foe)
+        self.assertIn(p, ai.hostile_targets(foe, game))
+        self.stealth.set_sneaking(p, True)
+        seen = sum(1 for _ in range(60)
+                   if p in ai.hostile_targets(foe, game))
+        self.assertLess(seen, 30, "a legendary sneak is always spotted")
+
+    def test_fighting_is_not_sneaking(self):
+        """You cannot stab somebody quietly enough to stay hidden from them."""
+        a, _b = self._pair(sneak=10)
+        self.stealth.set_sneaking(a, True)
+        self.stealth.note_action(a, "fight")
+        self.assertFalse(self.stealth.is_sneaking(a))
+
+    # -- ambush --------------------------------------------------------------- #
+
+    def test_an_ambush_lands_where_it_is_aimed(self):
+        """A dagger in the dark is a different weapon from a dagger in a fight."""
+        from ascii_warriors.game import combat
+        from ascii_warriors.game.entity import make_creature
+        from ascii_warriors.game.item import make_item
+
+        game = self.game
+        hits = necks = 0
+        for _ in range(60):
+            a = make_creature(game.rng, "human", faction="wild", equip=False)
+            a.skills.set_level("dagger", 6)
+            a.skills.set_level("sneak", 15)
+            a.inventory.add(make_item(game.rng, "dagger"))
+            a.inventory.auto_equip()
+            b = make_creature(game.rng, "bandit", faction="hostile")
+            a.x, a.y, a.z = 0, 0, 0
+            b.x, b.y, b.z = 1, 0, 0
+            self.stealth.set_sneaking(a, True)
+            r = combat.melee_attack(a, b, rng=game.rng, log=None, world=game)
+            if r.ambush and r.hit:
+                hits += 1
+                if r.part in ("neck", "throat", "head"):
+                    necks += 1
+        self.assertGreater(hits, 30, "ambushes never landed")
+        self.assertGreater(necks, hits * 0.6, "ambushes did not aim")
+
+    def test_an_ambush_hits_harder_than_a_fair_blow(self):
+        """The whole reason to bother sneaking up on anything."""
+        from ascii_warriors.game import combat
+        from ascii_warriors.game.entity import make_creature
+        from ascii_warriors.game.item import make_item
+
+        game = self.game
+
+        def strike(sneaking):
+            total = landed = 0
+            for _ in range(60):
+                a = make_creature(game.rng, "human", faction="wild",
+                                  equip=False)
+                a.skills.set_level("dagger", 6)
+                a.skills.set_level("sneak", 15)
+                a.inventory.add(make_item(game.rng, "dagger"))
+                a.inventory.auto_equip()
+                b = make_creature(game.rng, "bandit", faction="hostile")
+                a.x, a.y, a.z = 0, 0, 0
+                b.x, b.y, b.z = 1, 0, 0
+                self.stealth.set_sneaking(a, sneaking)
+                r = combat.melee_attack(a, b, rng=game.rng, log=None,
+                                        world=game if sneaking else None)
+                if r.hit:
+                    landed += 1
+                    total += r.damage
+            return landed, total / max(1, landed)
+
+        fair_hits, fair_dmg = strike(False)
+        amb_hits, amb_dmg = strike(True)
+        self.assertGreater(amb_hits, fair_hits)
+        self.assertGreater(amb_dmg, fair_dmg * 1.5)
+
+    def test_an_ambush_gives_you_away(self):
+        """One devastating blow, then an ordinary fight."""
+        from ascii_warriors.game import combat
+        from ascii_warriors.game.entity import make_creature
+
+        game = self.game
+        a = make_creature(game.rng, "human", faction="wild", equip=False)
+        a.skills.set_level("sneak", 15)
+        b = make_creature(game.rng, "bandit", faction="hostile")
+        a.x, a.y, a.z = 0, 0, 0
+        b.x, b.y, b.z = 1, 0, 0
+        self.stealth.set_sneaking(a, True)
+        combat.melee_attack(a, b, rng=game.rng, log=None, world=game)
+        self.assertFalse(self.stealth.is_sneaking(a))
+
+    def test_a_fair_fight_is_never_an_ambush(self):
+        """No world, no ambush: the two fortress loops must stay fair."""
+        from ascii_warriors.game import combat
+        from ascii_warriors.game.entity import make_creature
+
+        game = self.game
+        a = make_creature(game.rng, "human", faction="wild", equip=False)
+        a.skills.set_level("sneak", 20)
+        b = make_creature(game.rng, "bandit", faction="hostile")
+        a.x, a.y, a.z = 0, 0, 0
+        b.x, b.y, b.z = 1, 0, 0
+        self.stealth.set_sneaking(a, True)
+        r = combat.melee_attack(a, b, rng=game.rng, log=None)
+        self.assertFalse(r.ambush)
+
+    # -- the player ----------------------------------------------------------- #
+
+    def test_a_blocked_arrow_still_works(self):
+        """The ambush guard belongs to melee and must not leak into ranged."""
+        from ascii_warriors.game import combat
+        from ascii_warriors.game.entity import make_creature
+        from ascii_warriors.game.item import make_item
+
+        game = self.game
+        a = make_creature(game.rng, "human", faction="wild", equip=False)
+        a.skills.set_level("bow", 8)
+        bow = make_item(game.rng, "bow")
+        arrows = make_item(game.rng, "arrow", count=40)
+        a.inventory.add(bow)
+        a.inventory.add(arrows)
+        a.inventory.auto_equip()
+        blocked = 0
+        for _ in range(60):
+            b = make_creature(game.rng, "bandit", faction="hostile")
+            b.skills.set_level("shield_use", 12)
+            b.inventory.add(make_item(game.rng, "shield"))
+            b.inventory.auto_equip()
+            a.x, a.y, a.z = 0, 0, 0
+            b.x, b.y, b.z = 5, 0, 0
+            r = combat.ranged_attack(a, b, bow, arrows, rng=game.rng, log=None)
+            if r.blocked:
+                blocked += 1
+        self.assertGreater(blocked, 0, "no arrow was ever blocked")
+
+    def test_the_sneak_key_is_free_and_reversible(self):
+        """Being careful is a posture, not an action."""
+        from ascii_warriors.game import actions
+
+        game = self.game
+        self.assertEqual(actions.toggle_sneak(game), actions.FREE)
+        self.assertTrue(self.stealth.is_sneaking(game.player))
+        actions.toggle_sneak(game)
+        self.assertFalse(self.stealth.is_sneaking(game.player))
+
+    def test_moving_makes_noise(self):
+        """Through the real move, not by setting the flag."""
+        game = self.game
+        p = game.player
+        self.stealth.set_sneaking(p, True)
+        self.assertEqual(p.noise, "still")
+        game.move_creature(p, p.x, p.y, p.z)
+        self.assertEqual(p.noise, "move")
+
+    def test_the_look_panel_says_whether_it_has_seen_you(self):
+        """The only thing that makes a hidden roll playable."""
+        from ascii_warriors.game.entity import make_creature
+
+        game = self.game
+        p = game.player
+        foe = make_creature(game.rng, "bandit", faction="hostile", equip=False)
+        foe.x, foe.y, foe.z = p.x + 1, p.y, p.z
+        game.add_creature(foe)
+        plain = " ".join(f.text for f in
+                         game.describe_tile(foe.x, foe.y, foe.z))
+        self.assertNotIn("see you", plain)
+        self.stealth.set_sneaking(p, True)
+        p.skills.set_level("sneak", 20)
+        p.skills.set_level("ambusher", 20)
+        hidden = " ".join(f.text for f in
+                          game.describe_tile(foe.x, foe.y, foe.z))
+        self.assertIn("no idea you are there", hidden)
+
+    def test_sneaking_survives_a_save(self):
+        """Through the real save file."""
+        from ascii_warriors.game import save as save_mod
+
+        self.stealth.set_sneaking(self.game.player, True)
+        path = save_mod.save_game(self.game, "stealth-test")
+        back = save_mod.load_game(path)
+        self.assertTrue(self.stealth.is_sneaking(back.player))
+        path.unlink()
