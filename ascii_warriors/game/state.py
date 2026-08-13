@@ -626,6 +626,12 @@ class Game:
         self.player.kills.append(c.display_name())
         self.quests.on_kill(self, c)
         self.player.needs.add_thought("killed a foe", -2)
+        from . import renown as renown_mod
+
+        told = renown_mod.record_kill(self, c)
+        if told is not None:
+            self.log.good("They will tell this one. (%s)"
+                          % renown_mod.title(self))
 
     def end_game(self, cause: str) -> None:
         """Finish the run and write the player into the world's legends."""

@@ -253,6 +253,7 @@ class GameMenu(Scene):
             MenuItem("Save and quit", "savequit", hotkey="Q"),
             MenuItem("Help", "help", hotkey="?"),
             MenuItem("Legends", "legends", hotkey="l"),
+            MenuItem("Retire here", "retire", hotkey="R"),
             MenuItem("Abandon this adventure", "abandon", hotkey="A"),
         ]
         self.menu = ListMenu(items, per_page=8, auto_hotkeys=False)
@@ -299,10 +300,36 @@ class GameMenu(Scene):
             from .legends_screen import LegendsScene
 
             self.app.push(LegendsScene(self.app))
+        elif choice == "retire":
+            self._retire(game)
         elif choice == "abandon":
             if self.app.confirm("Abandon this adventure? Unsaved progress is lost."):
                 self.app.game = None
                 self.app.reset_to(MainMenu(self.app))
+
+    def _retire(self, game) -> None:
+        """Put the adventurer down alive, and leave them in the world."""
+        from ..game import renown as renown_mod
+
+        if game is None:
+            self.done = True
+            return
+        where = game.current_site()
+        if not self.app.confirm(
+                "Retire %s the %s %s? They stay in this world."
+                % (game.player.name, renown_mod.title(game),
+                   "at %s" % where.name if where is not None else "here")):
+            return
+        renown_mod.retire(game)
+        save_mod.autosave(game)
+        self.app.message(
+            "Retired",
+            "%s the %s settles down.\n\n"
+            "They are in this world's legends now: another adventurer may "
+            "hear of them, and a fortress may read about them."
+            % (game.player.name, renown_mod.title(game)))
+        self.app.game = None
+        self.app.reset_to(MainMenu(self.app))
 
 
 class DeathScene(Scene):

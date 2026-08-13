@@ -78,17 +78,28 @@ def greeting(npc, game) -> str:
     hour = game.time.hour
     part = ("morning" if hour < 12 else
             "afternoon" if hour < 18 else "evening")
+    from . import renown as renown_mod
+
     role = npc.ai.role if npc.ai else ""
     site = game.current_site()
+    standing = renown_mod.renown(game)
     if npc.faction == "hostile":
         return "Get away from me."
+    if standing >= 90:
+        # People know the name before they know the face.
+        return "%s! %s, here, in %s." % (
+            game.player.name,
+            "The %s themself" % renown_mod.title(game),
+            site.name if site else "this place")
     if role == "tavern_keeper":
         return "Good %s. Ale? A bed? Or just the news?" % part
     if role == "guard":
         return "Move along, %s. Keep the peace and we'll have no trouble." % (
-            "traveller"
+            "traveller" if standing < 25 else renown_mod.title(game)
         )
     if role == "lord":
+        if standing >= 50:
+            return "The %s of some renown. Speak, then." % renown_mod.title(game)
         return "You stand in %s. State your business." % (
             site.name if site else "my hall"
         )

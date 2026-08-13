@@ -397,6 +397,15 @@ safe night's sleep. And people in taverns will travel with you for coin: they
 follow you between world tiles, fight what you fight, and can be patched up when
 they get hurt.
 
+**Renown, and retiring.** Your adventurer is a figure in the world's history
+from the first turn, not only when they die. Slay something the world knows —
+a megabeast, a bandit chief, a necromancer — and it is recorded with your name
+on it and your renown rises; finished work counts too. Renown is visible in
+play: guards and lords change their tone, people pay a name better than a
+stranger, and past a point they greet you by name. Retire from the pause menu
+and your adventurer settles where they stand, alive, in this world's legends —
+where the next adventurer, or a fortress in the same world, can read about them.
+
 **Conversation and quests.** Ask about this place, its ruler, its troubles, the
 beasts in the region, or for directions, and you get real answers from the
 generated history. Ask for work and you get a quest that points at a real

@@ -146,6 +146,9 @@ class QuestLog:
             game.log.good("You receive %d coins." % quest.reward)
         game.player.needs.add_thought("completed a great deed", -12)
         game.player.add_exp("leadership", 60)
+        from . import renown as renown_mod
+
+        renown_mod.record_quest(game, quest)
 
     def fail(self, quest: Quest, game) -> None:
         """Mark a quest failed."""
@@ -286,6 +289,11 @@ def generate_quest(rng: RNG, game, giver) -> Optional[Quest]:
             continue
         q.giver_name = giver.display_name()
         q.giver_hf = giver.hf_id
+        # People pay a name what a name is worth. A wanderer nobody has heard
+        # of is offered the same work for rather less.
+        from . import renown as renown_mod
+
+        q.reward = int(q.reward * (1.0 + renown_mod.renown(game) / 120.0))
         return q
     return None
 

@@ -58,6 +58,10 @@ class CharacterScene(Scene):
                 out.append(Frag("  " + line, colors.UI["fg"]))
             out.append(Frag(""))
             out.append(Frag("Deeds", colors.UI["accent"]))
+            from ..game import renown as renown_mod
+
+            for line in renown_mod.summary(game):
+                out.append(Frag("  " + line, colors.UI["fg"]))
             out.append(Frag("  %d foes slain" % len(p.kills), colors.UI["fg"]))
             for k in p.kills[-8:]:
                 out.append(Frag("    %s" % k, colors.UI["dim"]))

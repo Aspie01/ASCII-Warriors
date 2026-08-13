@@ -460,6 +460,152 @@ class TestConversationExtras(GameFixture):
         self.assertTrue(trade.for_sale(npc))
 
 
+class TestRenown(GameFixture):
+    """An adventurer the world has heard of."""
+
+    def setUp(self):
+        super().setUp()
+        from ascii_warriors.game import renown
+        from ascii_warriors.world import history
+
+        self.renown = renown
+        self.history = history
+
+    def _beast(self):
+        """A megabeast from world history, standing next to the player."""
+        game = self.game
+        fig = self.history._spawn_megabeast(game.world, game.rng,
+                                            game.time.year)
+        foe = make_creature(game.rng, fig.creature_id, faction="hostile")
+        foe.hf_id = fig.id
+        p = game.player
+        foe.x, foe.y, foe.z = p.x + 1, p.y, p.z
+        game.creatures[foe.id] = foe
+        game.update_fov()
+        return fig, foe
+
+    def test_the_player_is_a_historical_figure_from_the_start(self):
+        """The first deed needs somebody to attribute it to."""
+        game = self.game
+        fig = self.renown.figure(game)
+        self.assertIsNotNone(fig)
+        self.assertEqual(game.player.hf_id, fig.id)
+        self.assertEqual(fig.name, game.player.name)
+        self.assertIs(self.renown.figure(game), fig, "made two of them")
+
+    def test_a_notable_kill_goes_into_the_legends(self):
+        """With the player's name on it."""
+        game = self.game
+        fig, foe = self._beast()
+        before = len(game.world.events)
+        foe.body.death_cause = "slain"
+        game.kill_creature(foe)
+        told = [e for e in game.world.events[before:] if e.kind == "beast_slain"]
+        self.assertTrue(told)
+        self.assertIn(game.player.name, told[0].text)
+        hero = game.world.figures[game.player.hf_id]
+        self.assertIn(fig.id, hero.kills)
+        self.assertEqual(game.world.figures[fig.id].death_cause,
+                         "slain by %s" % game.player.name)
+
+    def test_stepping_on_a_rat_is_not_a_legend(self):
+        """A legends screen listing every rat is one nobody reads."""
+        game = self.game
+        rat = make_creature(game.rng, "rat", faction="wild")
+        p = game.player
+        rat.x, rat.y, rat.z = p.x + 1, p.y, p.z
+        game.creatures[rat.id] = rat
+        game.update_fov()
+        before = len(game.world.events)
+        rat.body.death_cause = "slain"
+        game.kill_creature(rat)
+        self.assertEqual(len(game.world.events), before)
+
+    def test_what_happens_out_of_sight_is_not_your_story(self):
+        """Somebody else's kill must not become yours."""
+        game = self.game
+        fig, foe = self._beast()
+        foe.x, foe.y, foe.z = 0, 0, foe.z
+        game.update_fov()
+        before = len(game.world.events)
+        foe.body.death_cause = "slain"
+        game.kill_creature(foe)
+        self.assertEqual(len(game.world.events), before)
+
+    def test_renown_earns_a_title(self):
+        """And the title is what people call you."""
+        game = self.game
+        self.assertEqual(self.renown.title(game), "wanderer")
+        self.renown.add(game, 200)
+        self.assertEqual(self.renown.title(game), "legend")
+
+    def test_a_name_is_paid_better(self):
+        """Quest rewards scale with what the world has heard."""
+        from ascii_warriors.game import quests
+
+        game = self.game
+        speakers = self.speakers()
+        if not speakers:
+            self.skipTest("nobody here to hand out work")
+        giver = speakers[0]
+        game.rng = RNG("quest-reward")
+        plain = quests.generate_quest(RNG("q"), game, giver)
+        if plain is None:
+            self.skipTest("no quest available at this start")
+        self.renown.add(game, 240)
+        rich = quests.generate_quest(RNG("q"), game, giver)
+        self.assertIsNotNone(rich)
+        self.assertGreater(rich.reward, plain.reward)
+
+    def test_retiring_leaves_you_in_the_world_alive(self):
+        """The opposite of dying."""
+        game = self.game
+        event = self.renown.retire(game)
+        hero = game.world.figures[game.player.hf_id]
+        self.assertIsNone(hero.died, "retiring killed the adventurer")
+        self.assertIn("retired", hero.flags)
+        self.assertTrue(game.game_over)
+        self.assertIn(game.player.name, event.text)
+
+    def test_a_finished_task_is_remembered(self):
+        """Quests are deeds too."""
+        from ascii_warriors.game.quests import Quest
+
+        game = self.game
+        quest = Quest("bounty", "Hunt three wolves", "Wolves, three of them.")
+        quest.site_name = "Testhold"
+        game.quests.accept(quest)
+        before = self.renown.renown(game)
+        game.quests.complete(quest, game)
+        self.assertGreater(self.renown.renown(game), before)
+        self.assertTrue(any(quest.title in e.text for e in game.world.events))
+
+    def test_the_famous_are_greeted_by_name(self):
+        """Renown has to be visible in play, not only on the sheet."""
+        from ascii_warriors.game import conversation
+
+        game = self.game
+        speakers = self.speakers()
+        if not speakers:
+            self.skipTest("nobody here to greet anybody")
+        npc = speakers[0]
+        plain = conversation.greeting(npc, game)
+        self.renown.add(game, 200)
+        famous = conversation.greeting(npc, game)
+        self.assertNotEqual(plain, famous)
+        self.assertIn(game.player.name, famous)
+
+    def test_renown_survives_a_save(self):
+        """It lives on the figure, which is what the world keeps."""
+        from ascii_warriors.game.state import Game
+
+        game = self.game
+        self.renown.add(game, 60)
+        clone = Game.from_dict(json.loads(json.dumps(game.to_dict())))
+        self.assertEqual(self.renown.renown(clone), 60)
+        self.assertEqual(self.renown.title(clone), self.renown.title(game))
+
+
 class TestWeatherInGame(GameFixture):
     def test_weather_is_set_and_affects_light(self):
         game = self.game

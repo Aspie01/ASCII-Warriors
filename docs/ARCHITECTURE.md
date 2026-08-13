@@ -1933,7 +1933,40 @@ only on `wall_constructed` (a smoothed wall), with its own labor and the
 existing engraving skill. `rooms.measure` counts `art.room_value` of the walls
 around a room, and `sim._season_thoughts` calls `art.admire`.
 
-## 61. Style
+## 61. Renown (v3.2)
+
+### `game/renown.py`
+```python
+KILL_RENOWN = {megabeast: 25, semimegabeast: 12, night: 10, bandit: 6,
+               leader: 8} ; QUEST_RENOWN = 8
+TITLES: wanderer -> traveller -> adventurer -> champion -> hero -> legend
+def figure(game)                 # the player's HistoricalFigure, made on demand
+def renown(game) / add(game, n) / title(game)
+def record_kill(game, victim) / record_quest(game, quest)
+def retire(game)                 # alive, in the world, still in the legends
+def summary(game)                # the Deeds block on the character sheet
+```
+The adventurer used to enter history exactly once, at death. Now the figure
+exists from the first turn — everything that happens needs somebody to be
+attributed to — and renown lives in `fig.stats["renown"]`, on the figure,
+because the figure is what survives the save, the death and the game.
+
+Three rules keep the legends readable:
+
+- **Only notable kills are recorded.** `kind_of()` gates on megabeast,
+  semi-megabeast, night creature, bandit or leader. A legends screen listing
+  every rat is a legends screen nobody reads.
+- **Only what you saw.** `can_see_creature` gates attribution, because
+  `Game.kill_creature` runs for every death on the map, not only the player's.
+- **The creature's own death handler dates the figure; `record_kill` names
+  the killer.** Requiring `fig.died is None` silently attributed nothing.
+
+Renown is visible in play rather than only on the sheet: `conversation.
+greeting` changes with standing, `quests.generate_quest` scales the reward by
+`1 + renown/120`, and the pause menu can retire the adventurer — the opposite
+of dying, and the adventure-mode mirror of retiring a fortress in v2.4.
+
+## 62. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

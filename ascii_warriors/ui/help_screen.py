@@ -368,6 +368,20 @@ the day, and cold weather makes you burn through food faster.
 
 Death is permanent. When you die your character is written into the world's
 legends, and the world carries on without you.
+
+You are in those legends from the first turn, not only at the end of it. Kill
+something the world has heard of -- a megabeast, a bandit chief, a
+necromancer -- and the deed is recorded with your name on it, and your renown
+goes up. Finishing work for people counts too.
+
+Renown is worth something. Guards and lords speak to you differently, people
+pay a name better than they pay a stranger, and past a certain point they
+greet you by name before you have said anything.
+
+And you can stop while you are ahead. Retire from the pause menu and your
+adventurer settles down where they stand, alive, as a figure in this world's
+history: another adventurer can hear about them, and a fortress in the same
+world can read about them in the legends.
 """
 
 
