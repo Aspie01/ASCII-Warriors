@@ -65,6 +65,10 @@ class Fortress:
         self.military = Military()
         self.court = Court()
         self.creatures: Dict[int, Creature] = {}
+        #: Rectangles the fortress keeps its grazing animals on.
+        self.pastures: List[Any] = []
+        #: Cell -> the tick its grass was eaten, so it can grow back.
+        self.grazed: Dict[Cell, int] = {}
         self.items_on_ground: Dict[Cell, List[Item]] = {}
         self.weather = Weather()
         self.water = Water()
@@ -123,6 +127,7 @@ class Fortress:
         """Generate the map, place the starting seven and their supplies."""
         from ..data import names as name_data
         from ..world import localmap as localmap_mod
+        from . import animals as animal_mod
         from .labors import STARTING_SEVEN
 
         old = (localmap_mod.LOCAL_W, localmap_mod.LOCAL_H,
@@ -168,6 +173,8 @@ class Fortress:
             fort.add_creature(d)
 
         fort._unload_wagon(wagon)
+        fort._unload_animals(wagon, rng)
+        animal_mod.spawn_wildlife(fort, rng)
         fort.log.good("%s has been founded." % fort.name)
         fort.log.info("Seven dwarves, and everything they could carry.")
         fort.log.info("Press ? for help. Space starts and stops time.")
@@ -257,10 +264,18 @@ class Fortress:
         return self.local.central_open(self.rng)
 
     def _free_spot(self, near: Cell, offset: int) -> Cell:
-        """A walkable cell close to a point."""
-        for radius in range(0, 8):
-            for dx in range(-radius, radius + 1):
-                for dy in range(-radius, radius + 1):
+        """A walkable cell close to a point, a different one per offset.
+
+        One ring at a time, each cell counted once. Scanning the whole square
+        at every radius counts the middle over and over, so two callers with
+        different offsets are handed the same tile and a wagonload of migrants
+        arrives standing on top of each other.
+        """
+        for radius in range(0, 14):
+            for dy in range(-radius, radius + 1):
+                for dx in range(-radius, radius + 1):
+                    if max(abs(dx), abs(dy)) != radius:
+                        continue
                     cell = (near[0] + dx, near[1] + dy, near[2])
                     if not self.local.walkable(*cell):
                         continue
@@ -297,6 +312,20 @@ class Fortress:
             self.drop_item(item, *at)
         for _ in range(2):
             self.drop_item(Item("pick", "iron"), *at)
+
+    def _unload_animals(self, at: Cell, rng: RNG) -> None:
+        """The livestock that walked here behind the wagon."""
+        from . import animals as animal_mod
+
+        dwarves = self.dwarves()
+        for i, (species, female) in enumerate(animal_mod.EMBARK_ANIMALS):
+            beast = animal_mod.make_animal(rng, species, female=female,
+                                           age=rng.randint(2, 5))
+            beast.x, beast.y, beast.z = self._free_spot(at, i + 8)
+            beast.wx, beast.wy = self.wx, self.wy
+            if beast.defn.has("PET") and dwarves:
+                beast.animal.owner = dwarves[i % len(dwarves)].id
+            self.add_creature(beast)
         self.drop_item(Item("axe", "iron"), *at)
 
     # -- creatures --------------------------------------------------------- #
@@ -315,6 +344,16 @@ class Fortress:
             if c.x == x and c.y == y and c.z == z and not c.body.dead:
                 return c
         return None
+
+    def pasture(self, pid) -> Optional[Any]:
+        """Look a pasture up by id."""
+        if pid is None:
+            return None
+        return next((p for p in self.pastures if p.id == pid), None)
+
+    def pasture_at(self, x: int, y: int, z: int) -> Optional[Any]:
+        """The pasture covering a cell, if any."""
+        return next((p for p in self.pastures if p.contains(x, y, z)), None)
 
     def dwarves(self) -> List[Creature]:
         """Every living dwarf of the fortress."""
@@ -803,6 +842,48 @@ class Fortress:
             self.log.warn("A lever is pulled, and nothing happens.")
         return moved
 
+    def _finish_tend(self, dwarf, job: Job) -> None:
+        """Milk a cow or shear a sheep."""
+        from . import animals as animal_mod
+
+        beast = self.creatures.get(job.target) if job.target else None
+        if beast is None or beast.body.dead:
+            return
+        made = animal_mod.produce(self, beast)
+        if made is None:
+            return
+        self.drop_item(made, beast.x, beast.y, beast.z)
+        dwarf.add_exp("herbalism", 15)
+
+    def _finish_slaughter(self, dwarf, job: Job) -> None:
+        """The end of the line for one animal.
+
+        Butchering here rather than dropping a corpse for the butcher's shop:
+        the animal is standing in front of the dwarf with the knife, and a
+        fortress that has to haul its own cows to a workshop twice over is a
+        fortress nobody wants to run.
+        """
+        from . import animals as animal_mod
+
+        beast = self.creatures.get(job.target) if job.target else None
+        if beast is None or beast.body.dead:
+            return
+        goods = animal_mod.butcher_yield(self, beast)
+        beast.body.dead = True
+        beast.body.death_cause = "slaughtered"
+        beast.animal.slaughter = False
+        self.kill_creature(beast)
+        # The carcass is the meat: no corpse as well, or it butchers twice.
+        pile = self.items_on_ground.get((beast.x, beast.y, beast.z)) or []
+        self.items_on_ground[(beast.x, beast.y, beast.z)] = [
+            i for i in pile if not i.is_corpse
+        ]
+        for item in goods:
+            self.drop_item(item, beast.x, beast.y, beast.z)
+        dwarf.add_exp("butchery", 25)
+        self.log.info("%s has butchered a %s." % (dwarf.name,
+                                                  beast.short_name()))
+
     def _finish_pull(self, dwarf, job: Job) -> None:
         """A dwarf reaches a lever and throws it."""
         lever = self.building(job.target) if job.target else None
@@ -1145,6 +1226,13 @@ class Fortress:
             "jobs": self.jobs.to_dict(),
             "buildings": [b.to_dict() for b in self.buildings],
             "stockpiles": [s.to_dict() for s in self.stockpiles],
+            "pastures": [p.to_dict() for p in self.pastures],
+            "grazed": {"%d,%d,%d" % c: t for c, t in self.grazed.items()},
+            "animal_state": {
+                str(c.id): c.animal.to_dict()
+                for c in self.creatures.values()
+                if getattr(c, "animal", None) is not None
+            },
             "military": self.military.to_dict(),
             "court": self.court.to_dict(),
             "creatures": [c.to_dict() for c in self.creatures.values()],
@@ -1205,13 +1293,25 @@ class Fortress:
         fort.jobs = JobBoard.from_dict(d.get("jobs") or {})
         fort.buildings = [Building.from_dict(b) for b in d.get("buildings", [])]
         fort.stockpiles = [Stockpile.from_dict(s) for s in d.get("stockpiles", [])]
+        from . import animals as animal_mod
+
+        fort.pastures = [animal_mod.Pasture.from_dict(p)
+                         for p in d.get("pastures", [])]
+        fort.grazed = {
+            tuple(int(v) for v in k.split(",")): int(t)
+            for k, t in (d.get("grazed") or {}).items()
+        }
         fort.military = Military.from_dict(d.get("military") or {})
         fort.court = Court.from_dict(d.get("court") or {})
 
         states = d.get("dwarf_state") or {}
+        beasts = d.get("animal_state") or {}
         for cd in d.get("creatures", []):
             c = Creature.from_dict(cd)
             fort.creatures[c.id] = c
+            ad = beasts.get(str(c.id))
+            if ad is not None:
+                c.animal = animal_mod.Animal.from_dict(ad)
             sd = states.get(str(c.id))
             if sd is not None:
                 state = dwarf_mod.DwarfState.from_dict(sd)

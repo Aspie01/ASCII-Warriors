@@ -169,6 +169,9 @@ _add(_m("schist", "schist", "schist", "stone", 2670, colors.Color(122, 126, 118)
 _add(_m("shale", "shale", "shale", "stone", 2670, colors.Color(96, 100, 104),
         1000, 1000, 800, 800, 0, 3, _STONE, 25000))
 
+_add(_m("milk", "milk", "milk", "liquid", 1030, colors.Color(242, 240, 232),
+        1000, 1000, 800, 800, 0, 3, ("ORGANIC",), 10250))
+
 # -- fuel ------------------------------------------------------------------- #
 # Neither is a building material: nobody makes a wall out of the coal they
 # were going to smelt with. No STONE or WOOD flag, so nothing will try.

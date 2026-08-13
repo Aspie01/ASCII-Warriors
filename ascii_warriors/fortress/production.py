@@ -74,8 +74,11 @@ _r("leather_armor", "Leather cuirass", "craftsdwarf", "leatherwork",
    (("hide", 2),), "leather_armor", 1, 260)
 _r("leather_bag", "Backpack", "craftsdwarf", "leatherwork", (("hide", 1),),
    "backpack", 1, 200)
-_r("cloth_bandage", "Bandages", "craftsdwarf", "leatherwork", (("hide", 1),),
-   "bandage", 4, 160)
+_r("cloth_bandage", "Bandages", "craftsdwarf", "leatherwork", (("CLOTH", 1),),
+   "bandage", 4, 160,
+   "Out of a hide or a bolt of cloth, whichever the fortress has.")
+_r("spin_wool", "Spin wool", "craftsdwarf", "leatherwork", (("wool", 2),),
+   "cloth", 1, 180, "Two fleeces make a bolt.", out_material="wool_cloth")
 _r("rope", "Rope", "craftsdwarf", "crafting", (("hide", 2),), "rope", 1, 180)
 _r("torches", "Torches", "craftsdwarf", "crafting", (("WOOD", 1),), "torch", 4, 150)
 _r("mechanisms", "Mechanisms", "craftsdwarf", "mechanics", (("STONE", 1),),
@@ -139,6 +142,8 @@ _r("cook_roast", "Cook a roast", "kitchen", "cooking", (("FOOD", 2),),
    "prepared_meal", 2, 220, "Worth far more nourishment than the parts.")
 _r("cook_biscuits", "Bake biscuits", "kitchen", "cooking", (("PLANT", 2),),
    "bread", 4, 180)
+_r("make_cheese", "Make cheese", "kitchen", "cooking", (("milk", 2),),
+   "cheese", 3, 200, "Milk keeps badly. Cheese does not.")
 
 # -- butcher ----------------------------------------------------------------- #
 _r("butcher_corpse", "Butcher a corpse", "butcher", "butchery",
@@ -164,6 +169,7 @@ CLASS_ITEMS: Dict[str, Tuple[str, ...]] = {
     "ORE": ("ore",),
     "FUEL": ("charcoal", "coal"),
     "FLUX": ("boulder",),
+    "CLOTH": ("cloth", "hide"),
     "PLANT": ("plump_helmet", "cave_wheat", "berries"),
     "FOOD": ("meat", "cooked_meat", "fish_food", "plump_helmet", "cheese",
              "bread", "berries", "cave_wheat"),

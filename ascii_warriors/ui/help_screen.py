@@ -77,6 +77,7 @@ WHAT TO DO FIRST
 
   m      the militia: raise squads, arm them, order them about
   w      mark the safe burrow civilians retreat into
+  n      paint a pasture for the livestock
   h      health: who is hurt and who can treat them
   L      levers: link them to gates and pull them
   u      units: everybody, what they are doing, and their labors
@@ -96,6 +97,27 @@ complain about it. On a dry embark there is no such mercy: brew, or die.
 
 Your workshops will not touch the last week of food, and your farmers will not
 eat the last of the seed.
+
+ANIMALS
+
+You arrive with two dogs, a cat, two cows and two sheep. The dogs and the cat
+belong to particular dwarves and follow them about. The rest are livestock.
+
+Grazers eat grass and there is none on a mountain, so they will eat out of
+your food stores instead and tell you they are doing it. Paint a pasture with
+n on a patch of grass and they will stay on it and feed themselves. Grass
+grows back where it was eaten.
+
+A cow gives milk and a sheep gives wool, on their own, every couple of weeks:
+somebody with the farming labor goes out and collects it. Milk becomes cheese
+at a kitchen, wool becomes cloth and then bandages at a craftsdwarf's
+workshop. A male and a female of the same kind will breed, up to a point.
+
+Press u, pick an animal and press s to mark it for slaughter. A butcher walks
+out to it and comes back with meat, hide and bone.
+
+There is wildlife out there too. Most of it is harmless and some of it is
+lunch.
 
 THE DEEP
 

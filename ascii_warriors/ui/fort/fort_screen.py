@@ -166,6 +166,10 @@ class FortScene(Scene):
             from .build_menu import BurrowScene
 
             self.app.push(BurrowScene(self.app, self))
+        elif key == "n":
+            from .build_menu import PastureScene
+
+            self.app.push(PastureScene(self.app, self))
         elif key == "j":
             self._job_summary()
         elif key == "z":
@@ -302,6 +306,7 @@ HELP_LINES: Tuple[str, ...] = (
     "h        health: who is hurt and who can treat them",
     "L        levers: link them to gates and pull them",
     "w        mark the safe burrow civilians retreat into",
+    "n        paint a pasture for the livestock",
     "u        units: who is here and what they are doing",
     "z        stocks: everything the fortress owns",
     "j        jobs outstanding",

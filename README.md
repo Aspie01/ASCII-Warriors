@@ -174,7 +174,7 @@ python -m ascii_warriors --dump-world - --size small --history 200 | less
 | arrows | scroll the view (`PgUp`/`PgDn`/`Home`/`End` to scroll fast) |
 | `d` | designate: dig, channel, stairs, ramp, smooth, chop, gather |
 | `b` | build a workshop, furniture, wall or trap |
-| `p` `w` | place a stockpile / mark the safe burrow |
+| `p` `w` `n` | place a stockpile / mark the safe burrow / paint a pasture |
 | `o` | queue work orders at a workshop |
 | `m` `h` `L` | the militia / health / levers and gates |
 | `u` `z` `j` | units / stocks / outstanding jobs |
@@ -271,6 +271,16 @@ notices every season. A growing fortress appoints a manager, a broker, a chief
 medical dwarf, a sheriff and eventually a mayor, who will demand things.
 Ignore enough of it and dwarves start breaking furniture, and then each
 other.
+
+**Animals.** You embark with dogs, a cat, cows and sheep. The pets belong to
+particular dwarves and follow them about; the livestock grazes, breeds, gives
+milk and wool, and ends up as meat, hide and bone when you mark it for
+slaughter. Milk becomes cheese, wool becomes cloth and then bandages.
+
+Grazers need grass, and the classic dwarven embark is a mountain with none, so
+they will quietly eat out of your food stores until you paint them a pasture
+on something green — and the grass grows back where they ate it. Wildlife
+wanders the map on its own account.
 
 **The deep.** Under the caverns is a sea of magma, capped by warm stone that
 warns you, with a pipe standing up out of it into the working levels. Magma is

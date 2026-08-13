@@ -884,6 +884,232 @@ class TestIndustry(unittest.TestCase):
         self.assertFalse(stone.accepts(self.Item("ore", "iron")))
 
 
+class TestAnimals(unittest.TestCase):
+    """Livestock, pets, pastures and the butcher."""
+
+    def setUp(self):
+        from ascii_warriors.fortress import animals as animal_mod
+
+        self.animals = animal_mod
+        self.fort = embark("husbandry")
+
+    def _herd(self, species=None):
+        herd = self.animals.livestock(self.fort)
+        if species:
+            herd = [c for c in herd if c.defn.id == species]
+        return herd
+
+    # -- what you set out with --------------------------------------------- #
+
+    def test_the_wagon_brings_animals(self):
+        """A fortress arrives with dogs, cats and something to milk."""
+        herd = self._herd()
+        kinds = {c.defn.id for c in herd}
+        self.assertIn("dog", kinds)
+        self.assertIn("cow", kinds)
+        self.assertTrue(any(self.animals.grazes(c) for c in herd))
+        for c in herd:
+            self.assertFalse(c.animal.wild)
+            self.assertEqual(c.faction, "fortress")
+
+    def test_they_do_not_all_arrive_on_one_tile(self):
+        """Free spots have to be different spots."""
+        where = [(c.x, c.y, c.z) for c in self._herd()]
+        self.assertEqual(len(set(where)), len(where), where)
+
+    def test_pets_belong_to_somebody(self):
+        """A dog is somebody's dog."""
+        pets = [c for c in self._herd() if c.defn.has("PET")]
+        self.assertTrue(pets)
+        self.assertTrue(any(c.animal.owner is not None for c in pets))
+
+    def test_the_map_has_wildlife_and_none_of_it_is_undead(self):
+        """Something has to be moving out there, but not the walking dead."""
+        wild = self.animals.wildlife(self.fort)
+        self.assertTrue(wild)
+        for c in wild:
+            self.assertFalse(c.defn.has("EVIL"), c.short_name())
+            self.assertFalse(c.defn.has("MEGABEAST"), c.short_name())
+
+    # -- staying alive ----------------------------------------------------- #
+
+    def test_animals_do_not_queue_at_the_ale_barrel(self):
+        """Dwarf needs on a cow kill the herd of thirst in three days."""
+        fort = self.fort
+        cow = self._herd("cow")[0]
+        before = cow.needs.thirst
+        sim.run(fort, 400)
+        self.assertEqual(cow.needs.thirst, before)
+        self.assertFalse(cow.body.dead)
+
+    def test_a_grazer_eats_the_grass_it_stands_on(self):
+        """And the grass remembers being eaten."""
+        fort = self.fort
+        cow = self._herd("cow")[0]
+        fort.local.set_tile(cow.x, cow.y, cow.z, "grass")
+        cow.animal.hunger = 5000
+        self.animals.step(fort, 10)
+        self.assertEqual(fort.local.tile(cow.x, cow.y, cow.z), "dirt")
+        self.assertEqual(cow.animal.hunger, 0)
+        self.assertIn((cow.x, cow.y, cow.z), fort.grazed)
+
+    def test_grass_grows_back(self):
+        """Or one herd turns the embark into a car park for ever."""
+        fort = self.fort
+        cell = (fort.dwarves()[0].x, fort.dwarves()[0].y, fort.dwarves()[0].z)
+        fort.local.set_tile(*cell, "dirt")
+        fort.grazed[cell] = fort.ticks - self.animals.REGROW_TICKS - 1
+        self.animals._regrow(fort)
+        self.assertEqual(fort.local.tile(*cell), "grass")
+        self.assertNotIn(cell, fort.grazed)
+
+    def test_a_mountain_fortress_feeds_its_animals_from_the_cellar(self):
+        """There is no grass on a mountain. There is a food store."""
+        fort = self.fort
+        cow = self._herd("cow")[0]
+        cow.animal.hunger = self.animals.FODDER_AT + 1
+        before = fort.stock_count("plump_helmet")
+        self.assertGreater(before, self.animals.FODDER_RESERVE)
+        self.animals.step(fort, 10)
+        self.assertEqual(cow.animal.hunger, 0)
+        self.assertLess(fort.stock_count("plump_helmet"), before)
+
+    def test_the_stores_are_not_eaten_to_the_last_plant(self):
+        """The dwarves come first."""
+        fort = self.fort
+        for item in list(fort.all_items()):
+            if item.def_id == "plump_helmet":
+                item.count = self.animals.FODDER_RESERVE
+        self.assertFalse(self.animals._eat_fodder(fort))
+
+    def test_an_unfed_animal_starves_eventually(self):
+        """Slowly enough to notice, surely enough to matter."""
+        fort = self.fort
+        for item in list(fort.all_items()):
+            if item.is_edible:
+                fort.take_item(item)
+        cow = self._herd("cow")[0]
+        cow.animal.hunger = self.animals.GRAZE_TICKS + 1
+        self.animals.step(fort, 10)
+        self.assertTrue(cow.body.dead)
+        self.assertEqual(cow.body.death_cause, "starved to death")
+
+    # -- pastures ----------------------------------------------------------- #
+
+    def test_a_pasture_keeps_its_animals(self):
+        """That is the whole reason to paint one."""
+        fort = self.fort
+        d = fort.dwarves()[0]
+        pasture = self.animals.Pasture(d.x - 3, d.y - 3, d.z, 7, 7)
+        fort.pastures.append(pasture)
+        cow = self._herd("cow")[0]
+        cow.x, cow.y, cow.z = pasture.x + 1, pasture.y + 1, pasture.z
+        for _ in range(200):
+            self.animals.step(fort, 10)
+            self.assertTrue(pasture.contains(cow.x, cow.y, cow.z),
+                            "%s left the pasture" % ((cow.x, cow.y, cow.z),))
+
+    def test_a_loose_grazer_is_put_out_to_pasture(self):
+        """Painting one is the assignment."""
+        fort = self.fort
+        d = fort.dwarves()[0]
+        pasture = self.animals.Pasture(d.x - 2, d.y - 2, d.z, 5, 5)
+        fort.pastures.append(pasture)
+        cow = self._herd("cow")[0]
+        cow.animal.pasture = None
+        self.animals.step(fort, 10)
+        self.assertEqual(cow.animal.pasture, pasture.id)
+
+    # -- what they are for -------------------------------------------------- #
+
+    def test_a_cow_gives_milk_and_a_sheep_gives_wool(self):
+        """And not the other way round."""
+        fort = self.fort
+        cow = self._herd("cow")[0]
+        sheep = self._herd("sheep")[0]
+        self.assertEqual(self.animals.produce(fort, cow).def_id, "milk")
+        self.assertEqual(self.animals.produce(fort, sheep).def_id, "wool")
+        self.assertIsNone(self.animals.produce(fort, self._herd("dog")[0]))
+
+    def test_tending_is_one_job_per_animal_however_far_it_wanders(self):
+        """Post by cell and the whole fortress queues to shear one sheep."""
+        fort = self.fort
+        sheep = self._herd("sheep")[0]
+        sheep.animal.produce_at = 0
+        sim.scan_jobs(fort)
+        first = fort.jobs.count("tend")
+        sheep.x += 2
+        sim.scan_jobs(fort)
+        self.assertEqual(fort.jobs.count("tend"), first)
+
+    def test_milk_becomes_cheese_and_wool_becomes_bandages(self):
+        """The products have to lead somewhere."""
+        from ascii_warriors.game.item import Item
+
+        cheese = production.RECIPES["make_cheese"]
+        self.assertIsNotNone(production.find_inputs(
+            cheese, [Item("milk", "milk", count=4)]))
+        spin = production.RECIPES["spin_wool"]
+        self.assertIsNotNone(production.find_inputs(
+            spin, [Item("wool", "wool_cloth", count=2)]))
+        bandage = production.RECIPES["cloth_bandage"]
+        self.assertIsNotNone(production.find_inputs(
+            bandage, [Item("cloth", "wool_cloth")]))
+        self.assertIsNotNone(production.find_inputs(
+            bandage, [Item("hide", "leather")]))
+
+    def test_slaughtering_gives_meat_hide_and_bone(self):
+        """A cow is worth more than a rat."""
+        fort = self.fort
+        cow = self._herd("cow")[0]
+        goods = {i.def_id: i.count for i in
+                 self.animals.butcher_yield(fort, cow)}
+        self.assertGreaterEqual(goods.get("meat", 0), 6)
+        self.assertIn("hide", goods)
+        self.assertIn("bone_item", goods)
+
+    def test_a_butcher_comes_for_a_marked_animal(self):
+        """Mark it, and somebody walks out with a knife."""
+        fort = self.fort
+        for d in fort.dwarves():
+            d.fort.labors.enable("butchery")
+        cow = self._herd("cow")[0]
+        cow.animal.slaughter = True
+        before = len(self._herd())
+        sim.run(fort, 900)
+        self.assertLess(len(self._herd()), before)
+        self.assertGreater(fort.stock_count("meat"), 0)
+
+    def test_a_herd_grows_and_then_stops(self):
+        """Two of a kind make a third, but not for ever."""
+        fort = self.fort
+        cows = self._herd("cow")
+        self.assertGreaterEqual(len(cows), 2)
+        for c in cows:
+            c.animal.breed_at = 1
+        fort.ticks = 100
+        for _ in range(self.animals.HERD_CAP * 3):
+            fort.ticks += self.animals.BREED_TICKS
+            self.animals._breed(fort)
+        grown = len(self._herd("cow"))
+        self.assertGreater(grown, len(cows))
+        self.assertLessEqual(grown, self.animals.HERD_CAP + 1)
+
+    def test_animals_survive_a_save(self):
+        """Including what they are, whose they are and what is coming."""
+        fort = self.fort
+        cow = self._herd("cow")[0]
+        cow.animal.slaughter = True
+        fort.pastures.append(self.animals.Pasture(10, 10, fort.z, 4, 4))
+        again = Fortress.from_dict(fort.to_dict())
+        back = again.creatures[cow.id]
+        self.assertTrue(self.animals.is_animal(back))
+        self.assertTrue(back.animal.slaughter)
+        self.assertEqual(len(again.pastures), len(fort.pastures))
+        self.assertEqual(len(self.animals.livestock(again)),
+                         len(self.animals.livestock(fort)))
+
+
 class TestTheDeep(unittest.TestCase):
     """Magma, adamantine, and what is under the adamantine."""
 
@@ -1414,7 +1640,7 @@ class TestFortressUI(unittest.TestCase):
         """A command bound to a scroll key can never fire."""
         from ascii_warriors.ui.fort import fort_screen
 
-        commands = set("dbpujzotk?+-<>")
+        commands = set("dbpnwujzotk?+-<>mhL")
         for key in commands:
             self.assertIsNone(fort_screen.scroll_delta(key),
                               "%r scrolls the map and cannot be a command" % key)
@@ -1699,7 +1925,21 @@ class TestHospital(unittest.TestCase):
         fort = embark("binding")
         self._ward(fort)
         patient = fort.dwarves()[3]
-        # Serious enough to kill without help, slow enough to be treatable.
+        # The doctor starts next to the patient. Whether one can cross the
+        # fortress before a four-point bleed finishes is the next test's
+        # question; this one is about the chain working at all, and a race
+        # against the clock decided by where everybody happened to be
+        # standing tests the map, not the hospital.
+        from ascii_warriors.game.item import Item
+
+        doctor = fort.dwarves()[0]
+        doctor.x, doctor.y, doctor.z = patient.x + 1, patient.y, patient.z
+        # Bandages within reach as well. A doctor that has to cross the
+        # fortress for supplies loses the race against a four-point bleed
+        # every time, which is a fact about hospital layout, not about
+        # whether treatment works.
+        fort.drop_item(Item("bandage", "pig_tail_cloth", count=4),
+                       patient.x, patient.y, patient.z)
         self._wound(patient, bleeding=4)
         for _ in range(600):
             sim.step(fort)

@@ -19,6 +19,7 @@ from ..engine import geometry
 from ..game import combat
 from ..game.entity import make_creature
 from ..game.item import Item
+from . import animals
 from . import dwarf as dwarf_mod
 from . import production
 from .buildings import Building
@@ -124,6 +125,7 @@ def step(fort) -> None:
     _triage(fort)
     for dwarf in list(fort.dwarves()):
         dwarf_mod.take_turn(fort, dwarf, ticks)
+    animals.step(fort, STEP_TICKS)
     _hostiles(fort, ticks)
     _traps(fort)
     _watch(fort)
@@ -263,7 +265,12 @@ def _bodies(fort, ticks: int) -> None:
     for c in list(fort.creatures.values()):
         if c.body.dead:
             continue
-        c.needs.tick(ticks, c, fort)
+        if getattr(c, "animal", None) is None:
+            # Animals do not queue at the ale barrel. Their hunger lives in
+            # their own state, where grazing and fodder answer it; ticking
+            # dwarf needs on a cow kills the whole herd of thirst in three
+            # days with a river running past the pasture.
+            c.needs.tick(ticks, c, fort)
         c.body.tick(fort.rng, ticks, c.attributes.factor("toughness"),
                     c.attributes.factor("recuperation"))
         if getattr(c, "fort", None) is not None:
@@ -397,7 +404,7 @@ def scan_jobs(fort) -> int:
     _prune(fort)
     budget = MAX_NEW_JOBS
     for scanner in (_scan_hospital, _scan_levers, _scan_military,
-                    _scan_designations,
+                    _scan_designations, _scan_animals,
                     _scan_buildings, _scan_farms, _scan_workshops,
                     _scan_stockpiles):
         if budget <= 0:
@@ -471,7 +478,7 @@ def _scan_hospital(fort, budget: int) -> int:
         doctor = _nearest_doctor(available, busy, patient)
         if doctor is None:
             continue
-        item = hospital.supplies(fort, treatment)
+        item = hospital.supplies(fort, treatment, near=cell)
         job = fort.jobs.make(
             "treat", cell[0], cell[1], cell[2], labor="medicine",
             skill=medical_skill(treatment), work=hospital.TREAT_WORK,
@@ -641,6 +648,31 @@ def _scan_levers(fort, budget: int) -> int:
         cx, cy, cz = lever.center
         fort.jobs.make("pull", cx, cy, cz, labor="", skill="mechanics",
                        work=20, target=lever.id, priority=10)
+        posted += 1
+    return posted
+
+
+def _scan_animals(fort, budget: int) -> int:
+    """Milking, shearing and the walk out to the pasture with a knife."""
+    posted = 0
+    for beast in animals.livestock(fort):
+        if posted >= budget:
+            break
+        cell = (beast.x, beast.y, beast.z)
+        if beast.animal.slaughter:
+            if fort.jobs.has_job_for("slaughter", beast.id):
+                continue
+            fort.jobs.make("slaughter", *cell, labor="butchery",
+                           skill="butchery", work=60, target=beast.id,
+                           priority=6)
+            posted += 1
+            continue
+        if not animals.ready_to_produce(fort, beast):
+            continue
+        if fort.jobs.has_job_for("tend", beast.id):
+            continue
+        fort.jobs.make("tend", *cell, labor="farming", skill="herbalism",
+                       work=40, target=beast.id, priority=4)
         posted += 1
     return posted
 

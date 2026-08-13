@@ -390,6 +390,16 @@ _add(ItemDef("rough_gem", "rough gem", "rough gems", "gem", "*", 20, 30, ("GEM",
 _add(ItemDef("boulder", "boulder", "boulders", "misc", "*", 3000, 3, ("STONE",)))
 # The metal industry. Ore comes out of the rock, fuel out of a furnace or a
 # coal seam, and a bar out of the two of them together.
+# What the livestock gives while it is alive.
+_add(ItemDef("milk", "milk", "milk", "drink", "!", 100, 4, ("ORGANIC",),
+             nutrition=60, hydration=400, stack=True,
+             description="Better as cheese, but it will do."))
+_add(ItemDef("wool", "wool", "wool", "misc", "'", 200, 6, ("ORGANIC",),
+             stack=True,
+             description="Off a sheep's back. Spin it into cloth."))
+_add(ItemDef("cloth", "cloth", "cloth", "misc", "'", 200, 10, ("ORGANIC",),
+             stack=True,
+             description="Bandages, mostly."))
 _add(ItemDef("ore", "ore", "ore", "misc", "*", 3000, 6, ("METAL",), stack=True,
              description="Rock with metal in it. Worthless until smelted."))
 _add(ItemDef("bar", "bar", "bars", "misc", "=", 600, 20, ("METAL",), stack=True,

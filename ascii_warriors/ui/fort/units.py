@@ -28,8 +28,16 @@ class UnitsScene(Scene):
         items.append(header("Dwarves (%d)" % len(dwarves)))
         for d in dwarves:
             items.append(MenuItem(self._row(d), d.id))
+        from ...fortress import animals as animal_mod
+
+        herd = sorted(animal_mod.livestock(fort), key=lambda c: c.short_name())
+        if herd:
+            items.append(header("Animals (%d)" % len(herd)))
+            for c in herd:
+                items.append(MenuItem(self._animal_row(c), c.id))
         others = [c for c in fort.creatures.values()
-                  if getattr(c, "fort", None) is None and not c.body.dead]
+                  if getattr(c, "fort", None) is None and not c.body.dead
+                  and not (animal_mod.is_animal(c) and not c.animal.wild)]
         if others:
             items.append(header("Others (%d)" % len(others)))
             for c in others:
@@ -47,6 +55,32 @@ class UnitsScene(Scene):
                      Frag(c.body.death_cause or "dead", colors.UI["dim"])],
                     c.id))
         return items
+
+    def _animal_row(self, c) -> List[Frag]:
+        """One animal's line: what it is, where it is, and its future."""
+        from ...fortress import animals as animal_mod
+
+        fort = self.fort
+        what = "%s %s" % ("cow" if c.female else "bull",
+                          c.short_name()) if c.defn.id == "cow" else (
+            "%s %s" % ("female" if c.female else "male", c.short_name()))
+        pasture = fort.pasture(c.animal.pasture)
+        where = ("pasture %d" % pasture.id if pasture is not None
+                 else "loose")
+        if c.animal.owner is not None:
+            owner = fort.creatures.get(c.animal.owner)
+            where = "with %s" % owner.name.split()[0] if owner else "loose"
+        if c.animal.slaughter:
+            fate, colour = "for slaughter", colors.UI["danger"]
+        elif animal_mod.ready_to_produce(fort, c):
+            fate, colour = "ready to tend", colors.UI["good"]
+        else:
+            fate, colour = "", colors.UI["dim"]
+        return [
+            Frag("%-22s " % what[:22], colors.UI["fg"]),
+            Frag("%-22s " % where[:22], colors.UI["dim"]),
+            Frag("%-18s " % fate[:18], colour),
+        ]
 
     def _row(self, d) -> List[Frag]:
         """One dwarf's line."""
@@ -85,7 +119,7 @@ class UnitsScene(Scene):
         self.menu.draw(scr, 2, 2, scr.width - 4, scr.height - 5)
         key_hint(scr, 2, scr.height - 2, [
             (keys.ENTER, "look closer"), ("l", "labors"), ("n", "nickname"),
-            ("m", "militia"), (keys.ESC, "back"),
+            ("m", "militia"), ("s", "slaughter"), (keys.ESC, "back"),
         ])
 
     def handle(self, key: str) -> None:
@@ -97,6 +131,10 @@ class UnitsScene(Scene):
         creature = self._selected()
         if result == "select" and creature is not None:
             self._describe(creature)
+            return
+        if key == "s" and creature is not None \
+                and getattr(creature, "animal", None) is not None:
+            self._slaughter(creature)
             return
         if creature is None or getattr(creature, "fort", None) is None:
             return
@@ -113,6 +151,18 @@ class UnitsScene(Scene):
         """The creature under the cursor."""
         cid = self.menu.selected_value
         return self.fort.creatures.get(cid) if cid is not None else None
+
+    def _slaughter(self, creature) -> None:
+        """Mark an animal for the butcher, or change your mind."""
+        state = creature.animal
+        if state.wild:
+            return
+        state.slaughter = not state.slaughter
+        self.fort.log.system(
+            "The %s is marked for slaughter." % creature.short_name()
+            if state.slaughter else
+            "The %s is spared." % creature.short_name())
+        self.menu.set_items(self._items())
 
     def _nickname(self, creature) -> None:
         """Give a dwarf a name of your own."""

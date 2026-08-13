@@ -622,6 +622,25 @@ def _drink_water(fort, dwarf) -> bool:
     return False
 
 
+#: Jobs whose target walks about: the work is wherever it has got to.
+CHASING_JOBS = frozenset({"treat", "tend", "slaughter"})
+
+
+def _follow_target(fort, dwarf, job: Job) -> None:
+    """Keep a job aimed at a creature pointed at where the creature is."""
+    if job.kind not in CHASING_JOBS or job.target is None:
+        return
+    quarry = fort.creatures.get(job.target)
+    if quarry is None or quarry.body.dead:
+        return
+    cell = (quarry.x, quarry.y, quarry.z)
+    if cell != job.cell:
+        fort.jobs.retarget(job, cell)
+        state = dwarf.fort
+        state.path = []
+        state.path_goal = None
+
+
 def _claim_job(fort, dwarf) -> Optional[Job]:
     """Take the best available job, if the dwarf can reach it."""
     state = dwarf.fort
@@ -652,6 +671,7 @@ def release_job(fort, dwarf) -> None:
 def _work_job(fort, dwarf, job: Job, ticks: int) -> None:
     """Fetch what a job needs, walk to it, and put work into it."""
     state = dwarf.fort
+    _follow_target(fort, dwarf, job)
 
     fetch = fort.fetch_target(dwarf, job)
     if fetch is not None:

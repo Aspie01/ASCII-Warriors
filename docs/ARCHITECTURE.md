@@ -1818,7 +1818,54 @@ Burn creatures *before* casting obsidian: a dwarf standing in magma dies of the
 magma, not of the wall somebody made out of it half a step later. A creature
 standing where the cast lands is encased instead, which is its own way to go.
 
-## 58. Style
+## 58. Animals (v2.9)
+
+### `fortress/animals.py`
+```python
+class Animal: pasture owner hunger produce_at breed_at slaughter wild
+class Pasture: id x y z w h                  # painted with n
+EMBARK_ANIMALS = 2 dogs, a cat, 2 cows, 2 sheep
+GRAZE_TICKS = 20 days ; FODDER_AT = 8 days ; FODDER_RESERVE = 20
+PRODUCE = {cow: milk, sheep: wool} ; PRODUCE_TICKS = 12 days
+BREED_TICKS = 30 days ; HERD_CAP = 10
+def step(fort, ticks)          # graze, follow, wander, breed, starve
+def spawn_wildlife(fort, rng)  # something moving that is not yours
+def produce / butcher_yield / ready_to_produce
+```
+An animal is a creature with an `.animal` state where a dwarf has a `.fort`
+state. Nothing here gives an animal a job: they are livestock, not labour, and
+the dwarf side of the work is two ordinary jobs — `tend` (milk or shear) and
+`slaughter`, posted by `sim._scan_animals`.
+
+Three rules the milestone turned on:
+
+- **Animals do not use dwarf needs.** `_bodies` skips `needs.tick` for them.
+  Ticking thirst on a cow killed the entire herd in three days with a river
+  running past the pasture, because nothing was ever going to walk it to the
+  water.
+- **A mountain has no grass.** The classic dwarven embark would starve its
+  livestock every single game, so a hungry grazer eats from the food stores
+  above a reserve and says so. Painting a pasture on grass is the fix, and the
+  message says which key does it.
+- **Jobs aimed at something that walks are keyed by target, not by cell.**
+  `JobBoard.has_job_for(kind, target)`: post by cell and the sheep takes two
+  steps, another job appears, and the whole fortress queues up to shear it.
+
+Two older bugs fell out of the same idea. A job aimed at a creature has to
+follow it: `dwarf.CHASING_JOBS` (`treat`, `tend`, `slaughter`) re-points the
+job at its target every turn through `JobBoard.retarget`, because a wounded
+dwarf walks to a bed while the doctor walks to where it used to be and the two
+of them chase each other until one bleeds out. And `hospital.supplies()` now
+takes the *nearest* bandage rather than the first one in dict order — a doctor
+that walks past the bandages at the patient's feet to fetch identical ones
+from the wagon arrives too late.
+
+`Fortress._free_spot` also had to be rewritten to walk one ring at a time.
+Scanning the whole square at every radius counts the middle over and over, so
+callers with different offsets got the same tile — every animal (and every
+migrant wave) arrived standing on one another.
+
+## 59. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

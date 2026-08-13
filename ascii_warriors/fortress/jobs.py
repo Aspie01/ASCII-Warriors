@@ -138,6 +138,32 @@ class JobBoard:
         jid = self._cells.get((kind, cell))
         return jid is not None and jid in self.jobs
 
+    def retarget(self, job: Job, cell: Cell) -> None:
+        """Move a job to where its target has got to.
+
+        A job aimed at a creature is aimed at a moving thing: a wounded dwarf
+        walks to a bed while the doctor walks to where it used to be, and the
+        two of them chase each other until one of them bleeds out.
+        """
+        if job.cell == cell:
+            return
+        if self._cells.get((job.kind, job.cell)) == job.id:
+            del self._cells[(job.kind, job.cell)]
+        job.x, job.y, job.z = cell
+        self._cells[(job.kind, cell)] = job.id
+
+    def has_job_for(self, kind: str, target) -> bool:
+        """True if a job of this kind is already aimed at this target.
+
+        Cells are no good for anything that walks: post a job at a cow and it
+        wanders two tiles, and the next scan posts another one, and the whole
+        fortress queues up to shear the same sheep.
+        """
+        if target is None:
+            return False
+        return any(j.kind == kind and j.target == target
+                   for j in self.jobs.values())
+
     def remove(self, job: Job) -> None:
         """Take a job off the board and release anything it held."""
         self.jobs.pop(job.id, None)

@@ -172,6 +172,69 @@ class StockpileScene(CursorScene):
             self.kind, pile.w, pile.h))
 
 
+class PastureScene(CursorScene):
+    """Fence off a patch of grass for the livestock."""
+
+    mode_name = "Pasture"
+
+    def __init__(self, app, parent) -> None:
+        super().__init__(app, parent)
+        self.removing = False
+
+    def header(self) -> List[Frag]:
+        """Say what a pasture is for and how many there are."""
+        out: List[Frag] = []
+        if self.removing:
+            out.append(Frag("REMOVE  ", colors.UI["danger"]))
+        out.append(Frag("Grazing animals are put out to pasture and stay "
+                        "there. ", colors.UI["fg"]))
+        out.append(Frag("(%d set)  x:remove" % len(self.fort.pastures),
+                        colors.UI["dim"]))
+        return out
+
+    def hints(self) -> List[Tuple[str, str]]:
+        """Bottom-line hints."""
+        return [(keys.ENTER, "corner, then corner"), ("x", "remove"),
+                (keys.ESC, "done")]
+
+    def extra_key(self, key: str) -> bool:
+        """Toggle removal mode."""
+        if key == "x":
+            self.removing = not self.removing
+            return True
+        return False
+
+    def apply(self, x0: int, y0: int, x1: int, y1: int) -> None:
+        """Create or delete a pasture rectangle."""
+        from ...fortress.animals import Pasture
+
+        fort = self.fort
+        lo_x, hi_x = sorted((x0, x1))
+        lo_y, hi_y = sorted((y0, y1))
+        if self.removing:
+            gone = [p for p in fort.pastures
+                    if p.z == fort.z and lo_x <= p.x <= hi_x
+                    and lo_y <= p.y <= hi_y]
+            for p in gone:
+                fort.pastures.remove(p)
+                for c in fort.creatures.values():
+                    if getattr(c, "animal", None) is not None \
+                            and c.animal.pasture == p.id:
+                        c.animal.pasture = None
+            fort.log.system("Removed %d pastures." % len(gone))
+            return
+        grass = sum(1 for y in range(lo_y, hi_y + 1)
+                    for x in range(lo_x, hi_x + 1)
+                    if fort.local.tile(x, y, fort.z) in ("grass", "shrub"))
+        pasture = Pasture(lo_x, lo_y, fort.z, hi_x - lo_x + 1,
+                          hi_y - lo_y + 1)
+        fort.pastures.append(pasture)
+        fort.log.system("Pasture, %d by %d, %d tiles of grass in it."
+                        % (pasture.w, pasture.h, grass))
+        if not grass:
+            fort.log.warn("Nothing grows there. Animals need grass.")
+
+
 class BurrowScene(CursorScene):
     """Mark the room civilians run to when the alarm sounds."""
 

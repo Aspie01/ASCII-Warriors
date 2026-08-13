@@ -104,16 +104,30 @@ def doctors(fort) -> List:
             if d.fort.labors.has("medicine") and not is_critical(d)]
 
 
-def supplies(fort, treatment: str) -> Optional[object]:
-    """An unreserved item the treatment needs, or ``None`` if none is needed."""
+def supplies(fort, treatment: str, near=None) -> Optional[object]:
+    """The nearest unreserved item the treatment needs.
+
+    Nearest matters more here than anywhere else in the fortress: a doctor
+    that walks past the bandages at the patient's feet to fetch identical
+    ones from the wagon arrives after the patient has bled out.
+    """
+    from ..engine import geometry
+
     def_id = medical.TREATMENT_ITEM.get(treatment, "")
     if not def_id:
         return None
-    for pile in fort.items_on_ground.values():
+    best, best_d = None, None
+    for cell, pile in fort.items_on_ground.items():
         for item in pile:
-            if item.def_id == def_id and not fort.jobs.is_reserved(item.id):
+            if item.def_id != def_id or fort.jobs.is_reserved(item.id):
+                continue
+            if near is None:
                 return item
-    return None
+            dist = (geometry.chebyshev(cell[0], cell[1], near[0], near[1])
+                    + abs(cell[2] - near[2]) * 8)
+            if best_d is None or dist < best_d:
+                best, best_d = item, dist
+    return best
 
 
 def can_supply(fort, treatment: str) -> bool:
