@@ -435,6 +435,12 @@ def build_ruin(lm, world, site, rng: RNG) -> List[PopSpec]:
             rng.choice(["zombie", "skeleton", "giant_rat", "bandit", "goblin"]),
             x, y, zz, faction="hostile", profession="", role="denizen", level=1,
         ))
+    # Sometimes what ruined the place is still written on a wall of it. Towers
+    # only generate in larger worlds; ruins generate in nearly all of them.
+    undead = [spec for spec in pop
+              if spec["def_id"] in ("zombie", "skeleton")]
+    if undead and rng.chance(0.4):
+        undead[0]["profession"] = "tomb_lord"
     return pop
 
 
@@ -565,6 +571,11 @@ def build_tomb(lm, world, site, rng: RNG) -> List[PopSpec]:
         if lm.walkable(x, y, z):
             pop.append(_pop(rng.choice(["skeleton", "zombie", "mummy"]),
                             x, y, z, faction="hostile", role="denizen", level=1))
+    # Whoever cut a tomb full of walking dead knew how it was done, and wrote
+    # it on the wall. Towers only generate in larger worlds; tombs and ruins
+    # generate in all of them, and a secret nobody can reach is not a secret.
+    if pop:
+        pop[0]["profession"] = "tomb_lord"
     return pop
 
 

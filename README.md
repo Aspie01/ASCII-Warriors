@@ -283,6 +283,26 @@ medical dwarf, a sheriff and eventually a mayor, who will demand things.
 Ignore enough of it and dwarves start breaking furniture, and then each
 other.
 
+**Books, and the things written in them.** A book in this world is about
+something that actually happened in it — a nation's history, a hero's life, a
+monster, a battle at a place you can walk to, the making of a particular
+artifact. Read one and you are handed the world's own record of it: the events,
+the years, the names. The world has always kept a history that nothing could
+read without walking three hundred miles to find out; a book is the other way.
+
+Reading costs real turns, scaled by how well you read, and you cannot do it
+with something hostile in sight. Reading the same book twice teaches nothing,
+which is why a library beats one very good book, and a treatise can only take
+a skill so far — you can read about the sword all winter, but somebody has to
+swing one at you eventually.
+
+Some of them are not books. A slab in a tomb or a necromancer's tower is the
+secret of raising the dead, cut into stone. Read it and you can raise the
+dead: press `Z` over a corpse and it gets up on your side and goes for your
+enemies. Lords, priests, merchants and scholars carry books; necromancers and
+whatever is buried in a tomb carry the slab, so the secret is something you go
+and take rather than something you find lying about.
+
 **Stealth.** Press `v` and you move quietly. Whether that works is a roll made
 separately for every creature that might look at you: your sneaking against
 their observation, plus how far away you are, whether you are standing still or

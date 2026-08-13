@@ -101,6 +101,9 @@ class Creature:
         self.gold_reward = 0
         #: Set for uniquely generated creatures (forgotten beasts, titans).
         self.unique_def: Optional[CreatureDef] = None
+        #: Secrets this creature has read off a slab. Necromancy is not a
+        #: skill, it is a fact about you afterwards.
+        self.secrets: List[str] = []
         #: Set while this creature is deliberately trying not to be seen,
         #: and what it last did loudly enough for anybody to hear.
         self.sneaking = False
@@ -396,6 +399,8 @@ class Creature:
                           "name": self.loot_name}
         if self.sneaking:
             d["sneaking"] = True
+        if self.secrets:
+            d["secrets"] = list(self.secrets)
         if self.curse or self.changed or self.raised_by is not None:
             d["night"] = {"curse": self.curse, "changed": self.changed,
                           "was": self.shape_was, "faction_was": self.faction_was,
@@ -444,6 +449,7 @@ class Creature:
         c.speech = dict(d.get("speech") or {})
 
         c.sneaking = bool(d.get("sneaking", False))
+        c.secrets = [str(x) for x in d.get("secrets", [])]
 
         night = d.get("night")
         if night:

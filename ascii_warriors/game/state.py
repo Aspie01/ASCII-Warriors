@@ -246,8 +246,36 @@ class Game:
             c.ai.site_id = site.id if site is not None else None
             if not self.local.walkable(c.x, c.y, c.z):
                 c.x, c.y, c.z = self.local.random_open(rng)
+            self._give_books(c, rng)
             self.add_creature(c)
         self.spawn_wildlife()
+
+    #: Who is carrying something worth reading, and how likely they are to be.
+    BOOKISH = {"necromancer": 1.0, "tomb_lord": 0.6, "priest": 0.5,
+               "lord": 0.35, "scholar": 0.9, "merchant": 0.2}
+
+    def _give_books(self, c, rng: RNG) -> None:
+        """Put the written word where somebody would actually have it.
+
+        Sitegen returns people, not floors, so the books ride in on the people
+        who would own them. A necromancer carries its own slab, which makes
+        the secret something you have to go and take rather than something you
+        find lying about.
+        """
+        from . import books
+        from .item import make_item
+
+        odds = self.BOOKISH.get(c.profession, 0.0)
+        if odds <= 0.0 or not rng.chance(odds):
+            return
+        if c.profession in ("necromancer", "tomb_lord"):
+            slab = make_item(rng, "book")
+            books.attach(slab, books.make_slab(rng))
+            c.inventory.add(slab)
+            return
+        item = make_item(rng, "book")
+        books.bind(self.world, rng, item, author=c.name)
+        c.inventory.add(item)
 
     def _store_local(self) -> None:
         """Cache the current local map so returning to it is consistent."""
@@ -366,6 +394,15 @@ class Game:
         stealth.note_action(c, "move")
         if c.is_player:
             self.update_fov()
+
+    def hostiles_in_sight(self) -> bool:
+        """Whether anything the player can see would like it dead.
+
+        Used to refuse the long, absorbing actions -- reading, mostly. A book
+        is not a thing you finish while somebody is walking towards you.
+        """
+        return any(c.is_hostile_to(self.player)
+                   for c in self.visible_creatures())
 
     def visible_creatures(self) -> List[Creature]:
         """Every creature the player can currently see."""

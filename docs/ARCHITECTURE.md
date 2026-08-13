@@ -2233,7 +2233,67 @@ status line shows SNEAKING and `(lit!)` when your own torch is the problem,
 and the look panel tells you whether each hostile has noticed you, which is
 the only thing that makes a hidden roll playable rather than a dice cup.
 
-## 66. Style
+## 66. Books and secrets (v3.7)
+
+### `game/books.py`
+```python
+SUBJECTS: 12 kinds -> (title pattern, skill it teaches or None)
+SECRETS = {"necromancy": "the secret of life and death"}
+READ_TURNS = 40/depth ; BOOK_SKILL_CAP = 6 ; DEPTH_VALUE = 1.0..3.2
+class Book: kind title subject depth skill author
+            event_ids figure_id site_id civ_id artifact_id secret read_by
+def of(item) / bind / attach / make_book / make_slab / value_of / summary
+def read(world, reader, book) -> lines ; read_turns / can_read / already_read
+def discover(where, book) -> newly revealed history
+def knows_secret(creature, "necromancy")
+```
+There has been a scholar class since character creation was written —
+knowledge 6, reading 5, writing 4, diagnose 3 — and every one of those skills
+did nothing. There has been a `book` item with a BOOK flag and a value of 200
+that was pure inventory weight, and towers and towns have generated rooms
+called "library" that were four pieces of furniture. Exactly the hole stealth
+was in before v3.6.
+
+**A book is about something that actually happened.** `_bind_subject` points
+each one at a real civ, figure, monster, battle or artifact and collects the
+`HistoricalEvent` ids that cover it; reading it hands you those events. The
+world has always kept a history that nothing could read without walking three
+hundred miles to it — a book is that way. Kinds with no subject available fall
+back to a general treatise rather than to nonsense, which is what
+`test_every_kind_of_book_binds_to_the_world` pins.
+
+**The work lives in the item's `flags` dict**, not as an attribute: `Item` has
+`__slots__`, and flags already serialise, so a book keeps what is written in it
+across a save for free. That did need `Item.to_dict` to serialise flag values
+that expose a `to_dict` — without it the first save with a book in the
+inventory dies on "Object of type Book is not JSON serializable".
+
+**Re-reading teaches nothing** (`read_by` on the work), which is what makes a
+library worth more than one very good book, and a book cannot push a skill
+past `BOOK_SKILL_CAP` — you can read about the sword all winter, but at some
+point somebody has to swing one at you.
+
+**Secrets are the other half.** A slab carries `secret` instead of a subject,
+and reading one appends to `creature.secrets`. `night.is_necromancer` now
+checks that list first, which is the entire integration: v3.5's raising
+machinery was written to take *any* creature and *any* world, so a player who
+reads the slab becomes a necromancer with no special case anywhere.
+`actions.raise_dead` (`Z`) is twelve lines calling v3.5 functions, and the
+risen come up on the player's faction and attack the player's enemies.
+
+**Getting the books into the world** rides on the people who own them.
+Sitegen returns a population, not a floor plan, so `Game._give_books` hands a
+book to lords, priests, merchants and scholars, and a *slab* to a necromancer
+or a `tomb_lord`. That last profession is new: towers only generate in larger
+worlds, and a secret that four worlds in ten cannot reach at all is not a
+secret, so tombs mark their first occupant and ruins mark one 40% of the time.
+Measured over six pocket worlds: four have a reachable slab, two do not, and
+that variance is the intended shape.
+
+Reading is `R` in the inventory (or Enter on a book), costs real turns scaled
+by the reading skill, and refuses to start while anything hostile is in sight.
+
+## 67. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

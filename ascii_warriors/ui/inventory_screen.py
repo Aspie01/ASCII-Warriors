@@ -111,7 +111,8 @@ class InventoryScene(Scene):
 
         key_hint(scr, 2, scr.height - 2, [
             (keys.ENTER, "use"), ("w", "wield/wear"), ("r", "remove"),
-            ("d", "drop"), ("e", "eat"), (keys.TAB, "tab"), (keys.ESC, "back"),
+            ("R", "read"), ("d", "drop"), ("e", "eat"),
+            (keys.TAB, "tab"), (keys.ESC, "back"),
         ])
 
     def handle(self, key: str) -> None:
@@ -151,12 +152,24 @@ class InventoryScene(Scene):
             actions.butcher(game, item)
             self.refresh()
             return
+        if key == "R" and item is not None and _is_book(item):
+            cost = actions.read_book(game, item)
+            if cost:
+                game.player_acts(cost)
+            self.done = True
+            return
 
         result = self.menu.handle(key)
         if result == "cancel":
             self.done = True
             return
         if result == "select" and item is not None:
+            if _is_book(item):
+                cost = actions.read_book(game, item)
+                if cost:
+                    game.player_acts(cost)
+                self.done = True
+                return
             if item.is_edible:
                 actions.eat(game, item)
             elif item.is_drink:
@@ -164,3 +177,10 @@ class InventoryScene(Scene):
             elif item.is_weapon or item.is_armor:
                 actions.equip(game, item)
             self.refresh()
+
+
+def _is_book(item) -> bool:
+    """Whether this is something with words on it."""
+    from ..game import books
+
+    return books.of(item) is not None

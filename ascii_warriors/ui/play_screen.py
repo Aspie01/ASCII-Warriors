@@ -245,6 +245,8 @@ class PlayScene(Scene):
             cost = self._throw()
         elif key == "v":
             cost = actions.toggle_sneak(game)
+        elif key == "Z":
+            cost = actions.raise_dead(game)
         elif key == "s":
             cost = actions.search(game)
         elif key == "S":

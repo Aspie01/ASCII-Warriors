@@ -30,6 +30,7 @@ CONTROLS: List[Tuple[str, str]] = [
     ("x", "look around with a cursor"),
     ("t", "talk to somebody"),
     ("v", "move quietly; attack unseen for an ambush"),
+    ("Z", "raise the dead, if you have learned how"),
     ("s", "search the area carefully"),
     ("S", "sleep for eight hours"),
     ("R", "rest a while"),
@@ -252,6 +253,22 @@ a sheriff and eventually a mayor. The mayor will demand things. Ignoring the
 demands makes the mayor furious, and a furious dwarf in a fortress full of
 unhappy dwarves is how tantrums start: broken furniture, then somebody going
 berserk with an axe.
+
+BOOKS AND SECRETS
+
+A book is about something that really happened in this world. Read one (R in
+the inventory, or Enter on it) and you are given the world's own record of the
+thing: the events, the years, the names. It is the alternative to walking
+three hundred miles to find out.
+
+Reading takes real turns, more if you read badly, and you cannot do it while
+anything hostile can see you. A second reading of the same book teaches
+nothing, and a treatise will only take a skill so far.
+
+A few of them are not books. A slab -- in a tomb, or at the top of a
+necromancer's tower -- is the secret of raising the dead. Read it and press Z
+over a corpse: it gets up on your side. Lords, priests, merchants and scholars
+carry books; the slab is carried by whatever you have to kill to get it.
 
 STEALTH
 

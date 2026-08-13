@@ -20,6 +20,61 @@ NORMAL = ACTION_COST
 SLOW = ACTION_COST * 2
 
 
+def read_book(game, item) -> int:
+    """Read a book or a slab through, and take what is in it.
+
+    Reading is not free. A deep book with a poor reader is most of a day in a
+    place where nothing is trying to kill you, which is exactly what makes a
+    library somewhere safe worth having.
+    """
+    from . import books
+
+    p = game.player
+    book = books.of(item)
+    if book is None:
+        game.log.info("There is nothing written on it.")
+        return FREE
+    if not books.can_read(p):
+        game.log.warn("You cannot make out the letters.")
+        return FREE
+    if game.hostiles_in_sight():
+        game.log.warn("Not with company.")
+        return FREE
+
+    turns = books.read_turns(p, book)
+    for line in books.read(game, p, book):
+        game.log.info(line)
+    p.needs.fatigue += turns // 20
+    return turns
+
+
+def raise_dead(game) -> int:
+    """Use the secret, if you have it and there is anything to use it on.
+
+    All of this is v3.5's machinery. It was written to take any creature and
+    any world, so the only thing a player who has read the slab needs is a key
+    to press.
+    """
+    from . import night
+
+    p = game.player
+    if not night.is_necromancer(p):
+        game.log.info("You do not know how.")
+        return FREE
+    corpses = night.corpses_near(game, p.x, p.y, p.z)
+    if not corpses:
+        game.log.info("There is nothing here to raise.")
+        return FREE
+    item, cell = corpses[0]
+    risen = night.raise_corpse(game, p, item, cell)
+    if risen is None:
+        game.log.info("Something is standing on it.")
+        return FREE
+    game.log.warn("%s gets up." % risen.name)
+    p.add_exp("knowledge", 60)
+    return NORMAL
+
+
 def toggle_sneak(game) -> int:
     """Start or stop moving quietly.
 

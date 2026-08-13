@@ -48,7 +48,14 @@ def raised_kind(item) -> str:
 
 
 def is_necromancer(creature) -> bool:
-    """Whether this creature can raise the dead."""
+    """Whether this creature can raise the dead.
+
+    Including whoever has read the slab. The raising machinery was written to
+    take any creature and any world, so a player who learns the secret becomes
+    a necromancer here and nowhere else needs to know.
+    """
+    if "necromancy" in (getattr(creature, "secrets", None) or ()):
+        return True
     return (creature.profession == "necromancer"
             or creature.def_id == "necromancer"
             or "necromancer" in getattr(creature, "speech", {}))

@@ -339,7 +339,8 @@ class Item:
             "maker": self.maker,
             "name": self.name_override,
             "art": self.artifact_id,
-            "flags": self.flags,
+            "flags": {k: (v.to_dict() if hasattr(v, "to_dict") else v)
+                      for k, v in self.flags.items()},
             "charges": self.charges,
         }
 

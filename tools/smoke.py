@@ -39,6 +39,8 @@ DEFAULT_SCRIPT: List[str] = (
     + ["M", "l", "l", "j", "ESC"]
     # Sneak, look at something while hidden, stop sneaking
     + ["v", "x", "TAB", "ESC", "v"]
+    # Try to raise the dead without knowing how, and read whatever is carried
+    + ["Z", "i", "R", "ESC"]
     # Search, rest, wait
     + ["s", ".", ".", "R"]
     # Pause menu -> save -> resume

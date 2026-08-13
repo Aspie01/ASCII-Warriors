@@ -1108,3 +1108,291 @@ class TestStealth(GameFixture):
         back = save_mod.load_game(path)
         self.assertTrue(self.stealth.is_sneaking(back.player))
         path.unlink()
+
+
+class TestBooks(GameFixture):
+    """The written word: what is in a book, and what reading one does."""
+
+    def setUp(self):
+        super().setUp()
+        from ascii_warriors.game import books as books_mod
+
+        self.books = books_mod
+
+    def _book(self, kind="history", depth=3):
+        """A bound book of a given kind, in the player's hands."""
+        from ascii_warriors.game.item import make_item
+
+        item = make_item(self.game.rng, "book")
+        book = self.books.bind(self.game.world, self.game.rng, item,
+                               kind=kind, depth=depth)
+        self.game.player.inventory.add(item)
+        return item, book
+
+    def _slab(self):
+        """A slab, in the player's hands."""
+        from ascii_warriors.game.item import make_item
+
+        item = make_item(self.game.rng, "book")
+        book = self.books.make_slab(self.game.rng)
+        self.books.attach(item, book)
+        self.game.player.inventory.add(item)
+        return item, book
+
+    # -- what is in one ------------------------------------------------------ #
+
+    def test_a_book_is_about_something_that_happened(self):
+        """A book about nothing is a prop."""
+        _item, book = self._book("history")
+        self.assertTrue(book.title)
+        self.assertTrue(book.subject)
+        self.assertIsNotNone(book.civ_id)
+        self.assertTrue(book.event_ids, "bound to no real history")
+        for eid in book.event_ids:
+            self.assertTrue(any(e.id == eid for e in self.game.world.events))
+
+    def test_every_kind_of_book_binds_to_the_world(self):
+        """Or falls back to a general treatise rather than to nonsense."""
+        for kind, _pattern, _skill in self.books.SUBJECTS:
+            _item, book = self._book(kind, depth=2)
+            self.assertTrue(book.subject, "%s has no subject" % kind)
+            self.assertNotIn("%s", book.subject)
+            self.assertTrue(book.title)
+
+    def test_the_title_takes_the_name_of_the_item(self):
+        """So a shelf of books reads as a shelf of books."""
+        item, book = self._book()
+        self.assertIn(book.title, item.name())
+
+    def test_a_deeper_book_is_worth_more(self):
+        """Which is what makes a library a target."""
+        thin, _ = self._book(depth=1)
+        thick, _ = self._book(depth=5)
+        self.assertGreater(self.books.value_of(thick),
+                           self.books.value_of(thin))
+
+    def test_a_plain_item_is_not_a_book(self):
+        """`of` has to say no cheaply, because everything asks it."""
+        from ascii_warriors.game.item import make_item
+
+        self.assertIsNone(self.books.of(make_item(self.game.rng, "dagger")))
+
+    # -- reading ------------------------------------------------------------- #
+
+    def test_reading_opens_the_world_s_own_history(self):
+        """The world keeps a history nobody can otherwise read without walking."""
+        item, book = self._book("history")
+        lines = self.books.read(self.game, self.game.player, book)
+        self.assertTrue(any("learn of" in ln for ln in lines))
+        known = self.game.world.known_events
+        for eid in book.event_ids:
+            self.assertIn(eid, known)
+
+    def test_reading_the_same_book_twice_teaches_nothing(self):
+        """Which is what makes a library worth more than one very good book."""
+        _item, book = self._book()
+        self.books.read(self.game, self.game.player, book)
+        again = self.books.read(self.game, self.game.player, book)
+        self.assertEqual(len(again), 1)
+        self.assertIn("read this before", again[0])
+
+    def test_a_book_can_teach_its_skill_but_only_so_far(self):
+        """At some point somebody has to swing a sword at you."""
+        p = self.game.player
+        _item, book = self._book("swordsmanship", depth=5)
+        self.assertEqual(book.skill, "sword")
+        before = p.skills.level("sword")
+        self.books.read(self.game, p, book)
+        self.assertGreaterEqual(p.skills.level("sword"), before)
+        p.skills.set_level("sword", self.books.BOOK_SKILL_CAP + 2)
+        _item2, book2 = self._book("swordsmanship", depth=5)
+        lines = self.books.read(self.game, p, book2)
+        self.assertTrue(any("more of this than the author" in ln
+                            for ln in lines))
+
+    def test_a_slow_reader_takes_longer(self):
+        """A deep book with a poor reader is most of a day."""
+        p = self.game.player
+        _item, book = self._book(depth=5)
+        p.skills.set_level("reading", 0)
+        slow = self.books.read_turns(p, book)
+        p.skills.set_level("reading", 12)
+        self.assertLess(self.books.read_turns(p, book), slow)
+
+    def test_reading_costs_turns_and_refuses_company(self):
+        """A book is not a thing you finish while somebody walks towards you."""
+        from ascii_warriors.game import actions
+        from ascii_warriors.game.entity import make_creature
+
+        game = self.game
+        item, _book = self._book(depth=4)
+        cost = actions.read_book(game, item)
+        self.assertGreater(cost, actions.FREE)
+
+        item2, _b2 = self._book(depth=4)
+        foe = make_creature(game.rng, "bandit", faction="hostile", equip=False)
+        foe.x, foe.y, foe.z = game.player.x, game.player.y, game.player.z
+        game.add_creature(foe)
+        game.update_fov()
+        self.assertEqual(actions.read_book(game, item2), actions.FREE)
+        self.assertTrue(any("company" in m.text for m in game.log.recent(3)))
+
+    def test_reading_something_with_nothing_written_on_it(self):
+        """The action has to survive being pointed at a dagger."""
+        from ascii_warriors.game import actions
+        from ascii_warriors.game.item import make_item
+
+        knife = make_item(self.game.rng, "dagger")
+        self.assertEqual(actions.read_book(self.game, knife), actions.FREE)
+
+    # -- secrets -------------------------------------------------------------- #
+
+    def test_a_slab_makes_you_a_necromancer(self):
+        """v3.5's machinery takes any creature; this is the key to it."""
+        from ascii_warriors.game import night
+
+        p = self.game.player
+        self.assertFalse(night.is_necromancer(p))
+        _item, slab = self._slab()
+        lines = self.books.read(self.game, p, slab)
+        self.assertTrue(any("raise the dead" in ln for ln in lines))
+        self.assertTrue(self.books.knows_secret(p, "necromancy"))
+        self.assertTrue(night.is_necromancer(p))
+
+    def test_a_secret_is_only_learned_once(self):
+        """Reading the same stone twice teaches nothing."""
+        p = self.game.player
+        _item, slab = self._slab()
+        self.books.read(self.game, p, slab)
+        _item2, slab2 = self._slab()
+        lines = self.books.read(self.game, p, slab2)
+        self.assertTrue(any("already know" in ln for ln in lines))
+        self.assertEqual(p.secrets.count("necromancy"), 1)
+
+    def test_a_necromancer_player_raises_the_dead(self):
+        """The whole payoff, and it needed no special case in `night`."""
+        from ascii_warriors.game import actions, night
+        from ascii_warriors.game.entity import make_creature
+        from ascii_warriors.game.item import corpse_of
+
+        game = self.game
+        p = game.player
+        _item, slab = self._slab()
+        self.books.read(game, p, slab)
+
+        dead = make_creature(game.rng, "human", faction="wild")
+        body = corpse_of(dead)
+        body.flags["name"] = "Alric"
+        placed = False
+        for dx in (1, -1, 0):
+            for dy in (0, 1, -1):
+                cell = (p.x + dx, p.y + dy, p.z)
+                if cell == (p.x, p.y, p.z):
+                    continue
+                if game.is_passable(*cell, dead) \
+                        and game.creature_at(*cell) is None:
+                    game.drop_item(body, *cell)
+                    placed = True
+                    break
+            if placed:
+                break
+        self.assertTrue(placed, "nowhere to put a body")
+        before = len(game.creatures)
+        cost = actions.raise_dead(game)
+        self.assertGreater(cost, actions.FREE)
+        self.assertEqual(len(game.creatures), before + 1)
+        mine = [c for c in game.creatures.values() if c.raised_by == p.id]
+        self.assertEqual(len(mine), 1)
+        self.assertEqual(mine[0].faction, p.faction)
+        self.assertFalse(mine[0].is_hostile_to(p))
+
+    def test_without_the_secret_there_is_no_raising(self):
+        """And the action says so rather than doing nothing."""
+        from ascii_warriors.game import actions
+
+        self.assertEqual(actions.raise_dead(self.game), actions.FREE)
+        self.assertTrue(any("do not know how" in m.text
+                            for m in self.game.log.recent(3)))
+
+    def test_raising_with_nothing_to_raise(self):
+        """The other way the action can be pointed at nothing."""
+        from ascii_warriors.game import actions
+
+        game = self.game
+        _item, slab = self._slab()
+        self.books.read(game, game.player, slab)
+        game.items_on_ground.clear()
+        self.assertEqual(actions.raise_dead(game), actions.FREE)
+
+    # -- in the world ---------------------------------------------------------- #
+
+    def test_books_ride_in_on_the_people_who_own_them(self):
+        """Sitegen returns people, not floors."""
+        carried = [
+            self.books.of(i)
+            for c in self.game.creatures.values()
+            for i in c.inventory.items
+            if self.books.of(i) is not None
+        ]
+        # The starting site may or may not have a lord with a library, so this
+        # asserts the machinery rather than the dice.
+        self.assertIn("necromancer", self.game.BOOKISH)
+        self.assertIn("tomb_lord", self.game.BOOKISH)
+        for book in carried:
+            self.assertTrue(book.title)
+
+    def test_a_slab_bearer_carries_a_slab(self):
+        """Not a book: the one thing the profession is for."""
+        from ascii_warriors.engine.rng import RNG
+
+        game = self.game
+        rng = RNG("bookish")
+        for profession in ("necromancer", "tomb_lord"):
+            found = False
+            for _ in range(20):
+                from ascii_warriors.game.entity import make_creature
+
+                c = make_creature(rng, "human", faction="hostile")
+                c.profession = profession
+                game._give_books(c, rng)
+                slabs = [self.books.of(i) for i in c.inventory.items
+                         if self.books.of(i) is not None]
+                if slabs:
+                    self.assertTrue(slabs[0].is_slab)
+                    found = True
+                    break
+            self.assertTrue(found, "%s never carried anything" % profession)
+
+    # -- persistence ------------------------------------------------------------ #
+
+    def test_a_book_keeps_what_is_written_in_it(self):
+        """Through the real save file, including who has read it."""
+        from ascii_warriors.game import save as save_mod
+
+        item, book = self._book("biography", depth=4)
+        self.books.read(self.game, self.game.player, book)
+        path = save_mod.save_game(self.game, "books-test")
+        back = save_mod.load_game(path)
+        found = None
+        for it in back.player.inventory.items:
+            b = self.books.of(it)
+            if b is not None and b.title == book.title:
+                found = b
+                break
+        self.assertIsNotNone(found, "the book did not come back")
+        self.assertEqual(found.depth, 4)
+        self.assertEqual(found.subject, book.subject)
+        self.assertEqual(found.event_ids, book.event_ids)
+        self.assertIn(back.player.id, found.read_by)
+        path.unlink()
+
+    def test_a_secret_survives_a_save(self):
+        """You do not forget how at the save screen."""
+        from ascii_warriors.game import night, save as save_mod
+
+        _item, slab = self._slab()
+        self.books.read(self.game, self.game.player, slab)
+        path = save_mod.save_game(self.game, "secret-test")
+        back = save_mod.load_game(path)
+        self.assertTrue(night.is_necromancer(back.player))
+        path.unlink()
