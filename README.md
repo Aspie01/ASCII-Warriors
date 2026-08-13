@@ -283,6 +283,27 @@ medical dwarf, a sheriff and eventually a mayor, who will demand things.
 Ignore enough of it and dwarves start breaking furniture, and then each
 other.
 
+**The night.** The world has always generated necromancers, given them towers
+and stocked those towers with the dead. Now they use them. A necromancer
+raises whatever corpses it can see — including the ones you just made — so a
+tower is not a queue of zombies to grind through, it is a fight you lose
+slowly until you reach the necromancer. Every casualty you take is one more
+thing to fight. A body only rises once, and once the necromancer is down the
+dead stay down.
+
+A werebeast's bite is a curse, not a wound. The cursed change at the full
+moon, wherever they happen to be standing: in an inn, or in your dining hall.
+A cursed dwarf comes off the roster, out of the militia and out of office
+until dawn, when it turns back and remembers none of it. Your adventurer keeps
+their own side — the character sheet tells you which moon to fear.
+
+And a vampire hides among your migrants. It says nothing when it arrives. It
+drinks from whoever is asleep and nearest, a little each night, so somebody
+looks peaky for three nights before anybody finds a body — and the murder goes
+into the sheriff's book with no name on it, because nobody saw. Unless
+somebody did: sleep your dwarves in a dormitory and a witness names the
+culprit, while a corridor of fine private bedrooms never catches anyone.
+
 **Friends, families and the tavern.** Build a tavern and the dwarves with
 nothing to do go there instead of standing in a corridor, and that is where
 your fortress gets friends in it. Who becomes friends with whom is decided by

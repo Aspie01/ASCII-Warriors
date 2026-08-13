@@ -252,6 +252,23 @@ demands makes the mayor furious, and a furious dwarf in a fortress full of
 unhappy dwarves is how tantrums start: broken furniture, then somebody going
 berserk with an axe.
 
+THE NIGHT
+
+Necromancers raise the dead they can see, including the dwarves you have just
+lost defending the gate. Every casualty you take is one more thing to fight,
+so a long defence goes badly: go through the thralls and kill the one in the
+hat. A body only rises once, and once the necromancer is down it stays down.
+
+A werebeast's bite is a curse. Whoever survives one changes at the next full
+moon -- the status bar says FULL MOON, and the units list says TRANSFORMED --
+and turns on the fortress until dawn. Watch who came back from that fight.
+
+Some migrants are not what they say they are. A vampire drinks from whoever is
+asleep and nearest, and the body turns up three nights later with a murder in
+the sheriff's book that has no name attached, because there was nobody in the
+room. There is a defence, and it is not a better lock: dwarves who sleep in a
+dormitory have witnesses, and dwarves in fine private bedrooms do not.
+
 FRIENDS AND FAMILIES
 
 Build a tavern (b, Workshops) and dwarves with nothing to do go there instead

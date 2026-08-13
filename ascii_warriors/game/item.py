@@ -524,12 +524,20 @@ def starting_kit(rng: RNG, race: str, profession: str) -> List[Item]:
 
 
 def corpse_of(creature) -> Item:
-    """Build the corpse item left behind by a dead creature."""
+    """Build the corpse item left behind by a dead creature.
+
+    A corpse that was already walking once is marked spent. Without that a
+    necromancer raises a zombie, the militia puts it down, and the same body
+    gets up again for ever -- an army with no upper bound, and a name that
+    grows a comma every time round.
+    """
     it = Item("corpse", "meat", count=1)
     it.name_override = "%s corpse" % creature.defn.adjective
     it.flags["creature"] = creature.def_id
     it.flags["size"] = creature.defn.size
     it.flags["name"] = creature.name
+    if getattr(creature, "raised_by", None) is not None:
+        it.flags["raised"] = True
     return it
 
 

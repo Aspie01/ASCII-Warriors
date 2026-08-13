@@ -16,7 +16,7 @@ from . import combat
 
 MODES = (
     "idle", "wander", "hunt", "flee", "follow", "sleep", "guard", "graze",
-    "travel", "talk",
+    "travel", "talk", "raise",
 )
 
 
@@ -236,6 +236,14 @@ def take_turn(creature, game) -> int:
     ai = creature.ai
 
     if not creature.can_act():
+        return ACTION_COST
+
+    # Before anything else: a necromancer with a corpse in front of it does
+    # not chase you, it makes the corpse chase you.
+    from . import night
+
+    if night.necromancy_turn(game, creature):
+        ai.mode = "raise"
         return ACTION_COST
 
     mode = pick_mode(creature, game)

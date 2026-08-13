@@ -2104,7 +2104,75 @@ so an adventurer can read about them three centuries later.
 and "playing" where the job would be for a child. The status line carries the
 child count; `profession_title` returns "Child".
 
-## 64. Style
+## 64. The night (v3.5)
+
+### `game/night.py`
+```python
+RAISE_RANGE = 7 ; RAISE_COOLDOWN = 60 ticks ; RAISE_MIN_SIZE = 3000
+CURSES = {werebeast -> werewolf @0.30, vampire @0.10} ; CARRIERS = inverse
+FULL_MOON = "full moon"   # the calendar's own name, not a second calculation
+FEED_SHARE = 0.28
+def is_necromancer / raisable / corpses_near / raise_corpse / necromancy_turn
+def cursed_with / afflict / on_bite / moon_is_full / should_change
+def transform(world, c) / revert(world, c)
+def is_vampire / can_feed_on / feed(world, vampire, victim)
+```
+The world had generated necromancers, given them towers and stocked those
+towers with zombies since v1. It generated vampires and werewolves too. None
+of it did anything: the undead stood where the map maker put them, and a
+werewolf was a wolf that hit harder.
+
+Each of the three is a rule about **time and place**, not a monster:
+
+- **The corpse on the floor.** `necromancy_turn` runs before either AI decides
+  where to walk, in both modes — a necromancer with a body in front of it does
+  not chase you, it makes the body chase you. It raises what *you* killed, so
+  a tower stops being a queue of zombies and becomes a fight you lose slowly
+  until you reach the necromancer. Killing it ends the loop; that is the
+  design, and `test_a_dead_necromancer_raises_nothing` pins it.
+
+  **A body rises once.** `corpse_of` marks the corpse of anything that was
+  itself raised, and `raisable` refuses it. The first build had no such mark:
+  the militia put a zombie down, the corpse went back on the floor, and the
+  same body got up again for ever. A full-scale raid went from 13 raisings, 12
+  undead standing and 9 dead dwarves to 1 raising, 0 dead dwarves and a
+  necromancer killed at step 826 — an unbounded grind turned into a fight.
+- **The phase of the moon.** `moon_is_full` asks the calendar for its own
+  phase name rather than recomputing the cycle. The first version computed
+  `day % 28` independently and turned people on a night the status bar called
+  "waxing gibbous" — one source of truth, or the UI lies on the worst night of
+  the year. A cursed dwarf that turns is discharged from the militia and
+  vacated from office until dawn, and `Fortress.dwarves()` filters it out —
+  but it *keeps its DwarfState*. Clearing that state is the obvious way to
+  take it off the roster and it loses the dwarf permanently the moment
+  somebody saves during a full moon, because only creatures with a DwarfState
+  get serialised at all. The player keeps its own side, because a game that
+  takes the character away is not a game.
+- **The dwarf who sleeps alone.** `sim._feed_vampires` drains the nearest
+  sleeping dwarf, ~28% of its blood a night, so somebody looks peaky for three
+  nights before anybody finds a body. The crime is filed with `culprit=None`
+  unless somebody awake was within four tiles — which means a dormitory
+  catches a vampire and a corridor of fine private bedrooms never does. An
+  unwitnessed feeding is a murder `justice.can_try` returns False for: it sits
+  open until it goes cold and charges the fortress stress every season it
+  does. That is v3.3's unsolvable-case machinery finally having something
+  genuinely unsolvable to hold.
+
+**Curses travel by bite.** `combat.melee_attack` calls `night.on_bite` when
+the attack that landed is in `BITES` — being clawed by a werewolf is a bad
+afternoon, being bitten is a life. This exposed a quiet bug: `make_creature`
+armed werebeasts, and an armed werewolf picks from its weapon's attacks and
+*never bites*, so the curse could not spread at all. Night creatures are now
+built unarmed (`NIGHT_CREATURE` skips the equip block) and fight with what
+they are.
+
+Arrival paths, so the layer is reachable rather than theoretical: a migrant
+wave hides a vampire at `VAMPIRE_ODDS`; `sim._maybe_night_attack` sends a lone
+werebeast on a full moon or a named necromancer with a handful of thralls.
+The status line shows FULL MOON, the units list shows TRANSFORMED, and the
+character sheet carries an Affliction block that tells you which moon to fear.
+
+## 65. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

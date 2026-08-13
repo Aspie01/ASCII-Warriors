@@ -379,10 +379,17 @@ class Fortress:
         return next((p for p in self.pastures if p.contains(x, y, z)), None)
 
     def dwarves(self) -> List[Creature]:
-        """Every living dwarf of the fortress."""
+        """Every living dwarf of the fortress.
+
+        Not one that is currently wearing another shape. A werebeast keeps its
+        labors, its bed and its name -- it gets them back at dawn -- but for
+        tonight it is not yours, and nothing that iterates the roster should
+        hand it a job or count on it holding a door.
+        """
         return [
             c for c in self.creatures.values()
             if getattr(c, "fort", None) is not None and not c.body.dead
+            and not c.changed
         ]
 
     def hostiles(self) -> List[Creature]:

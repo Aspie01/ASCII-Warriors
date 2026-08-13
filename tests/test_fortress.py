@@ -9,11 +9,12 @@ from ascii_warriors.engine.rng import RNG
 from ascii_warriors.fortress import buildings as building_mod
 from ascii_warriors.fortress import designations as designation_mod
 from ascii_warriors.fortress import dwarf as dwarf_mod
-from ascii_warriors.fortress import labors, production, sim
+from ascii_warriors.fortress import justice, labors, production, sim
 from ascii_warriors.fortress.buildings import Building, Stockpile
 from ascii_warriors.fortress.fortress import Fortress
 from ascii_warriors.fortress.jobs import Job, JobBoard, work_rate
 from ascii_warriors.game import save as save_mod
+from ascii_warriors.game.entity import make_creature
 from ascii_warriors.world.worldgen import generate_world
 
 #: One small world, generated once, shared by every test in this file.
@@ -3831,3 +3832,402 @@ class TestSocial(unittest.TestCase):
         self.assertEqual(again.creatures[a.id].fort.lonely, 999)
         self.assertIs(self.social.spouse_of(again, again.creatures[a.id]),
                       again.creatures[b.id])
+
+
+class TestNight(unittest.TestCase):
+    """Necromancy, the moon, and what drinks in the dark."""
+
+    def setUp(self):
+        from ascii_warriors.game import night as night_mod
+
+        self.night = night_mod
+
+    def _corpse_at(self, fort, cell, name="Urist"):
+        """A body on the floor, big enough to be worth raising."""
+        from ascii_warriors.game.item import corpse_of
+
+        d = fort.dwarves()[0]
+        item = corpse_of(d)
+        item.flags["name"] = name
+        fort.drop_item(item, *cell)
+        return item
+
+    def _full_moon_night(self, fort):
+        """Wind the clock to a night the moon is full."""
+        for day in range(60):
+            fort.time.ticks = day * TICKS_PER_DAY + int(TICKS_PER_DAY * 0.95)
+            if self.night.moon_is_full(fort.time) and fort.time.is_night():
+                return
+        self.fail("no full moon in two months")
+
+    # -- necromancy --------------------------------------------------------- #
+
+    def test_a_necromancer_raises_a_corpse(self):
+        """Which is the entire difference between it and a tough human."""
+        fort = embark("raising")
+        boss = self._necromancer(fort)
+        cell = self._free_beside(fort, boss)[0]
+        item = self._corpse_at(fort, cell)
+        before = len(fort.creatures)
+        self.assertTrue(self.night.necromancy_turn(fort, boss))
+        self.assertEqual(len(fort.creatures), before + 1)
+        self.assertIsNone(fort.item_cell(item))
+        risen = [c for c in fort.creatures.values()
+                 if c.def_id in ("zombie", "skeleton")]
+        self.assertEqual(len(risen), 1)
+        self.assertEqual(risen[0].faction, "hostile")
+        self.assertEqual(risen[0].raised_by, boss.id)
+        self.assertIn("Urist", risen[0].name)
+
+    def _necromancer(self, fort):
+        """One necromancer standing somewhere it can work."""
+        d = fort.dwarves()[0]
+        boss = make_creature(fort.rng, "necromancer", faction="hostile")
+        boss.profession = "necromancer"
+        boss.x, boss.y, boss.z = fort._free_spot((d.x, d.y, d.z), 6)
+        boss.wx, boss.wy = fort.wx, fort.wy
+        fort.add_creature(boss)
+        return boss
+
+    def _free_beside(self, fort, creature, n: int = 1):
+        """*n* empty walkable cells next to a creature, for bodies to lie on."""
+        out = []
+        for radius in range(1, 5):
+            for dx in range(-radius, radius + 1):
+                for dy in range(-radius, radius + 1):
+                    cell = (creature.x + dx, creature.y + dy, creature.z)
+                    if cell == (creature.x, creature.y, creature.z):
+                        continue
+                    if not fort.local.walkable(*cell):
+                        continue
+                    if fort.creature_at(*cell) is not None or cell in out:
+                        continue
+                    out.append(cell)
+                    if len(out) >= n:
+                        return out
+        self.fail("nowhere free beside the necromancer")
+        return out
+
+    def test_nothing_is_raised_twice(self):
+        """The corpse is spent, not a renewable resource."""
+        fort = embark("once")
+        boss = self._necromancer(fort)
+        self._corpse_at(fort, self._free_beside(fort, boss)[0])
+        self.assertTrue(self.night.necromancy_turn(fort, boss))
+        boss.raised_at = 0
+        self.assertFalse(self.night.necromancy_turn(fort, boss))
+
+    def test_a_body_rises_once(self):
+        """Put a zombie down and it stays down.
+
+        Without this the militia kills a zombie, the corpse goes back on the
+        floor, and the same body gets up again for ever: an army with no upper
+        bound, and a name that grows a comma every time round.
+        """
+        fort = embark("spent")
+        boss = self._necromancer(fort)
+        self._corpse_at(fort, self._free_beside(fort, boss)[0], name="Urist")
+        self.assertTrue(self.night.necromancy_turn(fort, boss))
+        risen = next(c for c in fort.creatures.values()
+                     if c.def_id in ("zombie", "skeleton"))
+        self.assertEqual(risen.name, "Urist, risen")
+        risen.body.dead = True
+        fort.kill_creature(risen)
+        leftovers = [i for pile in fort.items_on_ground.values() for i in pile
+                     if i.def_id == "corpse"]
+        self.assertTrue(leftovers)
+        self.assertFalse(any(self.night.raisable(i) for i in leftovers))
+        boss.raised_at = 0
+        self.assertFalse(self.night.necromancy_turn(fort, boss))
+
+    def test_raising_has_a_cooldown(self):
+        """Or a graveyard empties in one step."""
+        fort = embark("cooldown-raise")
+        boss = self._necromancer(fort)
+        for cell in self._free_beside(fort, boss, 3):
+            self._corpse_at(fort, cell)
+        self.assertTrue(self.night.necromancy_turn(fort, boss))
+        self.assertFalse(self.night.necromancy_turn(fort, boss))
+        fort.time.advance(self.night.RAISE_COOLDOWN + 1)
+        self.assertTrue(self.night.necromancy_turn(fort, boss))
+
+    def test_only_a_necromancer_raises(self):
+        """A goblin standing over a body is just a goblin."""
+        fort = embark("notmagic")
+        d = fort.dwarves()[0]
+        foe = make_creature(fort.rng, "goblin", faction="hostile")
+        foe.x, foe.y, foe.z = fort._free_spot((d.x, d.y, d.z), 6)
+        fort.add_creature(foe)
+        self._corpse_at(fort, self._free_beside(fort, foe)[0])
+        self.assertFalse(self.night.necromancy_turn(fort, foe))
+
+    def test_a_corpse_too_small_stays_down(self):
+        """Nobody raises a rat."""
+        from ascii_warriors.game.item import corpse_of
+
+        fort = embark("smallfry")
+        boss = self._necromancer(fort)
+        rat = make_creature(fort.rng, "rat", faction="wild")
+        item = corpse_of(rat)
+        fort.drop_item(item, *self._free_beside(fort, boss)[0])
+        self.assertFalse(self.night.raisable(item))
+        self.assertFalse(self.night.necromancy_turn(fort, boss))
+
+    def test_nothing_rises_under_somebody(self):
+        """A zombie wedged inside a dwarf is a bug report, not a horror."""
+        fort = embark("occupied")
+        boss = self._necromancer(fort)
+        d = fort.dwarves()[0]
+        d.x, d.y, d.z = boss.x + 1, boss.y, boss.z
+        self._corpse_at(fort, (d.x, d.y, d.z))
+        self.assertFalse(self.night.necromancy_turn(fort, boss))
+
+    def test_a_dead_necromancer_raises_nothing(self):
+        """Which is why killing it is the answer."""
+        fort = embark("headshot")
+        boss = self._necromancer(fort)
+        self._corpse_at(fort, self._free_beside(fort, boss)[0])
+        boss.body.dead = True
+        self.assertFalse(self.night.necromancy_turn(fort, boss))
+
+    def test_a_necromancer_attack_brings_its_own(self):
+        """And is named after somebody the world remembers, when it can be."""
+        fort = embark("visitation")
+        sim._send_necromancer(fort)
+        boss = [c for c in fort.creatures.values()
+                if self.night.is_necromancer(c)]
+        self.assertEqual(len(boss), 1)
+        undead = [c for c in fort.creatures.values()
+                  if c.def_id in ("zombie", "skeleton")]
+        self.assertTrue(undead)
+        self.assertEqual(fort.military.alert, "danger")
+
+    # -- curses ------------------------------------------------------------- #
+
+    def test_a_werewolf_bite_curses(self):
+        """Over enough bites. The odds are per bite, not per fight."""
+        from ascii_warriors.game import combat as combat_mod
+
+        rng = RNG("curse-bite")
+        cursed = 0
+        for _ in range(120):
+            wolf = make_creature(rng, "werewolf", faction="hostile")
+            victim = make_creature(rng, "dwarf", faction="fortress")
+            for _ in range(10):
+                combat_mod.melee_attack(wolf, victim, weapon=None, rng=rng)
+                if self.night.cursed_with(victim):
+                    cursed += 1
+                    break
+        self.assertGreater(cursed, 10, "the curse never spreads")
+        self.assertLess(cursed, 120, "every single fight cursed somebody")
+
+    def test_a_werebeast_fights_with_what_it_is(self):
+        """Arming one hands it a sword and it never bites again."""
+        rng = RNG("unarmed")
+        for _ in range(10):
+            self.assertIsNone(
+                make_creature(rng, "werewolf").inventory.weapon())
+        self.assertIsNotNone(make_creature(rng, "bandit").inventory.weapon())
+
+    def test_nothing_is_cursed_twice(self):
+        """One affliction is enough for anybody."""
+        fort = embark("onecurse")
+        d = fort.dwarves()[0]
+        self.assertTrue(self.night.afflict(d, "werebeast"))
+        self.assertFalse(self.night.afflict(d, "vampire"))
+        self.assertEqual(self.night.cursed_with(d), "werebeast")
+
+    def test_the_undead_cannot_be_cursed(self):
+        """There is nothing left in them to take."""
+        rng = RNG("nope")
+        wolf = make_creature(rng, "werewolf", faction="hostile")
+        zombie = make_creature(rng, "zombie", faction="hostile")
+        for _ in range(50):
+            self.night.on_bite(wolf, zombie, rng)
+        self.assertEqual(self.night.cursed_with(zombie), "")
+
+    def test_the_moon_the_status_bar_shows_is_the_moon_that_turns_people(self):
+        """One source of truth, or the UI lies on the worst night of the year."""
+        fort = embark("truemoon")
+        for day in range(56):
+            fort.time.ticks = day * TICKS_PER_DAY
+            self.assertEqual(self.night.moon_is_full(fort.time),
+                             fort.time.moon_phase() == "full moon")
+
+    def test_a_cursed_dwarf_turns_at_the_full_moon(self):
+        """In your dining hall, and it is not one of yours until morning."""
+        fort = embark("turning")
+        d = fort.dwarves()[0]
+        self.night.afflict(d, "werebeast")
+        self._full_moon_night(fort)
+        before = len(fort.dwarves())
+        sim._night(fort, 10)
+        self.assertTrue(d.changed)
+        self.assertEqual(d.def_id, "werewolf")
+        self.assertEqual(d.faction, "hostile")
+        self.assertEqual(len(fort.dwarves()), before - 1)
+        self.assertIn(d, fort.hostiles())
+
+    def test_it_turns_back_at_dawn(self):
+        """And remembers none of it, and goes back on the roster."""
+        fort = embark("dawn")
+        d = fort.dwarves()[0]
+        self.night.afflict(d, "werebeast")
+        self._full_moon_night(fort)
+        sim._night(fort, 10)
+        self.assertTrue(d.changed)
+        fort.time.ticks += int(TICKS_PER_DAY * 0.45)
+        sim._night(fort, 10)
+        self.assertFalse(d.changed)
+        self.assertEqual(d.def_id, "dwarf")
+        self.assertEqual(d.faction, "fortress")
+        self.assertIn(d, fort.dwarves())
+        self.assertEqual(fort.hostiles(), [])
+
+    def test_a_werebeast_keeps_what_it_will_want_back(self):
+        """Its labors, its bed and its name -- through the change and a save.
+
+        Only creatures with a DwarfState are serialised, so clearing that on
+        transformation loses the dwarf permanently the moment somebody saves
+        during a full moon.
+        """
+        fort = embark("keepstate")
+        d = fort.dwarves()[0]
+        d.fort.nickname = "Grimm"
+        labors = sorted(d.fort.labors.enabled)
+        self.night.afflict(d, "werebeast")
+        self._full_moon_night(fort)
+        sim._night(fort, 10)
+        self.assertTrue(d.changed)
+        self.assertNotIn(d, fort.dwarves())
+        self.assertIsNotNone(d.fort)
+
+        again = Fortress.from_dict(fort.to_dict())
+        back = again.creatures[d.id]
+        self.assertIsNotNone(back.fort)
+        self.assertEqual(back.fort.nickname, "Grimm")
+        again.time.ticks += int(TICKS_PER_DAY * 0.45)
+        sim._night(again, 10)
+        self.assertFalse(back.changed)
+        self.assertIn(back, again.dwarves())
+        self.assertEqual(sorted(back.fort.labors.enabled), labors)
+
+    def test_an_uncursed_dwarf_never_turns(self):
+        """However full the moon."""
+        fort = embark("innocent")
+        self._full_moon_night(fort)
+        sim._night(fort, 10)
+        self.assertFalse(any(d.changed for d in fort.dwarves()))
+
+    # -- vampires ------------------------------------------------------------ #
+
+    def _vampire_and_victim(self, fort):
+        """A vampire, somebody asleep beside it, and nobody else near."""
+        v, victim = fort.dwarves()[0], fort.dwarves()[1]
+        self.night.afflict(v, "vampire")
+        victim.x, victim.y, victim.z = v.x + 2, v.y, v.z
+        victim.fort.sleeping = True
+        for other in fort.dwarves()[2:]:
+            other.x, other.y = other.x + 40, other.y + 30
+        return v, victim
+
+    def test_a_vampire_drains_the_sleeping(self):
+        """Slowly. Somebody looks peaky before anybody finds a body."""
+        fort = embark("thirsty")
+        _v, victim = self._vampire_and_victim(fort)
+        full = victim.body.blood
+        sim._feed_vampires(fort, self.night)
+        self.assertLess(victim.body.blood, full)
+        self.assertFalse(victim.body.dead)
+        self.assertTrue(any("weak and cold" in t
+                            for t in victim.needs.recent_thoughts(4)))
+
+    def test_a_murder_nobody_saw_has_no_suspect(self):
+        """Which is exactly the case the sheriff can never close."""
+        fort = embark("unseen")
+        _v, victim = self._vampire_and_victim(fort)
+        for _ in range(8):
+            sim._feed_vampires(fort, self.night)
+            if victim.body.dead:
+                break
+        self.assertTrue(victim.body.dead)
+        self.assertEqual(victim.body.death_cause, "drained of blood")
+        murders = [c for c in fort.crimes if c.kind == "murder"]
+        self.assertEqual(len(murders), 1)
+        self.assertIsNone(murders[0].culprit)
+        self.assertFalse(justice.can_try(fort, murders[0]))
+
+    def test_a_witness_names_the_vampire(self):
+        """Sleep in a dormitory and somebody sees who was standing there."""
+        fort = embark("caught")
+        v, victim = self._vampire_and_victim(fort)
+        watcher = fort.dwarves()[2]
+        watcher.x, watcher.y, watcher.z = victim.x + 1, victim.y, victim.z
+        watcher.fort.sleeping = False
+        sim._feed_vampires(fort, self.night)
+        self.assertTrue(fort.crimes)
+        self.assertEqual(fort.crimes[0].culprit, v.id)
+        self.assertTrue(justice.can_try(fort, fort.crimes[0]))
+
+    def test_a_vampire_does_not_drink_from_itself(self):
+        """However hungry, and however alone."""
+        fort = embark("selfserve")
+        v = fort.dwarves()[0]
+        self.night.afflict(v, "vampire")
+        v.fort.sleeping = True
+        for other in fort.dwarves()[1:]:
+            other.x, other.y = other.x + 60, other.y + 40
+        full = v.body.blood
+        sim._feed_vampires(fort, self.night)
+        self.assertEqual(v.body.blood, full)
+
+    def test_a_migrant_wave_can_hide_one(self):
+        """It says nothing when it arrives."""
+        fort = embark("hidden")
+        found = False
+        for _ in range(60):
+            arrivals = sim.migrants(fort, 4)
+            sim._maybe_vampire(fort, arrivals)
+            if any(self.night.is_vampire(d) for d in arrivals):
+                found = True
+                break
+            for d in arrivals:
+                fort.remove_creature(d)
+        self.assertTrue(found, "no vampire in sixty waves")
+
+    # -- persistence --------------------------------------------------------- #
+
+    def test_a_curse_survives_a_save(self):
+        """Mid-transformation, too."""
+        fort = embark("cursesave")
+        d = fort.dwarves()[0]
+        self.night.afflict(d, "werebeast")
+        self._full_moon_night(fort)
+        sim._night(fort, 10)
+        self.assertTrue(d.changed)
+        again = Fortress.from_dict(fort.to_dict())
+        back = again.creatures[d.id]
+        self.assertEqual(self.night.cursed_with(back), "werebeast")
+        self.assertTrue(back.changed)
+        self.assertEqual(back.def_id, "werewolf")
+        self.assertEqual(back.defn.id, "werewolf")
+        self.assertEqual(back.shape_was, "dwarf")
+        self.assertEqual(back.faction_was, "fortress")
+
+    def test_the_risen_survive_a_save(self):
+        """A zombie is still somebody's zombie after a reload."""
+        fort = embark("risensave")
+        boss = self._necromancer(fort)
+        self._corpse_at(fort, self._free_beside(fort, boss)[0])
+        self.assertTrue(self.night.necromancy_turn(fort, boss))
+        risen = next(c for c in fort.creatures.values()
+                     if c.def_id in ("zombie", "skeleton"))
+        again = Fortress.from_dict(fort.to_dict())
+        back = again.creatures[risen.id]
+        self.assertEqual(back.raised_by, boss.id)
+        self.assertEqual(back.faction, "hostile")
+
+    def test_an_ordinary_creature_saves_nothing_extra(self):
+        """The night block is only written when the night has been involved."""
+        rng = RNG("plain")
+        self.assertNotIn("night", make_creature(rng, "dwarf").to_dict())

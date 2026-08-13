@@ -652,3 +652,145 @@ class TestLocalCacheEviction(GameFixture):
 
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
+
+
+class TestNightAdventure(GameFixture):
+    """The night layer, in the half of the game that walks around in it."""
+
+    def setUp(self):
+        super().setUp()
+        from ascii_warriors.game import night as night_mod
+
+        self.night = night_mod
+
+    def _spawn(self, def_id, faction="hostile", offset=3):
+        """A creature standing near the player."""
+        from ascii_warriors.game.entity import make_creature
+
+        game = self.game
+        p = game.player
+        c = make_creature(game.rng, def_id, faction=faction)
+        for radius in range(1, 8):
+            for dx in range(-radius, radius + 1):
+                for dy in range(-radius, radius + 1):
+                    cell = (p.x + dx, p.y + dy, p.z)
+                    if cell == (p.x, p.y, p.z):
+                        continue
+                    if game.is_passable(cell[0], cell[1], cell[2], c) \
+                            and game.creature_at(*cell) is None:
+                        c.x, c.y, c.z = cell
+                        c.wx, c.wy = p.wx, p.wy
+                        game.add_creature(c)
+                        return c
+        self.fail("nowhere to put a %s" % def_id)
+
+    def _corpse_beside(self, creature):
+        """A body on a free cell next to a creature."""
+        from ascii_warriors.game.item import corpse_of
+        from ascii_warriors.game.entity import make_creature
+
+        game = self.game
+        dead = make_creature(game.rng, "human", faction="wild")
+        item = corpse_of(dead)
+        item.flags["name"] = "Somebody"
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                cell = (creature.x + dx, creature.y + dy, creature.z)
+                if cell == (creature.x, creature.y, creature.z):
+                    continue
+                if game.is_passable(cell[0], cell[1], cell[2], dead) \
+                        and game.creature_at(*cell) is None:
+                    game.drop_item(item, *cell)
+                    return item, cell
+        self.fail("nowhere to put a corpse")
+
+    def test_a_necromancer_raises_on_its_turn(self):
+        """Through the real AI, not by calling the raiser by hand."""
+        from ascii_warriors.game import ai
+
+        boss = self._spawn("necromancer")
+        boss.profession = "necromancer"
+        self._corpse_beside(boss)
+        before = len(self.game.creatures)
+        ai.take_turn(boss, self.game)
+        self.assertEqual(boss.ai.mode, "raise")
+        self.assertEqual(len(self.game.creatures), before + 1)
+
+    def test_a_necromancer_with_no_corpses_gets_on_with_its_life(self):
+        """It does not stall in raise mode with nothing to raise."""
+        from ascii_warriors.game import ai
+
+        boss = self._spawn("necromancer")
+        boss.profession = "necromancer"
+        self.game.items_on_ground.clear()
+        ai.take_turn(boss, self.game)
+        self.assertNotEqual(boss.ai.mode, "raise")
+
+    def test_the_moon_turns_whoever_it_has_a_claim_on(self):
+        """Not only the player: the innkeeper is the one who turns."""
+        from ascii_warriors.data.calendar import TICKS_PER_DAY
+
+        game = self.game
+        victim = self._spawn("human", faction="town")
+        self.night.afflict(victim, "werebeast")
+        for day in range(60):
+            game.time.ticks = day * TICKS_PER_DAY + int(TICKS_PER_DAY * 0.95)
+            if self.night.moon_is_full(game.time) and game.time.is_night():
+                break
+        game._moon()
+        self.assertTrue(victim.changed)
+        self.assertEqual(victim.def_id, "werewolf")
+        self.assertEqual(victim.faction, "hostile")
+        game.time.ticks += int(TICKS_PER_DAY * 0.45)
+        game._moon()
+        self.assertFalse(victim.changed)
+        self.assertEqual(victim.faction, "town")
+
+    def test_a_cursed_player_keeps_its_own_side(self):
+        """A game that takes the character away is not a game."""
+        from ascii_warriors.data.calendar import TICKS_PER_DAY
+
+        game = self.game
+        p = game.player
+        self.night.afflict(p, "werebeast")
+        was = p.faction
+        for day in range(60):
+            game.time.ticks = day * TICKS_PER_DAY + int(TICKS_PER_DAY * 0.95)
+            if self.night.moon_is_full(game.time) and game.time.is_night():
+                break
+        game._moon()
+        self.assertTrue(p.changed)
+        self.assertEqual(p.faction, was)
+        self.assertIs(game.player, p)
+
+    def test_the_character_sheet_names_the_affliction(self):
+        """You should be able to find out what is happening to you."""
+        from ascii_warriors.engine.screen import Screen
+        from ascii_warriors.ui.character_screen import CharacterScene
+
+        self.night.afflict(self.game.player, "werebeast")
+
+        class _App:
+            def __init__(self, game):
+                self.game = game
+                self.screen = None
+                self.term = None
+
+        scene = CharacterScene(_App(self.game))
+        lines = [getattr(f, "text", str(f)) for f in scene._lines()]
+        self.assertIn("Affliction", lines)
+        self.assertTrue(any("Werebeast" in ln for ln in lines))
+        # And the whole sheet still renders.
+        scr = Screen(100, 34)
+        scene.draw(scr)
+        self.assertEqual(len(scr.to_text()), 34)
+
+    def test_a_curse_survives_a_save(self):
+        """Through the real save file."""
+        from ascii_warriors.game import save as save_mod
+
+        self.night.afflict(self.game.player, "vampire")
+        path = save_mod.save_game(self.game, "night-test")
+        back = save_mod.load_game(path)
+        self.assertEqual(self.night.cursed_with(back.player), "vampire")
+        path.unlink()

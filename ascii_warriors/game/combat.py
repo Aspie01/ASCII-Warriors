@@ -381,11 +381,27 @@ def melee_attack(
     if weapon is not None:
         weapon.wear_tick(rng)
 
+    # A bite from something cursed is how the curse travels. What matters is
+    # the attack that landed, not whether the thing also owns a sword.
+    if attack_def.name in BITES:
+        from . import night
+
+        if night.on_bite(attacker, defender, rng, log):
+            result.add("%s been bitten by something unclean."
+                       % ("You have" if defender.is_player
+                          else "%s has" % _subject(defender)),
+                       colors.UI["danger"])
+
     if defender.body.dead:
         result.killed = True
         result.add(_slain_line(defender), colors.UI["danger"])
     _emit(log, result)
     return result
+
+
+#: Natural attacks that put teeth into a wound. Only these carry a curse:
+#: being clawed by a werewolf is a bad afternoon, being bitten is a life.
+BITES = frozenset({"bite", "gore", "sting"})
 
 
 #: What each kind of trap does when something walks onto it.

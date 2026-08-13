@@ -131,6 +131,7 @@ def step(fort) -> None:
         dwarf_mod.take_turn(fort, dwarf, ticks)
     animals.step(fort, STEP_TICKS)
     _mingle(fort, ticks)
+    _night(fort, ticks)
     _thieves(fort)
     justice.tick(fort)
     _hostiles(fort, ticks)
@@ -946,6 +947,7 @@ def _calendar(fort) -> None:
         _caravan(fort)
     if fort.time.season in ("Summer", "Winter"):
         _maybe_attack(fort)
+    _maybe_night_attack(fort)
 
 
 def _world_turns(fort) -> None:
@@ -1159,6 +1161,108 @@ def _mingle(fort, ticks: int) -> None:
                     social.meet(fort, d, other)
 
 
+#: Odds per night that a vampire in the fortress goes looking for a throat.
+FEED_ODDS = 0.02
+
+#: How far a vampire will walk for a meal. It is not fussy, but it is lazy,
+#: and it is not going to cross the fortress with the lights on.
+FEED_RANGE = 30
+
+
+def _night(fort, ticks: int) -> None:
+    """Whatever the fortress does after dark that it does not admit to.
+
+    Three things share this step because they share a clock: the moon turns
+    the cursed, the dark lets the vampire feed, and a necromancer on the map
+    puts your own dead back on their feet.
+    """
+    from ..game import night
+
+    for c in list(fort.creatures.values()):
+        if c.body.dead:
+            continue
+        if night.cursed_with(c) == "werebeast":
+            _turn_werebeast(fort, c, night)
+        if night.is_necromancer(c) and c.faction == "hostile":
+            night.necromancy_turn(fort, c)
+    if fort.time.is_night() and fort.rng.chance(FEED_ODDS):
+        _feed_vampires(fort, night)
+
+
+def _turn_werebeast(fort, dwarf, night) -> None:
+    """A cursed dwarf keeps its shape until the moon says otherwise."""
+    if night.should_change(dwarf, fort.time):
+        if night.transform(fort, dwarf):
+            # It is not one of yours until morning. Drop the job, discharge it
+            # and strip it of office -- but keep its DwarfState, because that
+            # is where its labors and its bed live and it will want them back.
+            dwarf_mod.release_job(fort, dwarf)
+            fort.military.discharge(dwarf.id)
+            fort.court.vacate(dwarf.id)
+            fort.log.bad("Get everyone inside. Now.")
+    elif dwarf.changed:
+        night.revert(fort, dwarf)
+        dwarf.faction = "fortress"
+
+
+def _feed_vampires(fort, night) -> None:
+    """Somebody wakes up cold, or does not wake up.
+
+    The bite is quiet. What is loud is the body in the morning -- and whether
+    anybody else was in the room. A dwarf that sleeps alone in a fine bedroom
+    is a dwarf nobody can prove anything about, which is the price of giving
+    everybody their own door.
+    """
+    for vampire in [c for c in fort.dwarves() if night.is_vampire(c)]:
+        victim = _sleeping_near(fort, vampire)
+        if victim is None:
+            continue
+        died = night.feed(fort, vampire, victim)
+        witness = _witness(fort, victim, vampire)
+        if died:
+            fort.kill_creature(victim)
+            justice.report(fort, "murder",
+                           vampire if witness is not None else None,
+                           victim.name)
+            if witness is not None:
+                fort.log.bad("%s saw %s standing over the body."
+                             % (witness.name, vampire.name))
+        elif witness is not None:
+            justice.report(fort, "assault", vampire, victim.name)
+            fort.log.warn("%s wakes to find %s bent over %s."
+                          % (witness.name, vampire.name, victim.name))
+
+
+def _sleeping_near(fort, vampire):
+    """The nearest sleeping dwarf that is not the vampire itself."""
+    from ..game import night
+
+    best, best_d = None, None
+    for d in fort.dwarves():
+        if d is vampire or not d.fort.sleeping:
+            continue
+        if not night.can_feed_on(d):
+            continue
+        dist = (geometry.chebyshev(vampire.x, vampire.y, d.x, d.y)
+                + abs(vampire.z - d.z) * 6)
+        if dist > FEED_RANGE:
+            continue
+        if best_d is None or dist < best_d:
+            best, best_d = d, dist
+    return best
+
+
+def _witness(fort, victim, vampire):
+    """Anybody awake close enough to see who was standing over the bed."""
+    for d in fort.dwarves():
+        if d is victim or d is vampire or d.fort.sleeping:
+            continue
+        if d.z == victim.z and geometry.chebyshev(
+                d.x, d.y, victim.x, victim.y) <= 4:
+            return d
+    return None
+
+
 def _tantrums(fort) -> None:
     """A dwarf that has had enough stops being useful about it."""
     from .nobles import STRESS_BERSERK, STRESS_TANTRUM, STRESS_UNHAPPY
@@ -1274,6 +1378,24 @@ def _maybe_migrants(fort) -> None:
                   % fort.name)
     for d in arrivals:
         fort.log.info("  %s, %s." % (d.name, dwarf_mod.display_title(d)))
+    _maybe_vampire(fort, arrivals)
+
+
+#: Odds that a migrant wave is hiding one. It says nothing when it arrives,
+#: and there is nothing on the units screen to give it away: what gives it
+#: away is the corpse, and whether anybody was in the room.
+VAMPIRE_ODDS = 0.10
+
+
+def _maybe_vampire(fort, arrivals) -> None:
+    """One of them is not what it says it is."""
+    from ..game import night
+
+    if not arrivals or fort.rng.chance(1.0 - VAMPIRE_ODDS):
+        return
+    if any(night.is_vampire(d) for d in fort.dwarves()):
+        return
+    night.afflict(fort.rng.choice(arrivals), "vampire")
 
 
 def migrants(fort, count: int) -> List:
@@ -1370,6 +1492,77 @@ def _maybe_attack(fort) -> None:
     if plan is None:
         return
     war.launch(fort, plan)
+
+
+#: Odds per season that something comes out of the dark. Half what a siege
+#: is worth, because one werebeast in a dining hall is quite enough.
+NIGHT_ODDS = 0.10
+
+#: A fortress this poor is not worth the walk, for anybody.
+NIGHT_WEALTH = 800
+
+
+def _maybe_night_attack(fort) -> None:
+    """A werebeast at the full moon, or a necromancer and what follows it.
+
+    Not a siege: one creature, arriving alone, and the damage it does is the
+    damage it leaves behind. A werebeast that bites somebody and is driven off
+    has still cost you a dwarf, you just do not know which one yet.
+    """
+    from ..game import night
+
+    if fort.lost or not fort.dwarves() or fort.wealth < NIGHT_WEALTH:
+        return
+    if fort.siege is not None or not fort.rng.chance(NIGHT_ODDS):
+        return
+    if night.moon_is_full(fort.time) and fort.rng.chance(0.6):
+        _send_werebeast(fort)
+    else:
+        _send_necromancer(fort)
+
+
+def _send_werebeast(fort) -> None:
+    """One werewolf, at the full moon, going straight for the nearest dwarf."""
+    side = fort.rng.choice(["north", "south", "east", "west"])
+    entry = fort.local.edge_entry(fort.rng, side)
+    beast = make_creature(fort.rng, "werewolf", faction="hostile", level=3)
+    beast.x, beast.y, beast.z = fort._free_spot(entry, 0)
+    beast.wx, beast.wy = fort.wx, fort.wy
+    fort.add_creature(beast)
+    fort.log.bad("The moon is full, and something is howling outside.")
+    fort.military.alert = "danger"
+
+
+def _send_necromancer(fort) -> None:
+    """A necromancer, and whatever it can find to carry.
+
+    It brings almost nothing. It does not need to: it needs your graveyard,
+    and every dwarf you lose driving it off is one more thing to fight.
+    """
+    from ..world import history as history_mod
+
+    side = fort.rng.choice(["north", "south", "east", "west"])
+    entry = fort.local.edge_entry(fort.rng, side)
+    boss = make_creature(fort.rng, "necromancer", faction="hostile", level=4)
+    boss.x, boss.y, boss.z = fort._free_spot(entry, 0)
+    boss.wx, boss.wy = fort.wx, fort.wy
+    boss.profession = "necromancer"
+    living = [f for f in fort.world.figures.values()
+              if "necromancer" in f.flags and f.alive(fort.time.year)]
+    if living:
+        fig = fort.rng.choice(living)
+        boss.name = fig.name
+        boss.hf_id = fig.id
+    fort.add_creature(boss)
+    for i in range(fort.rng.randint(1, 3)):
+        kind = fort.rng.choice(["zombie", "skeleton"])
+        thrall = make_creature(fort.rng, kind, faction="hostile", level=1)
+        thrall.x, thrall.y, thrall.z = fort._free_spot(entry, i + 1)
+        thrall.wx, thrall.wy = fort.wx, fort.wy
+        fort.add_creature(thrall)
+    fort.log.bad("%s has come to %s. Bury your dead deep."
+                 % (boss.display_name(), fort.name))
+    fort.military.alert = "danger"
 
 
 #: Odds per season that somebody tries the door while nobody is looking.

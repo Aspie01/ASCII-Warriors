@@ -56,6 +56,13 @@ class CharacterScene(Scene):
             out.append(Frag("Temperament", colors.UI["accent"]))
             for line in p.personality.describe():
                 out.append(Frag("  " + line, colors.UI["fg"]))
+            if p.curse:
+                from ..game import night as night_mod
+
+                out.append(Frag(""))
+                out.append(Frag("Affliction", colors.MAGIC))
+                out.append(Frag("  " + _curse_line(game, p, night_mod),
+                                colors.MAGIC))
             out.append(Frag(""))
             out.append(Frag("Deeds", colors.UI["accent"]))
             from ..game import renown as renown_mod
@@ -161,3 +168,15 @@ class CharacterScene(Scene):
             self.offset = 0
         elif key in (keys.ESC, "q", "C"):
             self.done = True
+
+
+def _curse_line(game, player, night_mod) -> str:
+    """What the character sheet says about a curse, and when it next bites."""
+    if player.changed:
+        return "You are not yourself tonight. You are a %s." % player.def_id
+    if night_mod.cursed_with(player) == "werebeast":
+        moon = game.time.moon_phase()
+        if night_mod.moon_is_full(game.time):
+            return "Werebeast. The moon is full. Do not be near anyone."
+        return "Werebeast. The moon is %s; it will not always be." % moon
+    return "Vampire. You do not get hungry the way you used to."

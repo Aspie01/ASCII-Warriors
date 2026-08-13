@@ -125,6 +125,13 @@ def draw_log(scr: Screen, x: int, y: int, w: int, h: int, fort) -> None:
         row += 1
 
 
+def _moon_matters(fort) -> bool:
+    """Whether tonight is one the fortress should know about."""
+    from ...game import night as night_mod
+
+    return night_mod.moon_is_full(fort.time) and fort.time.is_night()
+
+
 def draw_status_line(scr: Screen, x: int, y: int, w: int, fort, mode: str = "") -> None:
     """The top bar: what mode you are in, and whether time is running."""
     scr.fill(x, y, w, 1, " ", colors.UI["fg"], colors.UI["bg"])
@@ -165,6 +172,9 @@ def draw_status_line(scr: Screen, x: int, y: int, w: int, fort, mode: str = "") 
         if note:
             parts.append(Frag("| ", colors.UI["frame"]))
             parts.append(Frag(note + " (c) ", colors.UI["warn"]))
+    if _moon_matters(fort):
+        parts.append(Frag("| ", colors.UI["frame"]))
+        parts.append(Frag("FULL MOON ", colors.Color(230, 226, 190)))
     if getattr(fort, "bonds", None):
         from ...fortress import social as social_mod
 

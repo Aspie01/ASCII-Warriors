@@ -530,6 +530,7 @@ class Game:
         """Advance the clock, weather, needs, wounds and item state."""
         self.time.advance(ticks)
         self._world_season()
+        self._moon()
         p = self.player
 
         tile = self.world.tile(p.wx, p.wy)
@@ -579,6 +580,24 @@ class Game:
 
         if p.body.dead and not self.game_over:
             self.end_game(p.body.death_cause or "died")
+
+    def _moon(self) -> None:
+        """Change whoever the moon has a claim on, and change them back.
+
+        Everybody on the map, not only the player: the innkeeper you have been
+        buying rooms from all week is the one who turns, which is the whole
+        point of a curse being something people carry rather than a monster
+        that lives somewhere.
+        """
+        from . import night
+
+        for c in list(self.creatures.values()):
+            if c.body.dead or not night.cursed_with(c):
+                continue
+            if night.should_change(c, self.time):
+                night.transform(self, c)
+            elif c.changed:
+                night.revert(self, c)
 
     def _world_season(self) -> None:
         """Let the rest of the world have its season while you have yours.

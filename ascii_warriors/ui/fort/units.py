@@ -144,7 +144,9 @@ class UnitsScene(Scene):
         title = self.fort.court.title_of(d.id)
         if title:
             name = "%s the %s" % (name, title)
-        if state.mood:
+        if d.changed:
+            what, colour = "TRANSFORMED", colors.MAGIC
+        elif state.mood:
             what, colour = "possessed", colors.MAGIC
         elif _child(d):
             what, colour = "playing", colors.UI["accent2"]

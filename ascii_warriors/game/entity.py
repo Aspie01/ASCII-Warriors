@@ -101,6 +101,15 @@ class Creature:
         self.gold_reward = 0
         #: Set for uniquely generated creatures (forgotten beasts, titans).
         self.unique_def: Optional[CreatureDef] = None
+        #: What the night has done to this creature: "werebeast", "vampire"
+        #: or nothing. ``changed`` is set while it is wearing the other shape.
+        self.curse = ""
+        self.changed = False
+        self.shape_was = ""
+        self.faction_was = ""
+        #: Set on the risen, and on whoever raised them.
+        self.raised_by: Optional[int] = None
+        self.raised_at = 0
         #: A thief came to steal, not to fight. It is not part of a siege, it
         #: raises no alarm, and it leaves the moment its hands are full.
         self.thief = False
@@ -213,6 +222,12 @@ class Creature:
             out.append(Frag("Skills: %s." % list_join(
                 ["%s %s" % (level_name(lv), SKILLS[sid].name) for sid, lv in best]
             ), colors.UI["dim"]))
+        if self.curse:
+            out.append(Frag(
+                "It is wearing another shape." if self.changed
+                else "Something is wrong with it.", colors.MAGIC))
+        if self.raised_by is not None:
+            out.append(Frag("It was not walking a week ago.", colors.MAGIC))
         return out
 
     # -- capabilities ------------------------------------------------------ #
@@ -375,6 +390,10 @@ class Creature:
         if self.thief:
             d["thief"] = {"since": self.thief_since, "loot": self.loot,
                           "name": self.loot_name}
+        if self.curse or self.changed or self.raised_by is not None:
+            d["night"] = {"curse": self.curse, "changed": self.changed,
+                          "was": self.shape_was, "faction_was": self.faction_was,
+                          "by": self.raised_by, "at": self.raised_at}
         if self.unique_def is not None:
             u = self.unique_def
             d["unique"] = {
@@ -417,6 +436,20 @@ class Creature:
         c.kills = list(d.get("kills", []))
         c.gold_reward = int(d.get("gold_reward", 0))
         c.speech = dict(d.get("speech") or {})
+
+        night = d.get("night")
+        if night:
+            c.curse = str(night.get("curse", ""))
+            c.changed = bool(night.get("changed", False))
+            c.shape_was = str(night.get("was", ""))
+            c.faction_was = str(night.get("faction_was", ""))
+            c.raised_by = night.get("by")
+            c.raised_at = int(night.get("at", 0))
+            if c.changed and c.shape_was:
+                # It went into the save mid-change; keep it that way.
+                from ..data import creatures as _cd
+
+                c._defn = _cd.get(c.def_id)
 
         thief = d.get("thief")
         if thief:
@@ -489,7 +522,11 @@ def make_creature(
 
     c = Creature(def_id, rng=rng, faction=faction, level=level)
     defn = c.defn
-    if equip and defn.intelligent and defn.body_plan in (
+    # A werebeast fights with what it is. Arming one hands it a sword and it
+    # never bites again, which quietly removes the only thing that makes it a
+    # werebeast rather than a strong man.
+    armed = equip and not defn.has("NIGHT_CREATURE")
+    if armed and defn.intelligent and defn.body_plan in (
         "humanoid", "giant_humanoid"
     ):
         t = tier if tier is not None else max(0, min(5, defn.tier + level // 2))
