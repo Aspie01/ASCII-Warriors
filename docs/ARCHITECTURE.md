@@ -2385,7 +2385,43 @@ information for everybody. 76 ms/step to 1.43. `perform.in_tavern` and
 `perform.instruments` read the same spot, so the audience is measured where
 dwarves actually stand.
 
-## 69. Style
+## 69. Tracking (v3.9)
+
+The fourth answer from the same audit. The hunter class has had `tracker` 4
+since character creation was written and the fortress hunter labor has had
+`tracker` 3 since labors existed, and no line of code ever read either.
+
+`game/tracks.py` is a layer of at most 400 footprints, keyed by cell, holding
+only the last thing that crossed each one. Nothing steps it: a track knows
+what tick it was made on and answers questions relative to now, so ageing
+costs nothing and the cap is what keeps a long game from leaking. Recording
+happens in `Game.move_creature` -- the one funnel every move in adventure
+mode goes through, for the same reason v2.5 put every tile change through
+`dig_out`.
+
+**Finding a trail is not the skill; reading it is.** Anybody can see that
+something passed. Direction, species, age, number and condition are five
+separate facts the tracker skill hands over one at a time, at levels 1, 4, 7,
+10 and 13. A clerk and a hunter looking at the same print disagree about what
+it says, not about whether it is there.
+
+Ground decides how long a print lasts -- snow holds one for three days, sand
+for half a day, rock takes none at all, which is why a trail stops at the cave
+mouth and why `tracker` is an outdoor skill. Blood outlasts a footprint and
+does not care what it fell on, so a wounded animal is followable long after
+its tracks are not.
+
+Rain washes the trail out, which is the first thing in the game that has ever
+cared whether it was raining: weather has been in since v1 as a light and
+sight modifier only. It is the reason to set out after the storm rather than
+during it.
+
+The player's own prints are recorded but filtered out of `nearby`, because
+finding your own footprints and mistaking them for a wolf is a worse
+experience than the system is worth. `s` reads the ground and the look panel
+reports a trail on any cell, both routed through the same `read`.
+
+## 70. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

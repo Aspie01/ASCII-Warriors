@@ -510,6 +510,14 @@ generated history. Ask for work and you get a quest that points at a real
 megabeast in a real lair, or a real artifact in a real ruin. Threaten somebody
 and they will either talk or attack you.
 
+**Tracking.** Everything that walks leaves prints on soft ground, and what you
+get out of one is your Tracker skill: untrained you can tell only that
+something passed, and trained you get its direction, its species, how old the
+trail is, how many went by, and whether it was bleeding. Rock takes no print,
+so a trail stops at the cave mouth; snow holds one for days and sand loses it
+by evening; and rain washes the lot away, which is the first thing in the game
+that ever made the weather worth waiting out.
+
 **Songs, poems and dances.** Every civilization invented its own musical,
 poetic and dance forms — named in its own language, dated, with rules ("three
 voices that answer each other", "paired lines where the second reverses the

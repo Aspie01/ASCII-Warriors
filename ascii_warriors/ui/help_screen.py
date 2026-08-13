@@ -32,6 +32,7 @@ CONTROLS: List[Tuple[str, str]] = [
     ("v", "move quietly; attack unseen for an ambush"),
     ("Z", "raise the dead, if you have learned how"),
     ("P", "perform a song, poem or dance you know"),
+    ("s", "search, and read the tracks on the ground"),
     ("s", "search the area carefully"),
     ("S", "sleep for eight hours"),
     ("R", "rest a while"),
@@ -254,6 +255,20 @@ a sheriff and eventually a mayor. The mayor will demand things. Ignoring the
 demands makes the mayor furious, and a furious dwarf in a fortress full of
 unhappy dwarves is how tantrums start: broken furniture, then somebody going
 berserk with an axe.
+
+TRACKS
+
+Everything that walks leaves prints on soft ground -- grass, dirt, sand, mud,
+snow. Press s to read the ground around you, or look (x) at any cell.
+
+What you get out of a print is your Tracker skill. Untrained, you can tell
+that something passed and nothing else. Trained, in order: which way it went,
+what it was, how long ago, how many, and whether it was hurt. A trail of blood
+outlasts the footprints and does not care what it fell on.
+
+Rock takes no print, so a trail stops at the cave mouth. Snow holds one for
+days and sand loses it by evening. Rain washes the lot away -- go after the
+storm, not during it.
 
 SONGS, POEMS AND DANCES
 

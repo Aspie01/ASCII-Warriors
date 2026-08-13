@@ -20,7 +20,11 @@ from .entity import Creature, make_creature
 from .item import Item, corpse_of, starting_kit
 from .log import MessageLog
 from .quests import QuestLog
+from . import tracks as tracks_mod
 from .weather import Weather, starting_weather
+
+#: How much of the trail one tick of rain takes.
+WASHOUT_PER_TICK = 0.002
 
 #: Ticks between performances in a tavern you are standing in. Long enough
 #: that a night in one is a few songs rather than a jukebox.
@@ -396,10 +400,12 @@ class Game:
         Moving is louder than standing still, which is the only thing that
         makes standing still a tactic.
         """
-        from . import stealth
+        from . import stealth, tracks
 
+        was = (c.x, c.y, c.z)
         c.x, c.y, c.z = x, y, z
         stealth.note_action(c, "move")
+        tracks.leave(self, c, was)
         if c.is_player:
             self.update_fov()
 
@@ -538,6 +544,25 @@ class Game:
             out.append(Frag("On the ground:", colors.UI["accent"]))
             for it in pile[:8]:
                 out.append(Frag("  " + it.name(article=True), it.color))
+        out.extend(self._tracks_here(x, y, z))
+        return out
+
+    def _tracks_here(self, x: int, y: int, z: int) -> List[Frag]:
+        """What walked over this cell, as much of it as you can tell.
+
+        On the look panel rather than behind a key of its own, because the
+        question "what is this" already had a place to be answered and a
+        footprint is a thing on a tile like any other.
+        """
+        track = tracks_mod.readable(self, (x, y, z))
+        if track is None:
+            return []
+        if track.player:
+            return [Frag("", colors.UI["fg"]),
+                    Frag("Your own footprints.", colors.UI["dim"])]
+        out = [Frag("", colors.UI["fg"])]
+        for line in tracks_mod.read(self, self.player, (x, y, z), track):
+            out.append(Frag(line, colors.UI["accent2"]))
         return out
 
     def _awareness(self, c: Creature) -> List[Frag]:
@@ -614,6 +639,11 @@ class Game:
             ticks, self.rng, tile.biome, tile.temperature, self.time.season)
         if change:
             self.log.info(change)
+        if self.weather.is_wet():
+            # Rain takes the trail. Weather has been in the game since v1 and
+            # nothing has ever cared whether it was raining; this is the
+            # reason to set out after the storm rather than during it.
+            tracks_mod.wipe(self, WASHOUT_PER_TICK * ticks)
         if self.weather.is_cold() and self.local is not None \
                 and self.local.is_outside(p.x, p.y, p.z):
             # Keeping warm burns food faster.
@@ -849,6 +879,7 @@ class Game:
             "game_over": self.game_over,
             "death_message": self.death_message,
             "weather": self.weather.to_dict(),
+            "tracks": tracks_mod.to_list(self),
             "companion_ids": list(self.companion_ids),
             "companions": [c.to_dict() for c in self.travelling_companions],
             "cache": {
@@ -875,6 +906,7 @@ class Game:
         game.game_over = bool(d.get("game_over", False))
         game.death_message = str(d.get("death_message", ""))
         game.weather = Weather.from_dict(d.get("weather") or {})
+        tracks_mod.from_list(game, d.get("tracks") or [])
         game.companion_ids = [int(i) for i in d.get("companion_ids", [])]
         game._season_mark = int(d.get("season_mark", 0))
         game.travelling_companions = [

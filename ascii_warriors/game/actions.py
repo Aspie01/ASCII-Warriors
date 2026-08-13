@@ -592,9 +592,35 @@ def search(game) -> int:
                 found.append(t.name)
     if found:
         game.log.good("You notice %s nearby." % ", ".join(sorted(set(found))))
-    else:
+    trail = read_tracks(game)
+    if not found and not trail:
         game.log.info("You find nothing of interest.")
     return NORMAL
+
+
+def read_tracks(game) -> bool:
+    """Look at the ground. True if anything had walked on it.
+
+    Folded into `search` rather than given a key of its own, because looking
+    hard at the ground is what searching already was and a second key for it
+    would be two verbs for one action.
+    """
+    from . import tracks as tracks_mod
+
+    p = game.player
+    if not tracks_mod.can_track(p):
+        return False
+    found = tracks_mod.nearby(game)
+    if not found:
+        return False
+    p.add_exp("tracker", 25)
+    cell, track = found[0]
+    for line in tracks_mod.read(game, p, cell, track):
+        game.log.good(line)
+    rest = len(found) - 1
+    if rest and p.skills.level("tracker") >= tracks_mod.SPECIES_AT:
+        game.log.info("The trail runs on -- %d more prints nearby." % rest)
+    return True
 
 
 def butcher(game, corpse: Item) -> int:

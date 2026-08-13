@@ -1709,3 +1709,252 @@ class TestPerformance(GameFixture):
         back = save_mod.load_game(path)
         self.assertEqual(sorted(back.player.forms), known)
         path.unlink()
+
+
+class TestTracks(GameFixture):
+    """Footprints, and the skill that has never read one."""
+
+    def setUp(self):
+        super().setUp()
+        from ascii_warriors.game import tracks
+
+        self.tracks = tracks
+        self.soft = self._soft_cell()
+
+    def _soft_cell(self):
+        """A nearby cell whose ground takes a print."""
+        p = self.game.player
+        for r in range(1, 12):
+            for dy in range(-r, r + 1):
+                for dx in range(-r, r + 1):
+                    cell = (p.x + dx, p.y + dy, p.z)
+                    if self.tracks.takes_print(self.game, cell):
+                        return cell
+        return None
+
+    def _walker(self):
+        others = [c for c in self.game.creatures.values() if not c.is_player]
+        if not others:
+            self.skipTest("nothing to walk about")
+        return others[0]
+
+    def _walk(self, creature, cell, frm=None):
+        """Walk a creature onto a cell through the real funnel."""
+        x, y, z = cell
+        if frm is not None:
+            creature.x, creature.y, creature.z = frm
+        self.game.move_creature(creature, x, y, z)
+        return self.tracks.readable(self.game, cell)
+
+    # -- leaving them ------------------------------------------------------ #
+
+    def test_walking_on_soft_ground_leaves_a_track(self):
+        if self.soft is None:
+            self.skipTest("no soft ground nearby")
+        beast = self._walker()
+        track = self._walk(beast, self.soft)
+        self.assertIsNotNone(track)
+        self.assertEqual(track.def_id, beast.def_id)
+
+    def test_rock_takes_no_print(self):
+        p = self.game.player
+        hard = None
+        for r in range(1, 14):
+            for dy in range(-r, r + 1):
+                for dx in range(-r, r + 1):
+                    cell = (p.x + dx, p.y + dy, p.z)
+                    if (self.game.local.in_bounds(*cell)
+                            and not self.tracks.takes_print(self.game, cell)):
+                        hard = cell
+                        break
+                if hard:
+                    break
+            if hard:
+                break
+        if hard is None:
+            self.skipTest("everything here is soft")
+        self._walk(self._walker(), hard)
+        self.assertIsNone(self.tracks.readable(self.game, hard))
+
+    def test_the_track_remembers_which_way_it_went(self):
+        if self.soft is None:
+            self.skipTest("no soft ground nearby")
+        x, y, z = self.soft
+        track = self._walk(self._walker(), self.soft, frm=(x - 1, y, z))
+        self.assertEqual(track.heading, "east")
+
+    def test_every_step_has_a_heading(self):
+        from ascii_warriors.game.tracks import Track
+
+        seen = set()
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                seen.add(Track(dx=dx, dy=dy).heading)
+        self.assertEqual(len(seen), 9)
+        self.assertEqual(Track(dx=1, dy=0).heading, "east")
+        self.assertEqual(Track(dx=0, dy=-1).heading, "north")
+
+    def test_a_herd_reads_as_a_herd(self):
+        if self.soft is None:
+            self.skipTest("no soft ground nearby")
+        beast = self._walker()
+        for _ in range(4):
+            track = self._walk(beast, self.soft)
+        self.assertGreater(track.count, 1)
+
+    def test_a_different_animal_overwrites_the_count(self):
+        if self.soft is None:
+            self.skipTest("no soft ground nearby")
+        others = [c for c in self.game.creatures.values() if not c.is_player]
+        kinds = {}
+        for c in others:
+            kinds.setdefault(c.def_id, c)
+        if len(kinds) < 2:
+            self.skipTest("only one kind of creature here")
+        a, b = list(kinds.values())[:2]
+        self._walk(a, self.soft)
+        self._walk(a, self.soft)
+        track = self._walk(b, self.soft)
+        self.assertEqual(track.count, 1)
+        self.assertEqual(track.def_id, b.def_id)
+
+    def test_the_player_leaves_their_own_trail(self):
+        if self.soft is None:
+            self.skipTest("no soft ground nearby")
+        track = self._walk(self.game.player, self.soft)
+        self.assertTrue(track.player)
+
+    # -- reading them ------------------------------------------------------ #
+
+    def test_the_untrained_only_know_something_passed(self):
+        if self.soft is None:
+            self.skipTest("no soft ground nearby")
+        track = self._walk(self._walker(), self.soft)
+        self.game.player.skills.set_level("tracker", 0)
+        lines = self.tracks.read(self.game, self.game.player, self.soft, track)
+        self.assertEqual(len(lines), 1)
+        self.assertNotIn(track.name, " ".join(lines))
+
+    def test_the_skill_hands_over_one_fact_at_a_time(self):
+        if self.soft is None:
+            self.skipTest("no soft ground nearby")
+        track = self._walk(self._walker(), self.soft)
+        track.count = 4
+        counts = []
+        for level in (0, 2, 5, 8, 11, 15):
+            self.game.player.skills.set_level("tracker", level)
+            counts.append(len(self.tracks.read(
+                self.game, self.game.player, self.soft, track)))
+        self.assertEqual(counts, sorted(counts))
+        self.assertGreater(counts[-1], counts[0])
+
+    def test_a_hunter_names_the_animal(self):
+        if self.soft is None:
+            self.skipTest("no soft ground nearby")
+        beast = self._walker()
+        track = self._walk(beast, self.soft)
+        self.game.player.skills.set_level("tracker",
+                                          self.tracks.SPECIES_AT)
+        text = " ".join(self.tracks.read(
+            self.game, self.game.player, self.soft, track))
+        self.assertIn(beast.short_name(), text)
+
+    def test_blood_is_reported_to_anybody_who_can_name_the_animal(self):
+        if self.soft is None:
+            self.skipTest("no soft ground nearby")
+        track = self._walk(self._walker(), self.soft)
+        track.blood = True
+        self.game.player.skills.set_level("tracker", self.tracks.SPECIES_AT)
+        text = " ".join(self.tracks.read(
+            self.game, self.game.player, self.soft, track))
+        self.assertIn("blood", text)
+
+    # -- ageing and weather ------------------------------------------------ #
+
+    def test_a_track_fades_with_time(self):
+        if self.soft is None:
+            self.skipTest("no soft ground nearby")
+        self._walk(self._walker(), self.soft)
+        self.game.scheduler.ticks += self.tracks.BLOOD_FADE * 2
+        self.assertIsNone(self.tracks.readable(self.game, self.soft))
+
+    def test_snow_holds_a_print_longer_than_sand(self):
+        self.assertGreater(self.tracks.FADE["snow"], self.tracks.FADE["sand"])
+
+    def test_rain_takes_the_trail(self):
+        if self.soft is None:
+            self.skipTest("no soft ground nearby")
+        self._walk(self._walker(), self.soft)
+        self.assertTrue(self.tracks.layer(self.game))
+        self.tracks.wipe(self.game)
+        self.assertFalse(self.tracks.layer(self.game))
+
+    def test_the_layer_is_capped(self):
+        from ascii_warriors.game.tracks import Track
+
+        marks = self.tracks.layer(self.game)
+        for i in range(self.tracks.MAX_TRACKS + 50):
+            t = Track("rat", "rat", 1000, 1, 0, i)
+            marks[(i % 60, i // 60, 0)] = t
+        self.tracks.prune(self.game)
+        self.assertLessEqual(len(marks), self.tracks.MAX_TRACKS)
+
+    def test_pruning_drops_the_oldest_first(self):
+        from ascii_warriors.game.tracks import Track
+
+        marks = self.tracks.layer(self.game)
+        marks.clear()
+        for i in range(self.tracks.MAX_TRACKS + 40):
+            marks[(i, 0, 0)] = Track("rat", "rat", 1000, 1, 0, i)
+        self.tracks.prune(self.game)
+        self.assertNotIn((0, 0, 0), marks)
+        self.assertIn((self.tracks.MAX_TRACKS + 39, 0, 0), marks)
+
+    # -- the player's side -------------------------------------------------- #
+
+    def test_searching_reads_the_ground(self):
+        if self.soft is None:
+            self.skipTest("no soft ground nearby")
+        from ascii_warriors.game import actions
+
+        self._walk(self._walker(), self.soft)
+        self.game.player.skills.set_level("tracker", 6)
+        self.assertTrue(actions.read_tracks(self.game))
+
+    def test_your_own_footprints_are_not_a_discovery(self):
+        if self.soft is None:
+            self.skipTest("no soft ground nearby")
+        self._walk(self.game.player, self.soft)
+        self.assertEqual(self.tracks.nearby(self.game), [])
+        self.assertTrue(self.tracks.nearby(self.game, include_own=True))
+
+    def test_the_look_panel_reports_a_trail(self):
+        if self.soft is None:
+            self.skipTest("no soft ground nearby")
+        self._walk(self._walker(), self.soft)
+        self.game.player.skills.set_level("tracker", 8)
+        text = " ".join(f.text for f in self.game.describe_tile(*self.soft))
+        self.assertIn("tracks", text.lower())
+
+    def test_tracks_survive_a_save(self):
+        if self.soft is None:
+            self.skipTest("no soft ground nearby")
+        from ascii_warriors.game import save as save_mod
+
+        beast = self._walker()
+        before = self._walk(beast, self.soft)
+        path = save_mod.save_game(self.game, "tracks-test")
+        back = save_mod.load_game(path)
+        after = self.tracks.readable(back, self.soft)
+        self.assertIsNotNone(after)
+        self.assertEqual((after.def_id, after.dx, after.dy, after.tick),
+                         (before.def_id, before.dx, before.dy, before.tick))
+        path.unlink()
+
+    def test_a_save_without_tracks_still_loads(self):
+        from ascii_warriors.game.state import Game
+
+        raw = self.game.to_dict()
+        del raw["tracks"]
+        back = Game.from_dict(raw)
+        self.assertEqual(self.tracks.layer(back), {})
