@@ -2293,7 +2293,99 @@ that variance is the intended shape.
 Reading is `R` in the inventory (or Enter on a book), costs real turns scaled
 by the reading skill, and refuses to start while anything hostile is in sight.
 
-## 67. Style
+## 68. Art and performance (v3.8)
+
+The audit that found stealth in v3.6 and books in v3.7 -- *which skills does
+the data hand out that no line of code reads?* -- had three answers left.
+`music` and `dancing` appeared nowhere in the codebase outside the table that
+defines them. `poetry` appeared once, as a book subject. There was a `lute` in
+the item data with an `INSTRUMENT` flag and a value of 300 that nothing ever
+asked about. Every town generates a tavern and v3.4 let the fortress build
+one, and the only thing that had ever happened in either was that people stood
+near each other.
+
+**A form belongs to a people.** `world/artforms.py` generates musical, poetic
+and dance forms per civilization at the end of worldgen -- after history runs,
+because a form that is about the war needs the war to have happened. Each has
+a name in its own language and a translation, a year, a structure ("three
+voices that answer each other", "paired lines where the second reverses the
+first"), a purpose, and for music the instrument it calls for by name. About
+45% of them are *about* something that actually happened, and the invention
+year is pushed forward to the event's if it has to be, because nobody wrote
+the song about the battle before the battle.
+
+**`game/performance.py` is the act, and both modes call it.** A fortress
+performance and a tavern performance three hundred miles away differ only in
+who is in the room. Quality is a band from `halting` to `legendary`, rolled
+against the form's own skill plus knowing it, plus the instrument, plus
+playing your own people's work to your own people. The bands come off an
+explicit threshold table rather than an offset and a divisor: the first cut
+did it the other way and quietly handed an untrained dwarf who happened to
+know the song a `moving` performance, which is the same mistake v3.6's stealth
+made by centring its logistic on zero. The curve now reads: untrained is
+`halting` 61% of the time and can never exceed `plain`; skill 7 with the right
+instrument is `fine`; `legendary` wants a skill in the high teens.
+
+**Instruments are furniture, not luggage.** A fortress dwarf never carries a
+harp around, so `instrument_for` checks what is lying in the room as well as
+what is in the performer's hands. Without that second half the measurement was
+unambiguous: a fortress performed *identically* with and without a single
+instrument in it, so every instrument recipe in the game would have been
+decoration. The carpenter now makes lutes, flutes and harps and the
+craftsdwarf makes drums, and hauling one into the tavern is worth two quality
+bands.
+
+**Everything that moves stress goes through one funnel.** `performance.felt`
+clamps a performance's effect into a window: relief stops at -45 and annoyance
+stops at +45. Outside it the thought is still recorded and the number stops
+moving. This is not a detail -- without it the entire mood system collapses
+into the tavern. Measured over three hundred performances, a fortress with one
+good musician sat pinned at the -150 stress floor for ever, and a fortress
+with only amateurs climbed to +198, which is a tantrum spiral caused entirely
+by bad poetry. Two separate paths bypassed the window in the first cut -- the
+fortress topping up its own tavern bonus, and the performer's own thought
+about how it went -- and each one silently undid it. `mood` is a parameter to
+`perform` for exactly that reason, the same way v2.5 made `dig_out` the one
+funnel every tile change goes through.
+
+**Forms travel, and carry history with them.** A listener has a chance of
+learning the form scaled by how good it was -- nobody learns a song off
+somebody butchering it -- and because a form is bound to a real event, hearing
+a good one opens that event the same way reading a book does. That is how a
+dwarven song ends up sung in a human town, and how you find out what happened
+at a battle you were nowhere near.
+
+The world writes down 4% of legendary performances given to four or more
+listeners. Without that gate a fortress with a good bard produced two hundred
+history events in fifty measured days, which is not a history, it is a diary.
+
+`P` performs in adventure mode; a crowd that liked it throws coins and it is
+the only income in the game that does not involve killing something. Standing
+in a tavern, other people perform at you. Any townsperson can be asked to.
+The legends screen grew an **Art** tab, and there is a **bard** class that
+starts with a lute.
+
+**A v3.4 bug this milestone's benchmark found.** Measuring the sim step with a
+tavern gave 76 ms against 1.5 ms for the same fortress without one, and the
+A/B against v3.7 was flat -- so it predated v3.8 entirely. The cause was the
+failure `work_positions` already warns about in its own docstring: `path_to`
+will happily route to a cell *adjacent* to the goal, one z-level away
+included, while `_to_the_tavern`'s arrival test insisted on the tavern
+centre's own z. When the centre stops being walkable -- a cave-in, a flood, a
+wall built across the room -- every idle dwarf paths somewhere it does not
+believe it has arrived, throws the path away and searches again, and a failing
+A* expands the whole reachable map first. 36 of every 37 seconds were inside
+it.
+
+`dwarf.tavern_spot` now returns the one cell both halves use: the centre when
+it is walkable, otherwise the nearest walkable cell in the room. When there is
+none the tavern is genuinely sealed and `_tavern_blocked_until` stops the
+whole fortress trying for a while, because one dwarf finding out is enough
+information for everybody. 76 ms/step to 1.43. `perform.in_tavern` and
+`perform.instruments` read the same spot, so the audience is measured where
+dwarves actually stand.
+
+## 69. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

@@ -12,7 +12,8 @@ from ..engine.widgets import (
 from ..world import legends
 from .app import Scene
 
-TABS = ["Overview", "Figures", "Sites", "Civilizations", "Artifacts", "Events"]
+TABS = ["Overview", "Figures", "Sites", "Civilizations", "Artifacts",
+        "Art", "Events"]
 
 
 class LegendsScene(Scene):
@@ -83,6 +84,16 @@ class LegendsScene(Scene):
                           colors.MAGIC)],
                     ("artifact", a.id)))
         elif idx == 5:
+            from ..world import artforms
+
+            for f in sorted(artforms.forms(world),
+                            key=lambda f: (f.kind, f.name)):
+                if needle and needle not in f.name.lower():
+                    continue
+                items.append(MenuItem(
+                    [Frag(artforms.summary(world, f), colors.UI["accent2"])],
+                    ("form", f.id)))
+        elif idx == 6:
             for e in reversed(world.events[-500:]):
                 if needle and needle not in e.text.lower():
                     continue
@@ -173,6 +184,11 @@ class LegendsScene(Scene):
             self.detail = legends.civ_lines(world, ident)
         elif kind == "artifact":
             self.detail = legends.artifact_lines(world, ident)
+        elif kind == "form":
+            from ..world import artforms
+
+            form = artforms.by_id(world, ident)
+            self.detail = artforms.describe(world, form) if form else None
         elif kind == "event":
             ev = next((e for e in world.events if e.id == ident), None)
             self.detail = legends.event_lines(world, ev) if ev else None

@@ -4301,3 +4301,301 @@ class TestStealthInTheFortress(unittest.TestCase):
         fort.add_creature(thief)
         sim.run(fort, 200)
         self.assertFalse(fort.lost)
+
+
+class TestTheTavern(unittest.TestCase):
+    """v3.4 built the room. This is what finally happens in it."""
+
+    def setUp(self):
+        from ascii_warriors.fortress import perform as perform_mod
+        from ascii_warriors.game import performance
+        from ascii_warriors.world import artforms
+
+        self.perform = perform_mod
+        self.performance = performance
+        self.artforms = artforms
+
+    def _tavern_fort(self, seed="tavern", instruments=(), skill=0):
+        """A fortress with a built tavern and everybody standing in it."""
+        from ascii_warriors.fortress.buildings import Building
+        from ascii_warriors.game.item import Item
+
+        fort = embark(seed)
+        d0 = fort.dwarves()[0]
+        cx, cy, cz = d0.x, d0.y, d0.z
+        b = Building("tavern", cx, cy, cz)
+        b.built = True
+        fort.buildings.append(b)
+        for i, d in enumerate(fort.dwarves()):
+            d.x, d.y, d.z = cx + (i % 3) - 1, cy + (i // 3) - 1, cz
+            if skill:
+                for s in ("music", "poetry", "dancing"):
+                    d.skills.set_level(s, skill)
+        for did in instruments:
+            fort.drop_item(Item(did, "oak"), cx, cy, cz)
+        return fort
+
+    def _rounds(self, fort, n):
+        """Force *n* performance opportunities and collect what happened."""
+        out = []
+        for _ in range(n):
+            fort.ticks += self.perform.INTERVAL
+            res = self.perform.tick(fort, 10)
+            if res is not None:
+                out.append(res)
+        return out
+
+    # -- the room ---------------------------------------------------------- #
+
+    def test_no_tavern_means_no_performances(self):
+        fort = embark("notavern")
+        self.assertEqual(self._rounds(fort, 40), [])
+
+    def test_a_tavern_holds_performances(self):
+        fort = self._tavern_fort("holds")
+        self.assertTrue(self._rounds(fort, 40))
+
+    def test_performing_needs_an_audience(self):
+        fort = self._tavern_fort("alone")
+        for d in fort.dwarves()[1:]:
+            d.x += 40
+        self.assertEqual(self._rounds(fort, 20), [])
+
+    def test_performances_are_rationed(self):
+        """Six a day, not one a step: the tavern is not a jukebox."""
+        fort = self._tavern_fort("rationed")
+        held = [self.perform.tick(fort, 10) for _ in range(50)]
+        self.assertEqual(len([r for r in held if r is not None]), 1)
+
+    def test_the_embarking_seven_already_know_songs(self):
+        fort = embark("knows")
+        self.assertTrue(any(d.forms for d in fort.dwarves()))
+
+    # -- instruments ------------------------------------------------------- #
+
+    def test_an_instrument_in_the_tavern_is_found(self):
+        fort = self._tavern_fort("found", instruments=("lute",))
+        got = self.perform.instruments(fort)
+        self.assertEqual([i.def_id for i in got], ["lute"])
+
+    def test_an_instrument_across_the_map_is_not_in_the_tavern(self):
+        from ascii_warriors.game.item import Item
+
+        fort = self._tavern_fort("faraway")
+        d0 = fort.dwarves()[0]
+        fort.drop_item(Item("lute", "oak"), d0.x + 30, d0.y, d0.z)
+        self.assertEqual(self.perform.instruments(fort), [])
+
+    def test_instruments_lift_the_music_a_fortress_makes(self):
+        """The defect this caught: dwarves never carry one, so without the
+        room's own pool a fortress could craft every instrument in the game
+        and its musicians would still be playing nothing."""
+        every = self.artforms.INSTRUMENTS
+        bare = self._rounds(self._tavern_fort("bare", skill=8), 120)
+        full = self._rounds(
+            self._tavern_fort("full", instruments=every, skill=8), 120)
+
+        def music_mean(results):
+            songs = [r.band for r in results if r.form.kind == "music"]
+            return sum(songs) / float(len(songs)) if songs else 0.0
+
+        self.assertGreater(music_mean(full), music_mean(bare))
+
+    def test_a_fortress_can_make_its_own_instruments(self):
+        from ascii_warriors.fortress import production
+
+        made = {r.output for r in production.RECIPES.values()}
+        self.assertTrue({"lute", "drum", "flute", "harp"} <= made)
+
+    # -- what the room gets out of it -------------------------------------- #
+
+    def test_good_music_calms_the_fortress(self):
+        fort = self._tavern_fort("calm", instruments=self.artforms.INSTRUMENTS,
+                                 skill=14)
+        for d in fort.dwarves():
+            d.needs.stress = 100
+        self._rounds(fort, 80)
+        worst = max(d.needs.stress for d in fort.dwarves())
+        self.assertLess(worst, 100)
+
+    def test_bad_music_is_worse_than_none(self):
+        fort = self._tavern_fort("bad")
+        for d in fort.dwarves():
+            d.needs.stress = 0
+        self._rounds(fort, 80)
+        self.assertGreater(max(d.needs.stress for d in fort.dwarves()), 0)
+
+    def test_a_tavern_cannot_pin_the_fortress_at_the_floor(self):
+        """A song is worth a lot and it is not worth everything."""
+        fort = self._tavern_fort("pinned",
+                                 instruments=self.artforms.INSTRUMENTS,
+                                 skill=18)
+        for d in fort.dwarves():
+            d.needs.stress = 0
+        self._rounds(fort, 400)
+        best = min(d.needs.stress for d in fort.dwarves())
+        self.assertGreaterEqual(best, self.performance.RELIEF_FLOOR - 1)
+
+    def test_a_tavern_of_amateurs_cannot_drive_a_tantrum_spiral(self):
+        fort = self._tavern_fort("spiral")
+        for d in fort.dwarves():
+            d.needs.stress = 0
+        self._rounds(fort, 400)
+        worst = max(d.needs.stress for d in fort.dwarves())
+        self.assertLessEqual(worst, self.performance.ANNOYANCE_CEILING + 5)
+
+    def test_skill_decides_who_performs_but_does_not_dictate_it(self):
+        fort = self._tavern_fort("who")
+        star = fort.dwarves()[0]
+        for s in ("music", "poetry", "dancing"):
+            star.skills.set_level(s, 18)
+        who = [r.performer.id for r in self._rounds(fort, 200)]
+        share = who.count(star.id) / float(len(who))
+        self.assertGreater(share, 0.4)
+        self.assertLess(share, 0.95)
+
+    def test_the_world_remembers_only_a_few_great_performances(self):
+        fort = self._tavern_fort("history",
+                                 instruments=self.artforms.INSTRUMENTS,
+                                 skill=18)
+        results = self._rounds(fort, 300)
+        legendary = len([r for r in results
+                         if r.band >= self.performance.LEGENDARY_AT])
+        recorded = len([e for e in fort.world.events if e.kind == "performance"])
+        self.assertTrue(legendary, "nobody was ever legendary")
+        self.assertLess(recorded, legendary // 4 + 5)
+
+    def test_forms_spread_through_the_fortress(self):
+        fort = self._tavern_fort("spread",
+                                 instruments=self.artforms.INSTRUMENTS,
+                                 skill=14)
+        before = sum(len(d.forms) for d in fort.dwarves())
+        self._rounds(fort, 200)
+        self.assertGreater(sum(len(d.forms) for d in fort.dwarves()), before)
+
+    def test_the_tavern_summary_reads(self):
+        fort = self._tavern_fort("summary")
+        self.assertIn("forms known", self.perform.summary(fort))
+
+    def test_a_tavern_survives_a_save(self):
+        fort = self._tavern_fort("saved", instruments=("lute",))
+        self._rounds(fort, 20)
+        known = {d.id: sorted(d.forms) for d in fort.dwarves()}
+        back = Fortress.from_dict(fort.to_dict())
+        self.assertEqual({d.id: sorted(d.forms) for d in back.dwarves()}, known)
+        self.assertTrue(self.perform.instruments(back))
+
+
+class TestTavernPathing(unittest.TestCase):
+    """A tavern nobody can reach must not cost fifty times the frame."""
+
+    def _fort_with_tavern(self, seed, reachable):
+        """A fortress whose tavern the dwarves can walk to, or cannot.
+
+        Unreachable means genuinely sealed -- a chamber walled off underground
+        with rock over it, which is what a cave-in leaves behind. Building it
+        rather than digging it, for the reason `_sealed_room` gives.
+        """
+        fort = embark(seed)
+        if reachable:
+            d0 = fort.dwarves()[0]
+            cx, cy, cz = d0.x, d0.y, d0.z
+        else:
+            room = self._seal(fort)
+            self.assertTrue(room, "could not seal a chamber")
+            cx, cy, cz = room[len(room) // 2]
+        b = Building("tavern", cx - 1, cy - 1, cz)
+        b.built = True
+        fort.buildings.append(b)
+        return fort, b
+
+    def _seal(self, fort, size=3):
+        """Wall a chamber off underground and return its floor cells."""
+        lm = fort.local
+        for z in range(lm.zmin + 2, lm.zmax - 2):
+            for y in range(2, lm.height - size - 3):
+                for x in range(2, lm.width - size - 3):
+                    cells = [(x + dx, y + dy, z)
+                             for dx in range(size) for dy in range(size)]
+                    if any(not lm.walkable(*c) or lm.is_outside(*c)
+                           for c in cells):
+                        continue
+                    for dx in range(-1, size + 1):
+                        for dy in range(-1, size + 1):
+                            side = (x + dx, y + dy, z)
+                            if side not in cells:
+                                lm.set_tile(*side, "rock_wall")
+                            lm.set_tile(x + dx, y + dy, z + 1, "rock_wall")
+                            lm.set_tile(x + dx, y + dy, z - 1, "rock_wall")
+                    return cells
+        return []
+
+    def _idle_searches(self, fort, tries):
+        """A* searches spent by every dwarf idling towards the tavern."""
+        from ascii_warriors.engine import pathfind
+
+        calls = [0]
+        real = dwarf_mod.astar
+
+        def counting(*a, **kw):
+            calls[0] += 1
+            return real(*a, **kw)
+
+        dwarf_mod.astar = counting
+        try:
+            for _ in range(tries):
+                for d in fort.dwarves():
+                    # Every dwarf, on a tick it would plan a route on.
+                    d.fort.idle_ticks = dwarf_mod.TAVERN_REPATH
+                    d.fort.path = []
+                    dwarf_mod._to_the_tavern(fort, d)
+                fort.ticks += 10
+        finally:
+            dwarf_mod.astar = real
+        return calls[0]
+
+    def test_an_unreachable_tavern_is_searched_for_once_not_forever(self):
+        """The defect: a failing A* expands the whole reachable map, and
+        every idle dwarf paid for one every sixteen ticks."""
+        fort, _b = self._fort_with_tavern("blocked", reachable=False)
+        searches = self._idle_searches(fort, 30)
+        self.assertLessEqual(searches, len(fort.dwarves()),
+                             "still searching for a tavern nobody can reach")
+
+    def test_without_the_backoff_it_would_search_every_time(self):
+        """Proves the test above is measuring the fix and not an accident."""
+        fort, _b = self._fort_with_tavern("nofix", reachable=False)
+        old = dwarf_mod.TAVERN_UNREACHABLE_BACKOFF
+        dwarf_mod.TAVERN_UNREACHABLE_BACKOFF = 0
+        try:
+            searches = self._idle_searches(fort, 30)
+        finally:
+            dwarf_mod.TAVERN_UNREACHABLE_BACKOFF = old
+        self.assertGreater(searches, 30)
+
+    def test_the_backoff_is_recorded_and_expires(self):
+        fort, _b = self._fort_with_tavern("expires", reachable=False)
+        self._idle_searches(fort, 2)
+        blocked = getattr(fort, "_tavern_blocked_until", 0)
+        self.assertGreater(blocked, fort.ticks)
+        self.assertLessEqual(blocked - fort.ticks,
+                             dwarf_mod.TAVERN_UNREACHABLE_BACKOFF + 10)
+
+    def test_a_reachable_tavern_is_still_walked_to(self):
+        fort, _b = self._fort_with_tavern("reachable", reachable=True)
+        moved = 0
+        for _ in range(30):
+            for d in fort.dwarves():
+                d.fort.idle_ticks = dwarf_mod.TAVERN_REPATH
+                if dwarf_mod._to_the_tavern(fort, d):
+                    moved += 1
+            fort.ticks += 10
+        self.assertGreater(moved, 0, "nobody goes to a tavern they can reach")
+
+    def test_a_reachable_tavern_gathers_the_fortress(self):
+        from ascii_warriors.fortress import perform as perform_mod
+
+        fort, _b = self._fort_with_tavern("gathers", reachable=True)
+        for _ in range(200):
+            sim.step(fort)
+        self.assertGreaterEqual(len(perform_mod.in_tavern(fort)), 2)

@@ -474,6 +474,7 @@ def starting_kit(rng: RNG, race: str, profession: str) -> List[Item]:
         "hunter": ("bow", "dagger"),
         "thief": ("dagger", "dagger"),
         "scholar": ("dagger", "book"),
+        "bard": ("dagger", "lute"),
         "peasant": ("dagger",),
         "wrestler": (),
     }.get(profession, ("sword",))
@@ -485,6 +486,8 @@ def starting_kit(rng: RNG, race: str, profession: str) -> List[Item]:
             mat = "oak" if rng.chance(0.5) else metal
         elif w == "book":
             mat = "leather"
+        elif w == "lute":
+            mat = "oak"
         kit.append(Item(w, mat, quality=rng.randint(0, 1)))
 
     armour = {
@@ -496,6 +499,7 @@ def starting_kit(rng: RNG, race: str, profession: str) -> List[Item]:
         "hunter": ("leather_armor", "hood", "shoes"),
         "thief": ("leather_armor", "hood", "shoes"),
         "scholar": ("robe", "shoes"),
+        "bard": ("tunic", "trousers", "shoes"),
         "peasant": ("tunic", "trousers", "shoes"),
         "wrestler": ("tunic", "trousers", "shoes"),
     }.get(profession, ("leather_armor", "shoes"))

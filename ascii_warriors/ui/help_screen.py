@@ -31,6 +31,7 @@ CONTROLS: List[Tuple[str, str]] = [
     ("t", "talk to somebody"),
     ("v", "move quietly; attack unseen for an ambush"),
     ("Z", "raise the dead, if you have learned how"),
+    ("P", "perform a song, poem or dance you know"),
     ("s", "search the area carefully"),
     ("S", "sleep for eight hours"),
     ("R", "rest a while"),
@@ -254,6 +255,28 @@ demands makes the mayor furious, and a furious dwarf in a fortress full of
 unhappy dwarves is how tantrums start: broken furniture, then somebody going
 berserk with an axe.
 
+SONGS, POEMS AND DANCES
+
+Every civilization invented its own musical, poetic and dance forms, and they
+are real things with names, dates and rules. Most of them are about something
+that actually happened, so hearing a good one tells you the history the same
+way a book does.
+
+Press P to perform one you know. You start knowing a few of your own people's
+work. The audience is whoever can see you, and a tavern crowd that liked it
+throws coins -- the only money in this game that does not come off a corpse.
+Perform badly and somebody will tell you to sit down.
+
+It is a skill, and an honest one: untrained, you are halting, and nothing will
+change that but doing it. A musical form asks for a particular instrument by
+name; playing it on the wrong one is worse, and on none at all is much worse.
+
+Stand in a tavern and other people will perform at you. You can ask anybody to
+(talk to them), and hearing something good may teach you the form. The Art tab
+of the legends screen (G) lists every form in the world.
+
+The bard class starts with a lute and the skills to use it.
+
 BOOKS AND SECRETS
 
 A book is about something that really happened in this world. Read one (R in
@@ -310,6 +333,15 @@ Build a tavern (b, Workshops) and dwarves with nothing to do go there instead
 of standing in a corridor. That is where friendships happen: bonds move where
 dwarves already are, and the tavern is simply where everybody idle ends up at
 once.
+
+It is also where they perform. A few times a day somebody in the tavern gets
+up and does a song, a poem or a dance their people invented, and the room
+feels better for it -- or worse, because anybody may perform and your seven
+founders are not musicians. Instruments live in the room rather than in
+anybody's pack: build a carpenter's shop, make a lute, and haul it in there.
+It is worth two grades of quality to whoever plays it. A song will only calm
+a dwarf so far, so a tavern is a good reason to build one and never a reason
+to build nothing else.
 
 Who gets on with whom is personality, not luck. Compatibility sets a ceiling,
 so a merely agreeable pair will be acquaintances for ever however long they

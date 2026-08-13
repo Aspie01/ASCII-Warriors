@@ -23,6 +23,7 @@ from . import animals
 from . import art
 from . import dwarf as dwarf_mod
 from . import justice
+from . import perform
 from . import production
 from . import social
 from . import war
@@ -131,6 +132,7 @@ def step(fort) -> None:
         dwarf_mod.take_turn(fort, dwarf, ticks)
     animals.step(fort, STEP_TICKS)
     _mingle(fort, ticks)
+    perform.tick(fort, ticks)
     _night(fort, ticks)
     _thieves(fort)
     justice.tick(fort)

@@ -31,8 +31,9 @@ DEFAULT_SCRIPT: List[str] = (
     + ["i", "j", "j", "TAB", "j", "ESC"]
     # Character sheet: every tab
     + ["C", "TAB", "j", "j", "TAB", "TAB", "TAB", "ESC"]
-    # Legends: every tab, open an entry
-    + ["L", "TAB", "j", "ENTER", "j", "j", "ESC", "TAB", "TAB", "TAB", "ESC"]
+    # Legends: every tab, open an entry, and the Art tab's detail page
+    + ["L", "TAB", "j", "ENTER", "j", "j", "ESC", "TAB", "TAB", "TAB",
+       "TAB", "j", "ENTER", "ESC", "ESC"]
     # Help
     + ["?", "TAB", "TAB", "ESC"]
     # World map
@@ -41,6 +42,8 @@ DEFAULT_SCRIPT: List[str] = (
     + ["v", "x", "TAB", "ESC", "v"]
     # Try to raise the dead without knowing how, and read whatever is carried
     + ["Z", "i", "R", "ESC"]
+    # Perform something, and cancel out of the chooser once
+    + ["P", "ESC", "P", "ENTER"]
     # Search, rest, wait
     + ["s", ".", ".", "R"]
     # Pause menu -> save -> resume

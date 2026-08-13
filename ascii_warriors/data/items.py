@@ -362,7 +362,7 @@ _tool("flask", "flask", 120, 12, mats=("METAL", "GLASS"),
 _tool("quiver", "quiver", 200, 15, mats=("LEATHER",),
       flags=("TOOL", "CONTAINER", "QUIVER"))
 _tool("rope", "rope", 200, 12, mats=("CLOTH", "ORGANIC"), desc="For climbing down.")
-_tool("torch", "torch", 100, 5, mats=("WOOD",), flags=("TOOL", "LIGHT", "FLAMMABLE"),
+_tool("torch", "torch", 100, 5, plural="torches", mats=("WOOD",), flags=("TOOL", "LIGHT", "FLAMMABLE"),
       glyph="~", desc="Burns for a while and keeps the dark at arm's length.")
 _tool("lantern", "lantern", 200, 40, mats=("METAL",), flags=("TOOL", "LIGHT"),
       glyph="~")
@@ -377,7 +377,23 @@ _tool("flint_and_steel", "flint and steel", 40, 10, mats=("METAL",),
       plural="flint and steel sets", flags=("TOOL", "FIRE"))
 _tool("shovel", "shovel", 300, 18)
 _tool("fishing_rod", "fishing rod", 200, 12, mats=("WOOD",))
+# Instruments. `instrument` is kept as the generic one because artifacts have
+# always been able to be one and a save may hold it; the rest are what a
+# musical form actually asks for by name.
 _tool("instrument", "lute", 300, 40, mats=("WOOD",), flags=("TOOL", "INSTRUMENT"))
+_tool("lute", "lute", 300, 40, mats=("WOOD",), flags=("TOOL", "INSTRUMENT"),
+      desc="Six strings over a bowl of thin wood. Loud for its weight.")
+_tool("drum", "drum", 400, 25, mats=("WOOD", "LEATHER"),
+      flags=("TOOL", "INSTRUMENT"),
+      desc="Hide stretched over a hoop. The oldest of them, and the simplest.")
+_tool("flute", "flute", 60, 30, mats=("WOOD", "BONE"),
+      flags=("TOOL", "INSTRUMENT"),
+      desc="A tube with holes cut down it. Small enough to carry anywhere.")
+_tool("horn", "horn", 350, 35, mats=("METAL", "BONE"),
+      flags=("TOOL", "INSTRUMENT"),
+      desc="It carries further than a shout and means more.")
+_tool("harp", "harp", 900, 90, mats=("WOOD",), flags=("TOOL", "INSTRUMENT"),
+      desc="Strings on a frame, tuned one at a time. A rich thing to own.")
 _tool("book", "book", 200, 60, mats=("ORGANIC",), flags=("BOOK",), category="book",
       glyph="?", desc="Somebody's collected knowledge, bound in leather.")
 

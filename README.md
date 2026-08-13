@@ -204,7 +204,7 @@ python -m ascii_warriors --dump-world - --size small --history 200 | less
 | `a` | attack a direction, aiming at a body part |
 | `f` `F` | fire a readied bow / throw something |
 | `C` `z` `Q` `G` | character / skills / tasks / legends |
-| `p` | your party |
+| `p` `P` | your party / perform a song, poem or dance |
 | `T` `M` | travel / view the world map |
 | `?` | help |
 | `Ctrl-S` | save |
@@ -509,6 +509,19 @@ beasts in the region, or for directions, and you get real answers from the
 generated history. Ask for work and you get a quest that points at a real
 megabeast in a real lair, or a real artifact in a real ruin. Threaten somebody
 and they will either talk or attack you.
+
+**Songs, poems and dances.** Every civilization invented its own musical,
+poetic and dance forms — named in its own language, dated, with rules ("three
+voices that answer each other", "paired lines where the second reverses the
+first"), and usually *about* something that actually happened in this world.
+Perform one with `P`; a tavern crowd that liked it throws coins, which is the
+only money in the game that does not come off a corpse. Stand in a tavern and
+others will perform at you, and hearing a good one both teaches you the form
+and tells you the history behind it. A musical form asks for a particular
+instrument by name, and playing it on the wrong one shows. In the fortress,
+the tavern you built for friendships is also where somebody gets up a few
+times a day and performs — well, if you gave them the skill and hauled an
+instrument in there, and badly if you did not.
 
 **79 creatures**, from rats and chickens through wolves, bears and alligators to
 trolls, minotaurs, hydras, dragons, bronze colossuses and procedurally generated

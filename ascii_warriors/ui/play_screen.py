@@ -247,6 +247,8 @@ class PlayScene(Scene):
             cost = actions.toggle_sneak(game)
         elif key == "Z":
             cost = actions.raise_dead(game)
+        elif key == "P":
+            cost = self._perform()
         elif key == "s":
             cost = actions.search(game)
         elif key == "S":
@@ -582,6 +584,27 @@ class PlayScene(Scene):
                 return 0
         return actions.diagnose(game, patient)
 
+    def _perform(self) -> int:
+        """Perform something you know to whoever is standing there."""
+        from ..game import performance
+        from ..world import artforms
+
+        game = self.game
+        mine = performance.repertoire(game.world, game.player)
+        if not mine:
+            game.log.info(
+                "You know no songs, poems or dances. Listen to somebody who does.")
+            return actions.FREE
+        items = [
+            MenuItem("%-28s %s" % (f.name[:28], _form_hint(game, f)), f,
+                     desc=artforms.describe(game.world, f)[0])
+            for f in sorted(mine, key=lambda f: (f.kind, f.name))
+        ]
+        form = choose(self.app.screen, self.app.term, "Perform what?", items)
+        if form is None:
+            return actions.FREE
+        return actions.perform(game, form)
+
     def _party(self) -> None:
         """Show and manage your companions."""
         from ..game import companions as companion_mod
@@ -650,3 +673,26 @@ class PlayScene(Scene):
         if recipe is None:
             return 0
         return actions.craft_recipe(game, recipe)
+
+
+def _form_hint(game, form) -> str:
+    """What the menu says about a form beyond its name.
+
+    The instrument matters enough to say out loud: a musician who has left the
+    lute at home is about to be two bands worse and should be told before
+    choosing rather than after.
+    """
+    from ..game import performance
+
+    parts = [form.kind]
+    if form.kind == "music":
+        item, bonus = performance.instrument_for(game.player, form)
+        if item is None:
+            parts.append("no instrument!")
+        elif bonus == performance.WRONG_INSTRUMENT:
+            parts.append("wants %s" % form.instrument)
+        else:
+            parts.append(item.defn.name)
+    level = game.player.skills.level(form.skill)
+    parts.append("skill %d" % level)
+    return ", ".join(parts)

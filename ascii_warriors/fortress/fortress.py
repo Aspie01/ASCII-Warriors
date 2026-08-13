@@ -142,6 +142,7 @@ class Fortress:
         from ..data import names as name_data
         from ..world import localmap as localmap_mod
         from . import animals as animal_mod
+        from . import perform as perform_mod
         from .labors import STARTING_SEVEN
 
         old = (localmap_mod.LOCAL_W, localmap_mod.LOCAL_H,
@@ -189,6 +190,7 @@ class Fortress:
         fort._unload_wagon(wagon)
         fort._unload_animals(wagon, rng)
         animal_mod.spawn_wildlife(fort, rng)
+        perform_mod.teach_embark(fort)
         fort.log.good("%s has been founded." % fort.name)
         fort.log.info("Seven dwarves, and everything they could carry.")
         fort.log.info("Press ? for help. Space starts and stops time.")

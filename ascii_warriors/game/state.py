@@ -22,6 +22,13 @@ from .log import MessageLog
 from .quests import QuestLog
 from .weather import Weather, starting_weather
 
+#: Ticks between performances in a tavern you are standing in. Long enough
+#: that a night in one is a few songs rather than a jukebox.
+TAVERN_MUSIC = 900
+
+#: How far a tavern performance carries.
+TAVERN_HEARING = 9
+
 #: How many world tiles of wilderness get wildlife when you arrive.
 WILDLIFE_MIN = 3
 WILDLIFE_MAX = 9
@@ -83,6 +90,7 @@ class Game:
         for it in starting_kit(rng, race, profession):
             player.inventory.add(it)
         player.inventory.auto_equip()
+        _teach_own_forms(world, rng, player, race)
 
         game = cls(world, player, rng)
         start = game._starting_tile()
@@ -646,8 +654,49 @@ class Game:
                         if it in p.inventory.items:
                             p.inventory.items.remove(it)
 
+        self._tavern_music(ticks)
+
         if p.body.dead and not self.game_over:
             self.end_game(p.body.death_cause or "died")
+
+    def _tavern_music(self, ticks: int) -> None:
+        """Somebody in the tavern performs, and you are in the room for it.
+
+        The only reason a tavern has ever been worth walking into is a bed and
+        a quest. This is the other thing taverns are for: a song you have not
+        heard, about a battle you were nowhere near, off somebody who grew up
+        four hundred miles from where you did.
+        """
+        from ..world import artforms
+        from . import performance
+
+        p = self.player
+        if self.local is None or self.local.tile(p.x, p.y, p.z) != "tavern":
+            return
+        self._tavern_wait = getattr(self, "_tavern_wait", TAVERN_MUSIC) - ticks
+        if self._tavern_wait > 0:
+            return
+        self._tavern_wait = TAVERN_MUSIC
+
+        near = [c for c in self.visible_creatures()
+                if not c.is_hostile_to(p) and p.distance_to(c) <= TAVERN_HEARING]
+        if not near:
+            return
+        players = [c for c in near if performance.repertoire(self.world, c)]
+        if not players:
+            # Nobody here knows anything: they grew up somewhere, so teach it
+            # once and let the room be a room with music in it after that.
+            for c in near[:3]:
+                performance.teach_civ(self.world, self.rng, c, None, n=2)
+            players = [c for c in near if performance.repertoire(self.world, c)]
+            if not players:
+                return
+        who = self.rng.choice(players)
+        form = self.rng.choice(performance.repertoire(self.world, who))
+        audience = [c for c in near if c is not who] + [p]
+        result = performance.perform(self, self.rng, who, form, audience)
+        for line in performance.describe(result):
+            self.log.good(line) if result.good else self.log.info(line)
 
     def _moon(self) -> None:
         """Change whoever the moon has a claim on, and change them back.
@@ -879,3 +928,19 @@ class Game:
         return "Game(%s, turn %d, %s)" % (
             self.player.name, self.turn, self.time.date_str()
         )
+
+
+def _teach_own_forms(world, rng, player, race: str) -> None:
+    """Give a new adventurer the songs of the people they grew up among.
+
+    Nobody arrives in the world knowing nothing of it. Which forms depends on
+    the race, which is the only tie a player character has to a civilization.
+    """
+    from . import performance
+
+    home = None
+    for civ in getattr(world, "civs", ()):
+        if civ.race == race:
+            home = civ.id
+            break
+    performance.teach_civ(world, rng, player, home)

@@ -52,6 +52,14 @@ _r("wood_bolts", "Wooden bolts", "carpenter", "bowyer", (("WOOD", 1),),
    "bolt", 15, 200)
 _r("wood_bow", "Bow", "carpenter", "bowyer", (("WOOD", 1),), "bow", 1, 280)
 _r("wood_crutch", "Crutch", "carpenter", "carpentry", (("WOOD", 1),), "crutch")
+# Instruments. A tavern with nothing to play in it is a room with barrels,
+# and a musical form asks for a particular instrument by name.
+_r("wood_lute", "Lute", "carpenter", "carpentry", (("WOOD", 1),), "lute",
+   1, 320, "A musician without one is a musician nobody listens to.")
+_r("wood_flute", "Flute", "carpenter", "carpentry", (("WOOD", 1),), "flute",
+   1, 200)
+_r("wood_harp", "Harp", "carpenter", "carpentry", (("WOOD", 2),), "harp",
+   1, 460)
 _r("wood_splint", "Splint", "carpenter", "carpentry", (("WOOD", 1),), "splint", 3)
 
 # -- mason ------------------------------------------------------------------- #
@@ -80,6 +88,10 @@ _r("cloth_bandage", "Bandages", "craftsdwarf", "leatherwork", (("CLOTH", 1),),
 _r("spin_wool", "Spin wool", "craftsdwarf", "leatherwork", (("wool", 2),),
    "cloth", 1, 180, "Two fleeces make a bolt.", out_material="wool_cloth")
 _r("rope", "Rope", "craftsdwarf", "crafting", (("hide", 2),), "rope", 1, 180)
+_r("hide_drum", "Drum", "craftsdwarf", "leatherwork", (("hide", 1), ("WOOD", 1)),
+   "drum", 1, 240)
+_r("bone_flute", "Bone flute", "craftsdwarf", "crafting",
+   (("bone_item", 1),), "flute", 1, 220)
 _r("torches", "Torches", "craftsdwarf", "crafting", (("WOOD", 1),), "torch", 4, 150)
 _r("mechanisms", "Mechanisms", "craftsdwarf", "mechanics", (("STONE", 1),),
    "mechanism", 2, 240,

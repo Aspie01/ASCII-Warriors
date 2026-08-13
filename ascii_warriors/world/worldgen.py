@@ -149,12 +149,16 @@ class World:
         self.figures: Dict[int, Any] = {}
         self.events: List[Any] = []
         self.artifacts: List[Any] = []
+        #: Musical, poetic and dance forms, owned by the civilizations
+        #: that invented them.
+        self.forms: List[Any] = []
         self.year = 125
         self.history_years = 0
         self._next_hf = 1
         self._next_event = 1
         self._next_site = 1
         self._next_artifact = 1
+        self._next_form = 1
         #: Maps of places the player built and left behind, keyed ``"wx,wy"``.
         #: An abandoned fortress is a real location an adventurer can walk into,
         #: with its corridors, its furniture and its dead exactly as they were.
@@ -273,6 +277,7 @@ class World:
 
     def to_dict(self) -> Dict[str, Any]:
         """Serialise the entire world."""
+        from .artforms import ArtForm
         from .civ import Civilization, Site
         from .history import Artifact, HistoricalEvent, HistoricalFigure
 
@@ -290,9 +295,10 @@ class World:
             "figures": {str(k): v.to_dict() for k, v in self.figures.items()},
             "events": [e.to_dict() for e in self.events],
             "artifacts": [a.to_dict() for a in self.artifacts],
+            "forms": [f.to_dict() for f in self.forms],
             "counters": [
                 self._next_hf, self._next_event, self._next_site,
-                self._next_artifact,
+                self._next_artifact, self._next_form,
             ],
             "preserved": self.preserved,
         }
@@ -300,6 +306,7 @@ class World:
     @classmethod
     def from_dict(cls, d: Mapping[str, Any]) -> "World":
         """Rebuild a world from :meth:`to_dict`."""
+        from .artforms import ArtForm
         from .civ import Civilization, Site
         from .history import Artifact, HistoricalEvent, HistoricalFigure
 
@@ -318,11 +325,16 @@ class World:
         }
         w.events = [HistoricalEvent.from_dict(e) for e in d.get("events", [])]
         w.artifacts = [Artifact.from_dict(a) for a in d.get("artifacts", [])]
+        w.forms = [ArtForm.from_dict(f) for f in d.get("forms", [])]
         w.preserved = dict(d.get("preserved") or {})
-        counters = d.get("counters") or [1, 1, 1, 1]
-        (w._next_hf, w._next_event, w._next_site, w._next_artifact) = (
-            int(counters[0]), int(counters[1]), int(counters[2]), int(counters[3])
-        )
+        counters = list(d.get("counters") or [1, 1, 1, 1])
+        # Worlds saved before forms existed have four counters, not five.
+        while len(counters) < 5:
+            counters.append(max([f.id for f in w.forms] or [0]) + 1)
+        (w._next_hf, w._next_event, w._next_site, w._next_artifact,
+         w._next_form) = (int(counters[0]), int(counters[1]),
+                          int(counters[2]), int(counters[3]),
+                          int(counters[4]))
         return w
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
@@ -585,6 +597,7 @@ def generate_world(
     progress: Progress = None,
 ) -> World:
     """Generate a complete world with geography, peoples and history."""
+    from . import artforms as artform_mod
     from . import civ as civ_mod
     from . import history as history_mod
 
@@ -615,6 +628,9 @@ def generate_world(
 
     _report(progress, "Recording history", 0.72)
     history_mod.simulate(world, rng, history_years, progress)
+
+    _report(progress, "Composing the songs", 0.94)
+    artform_mod.populate(world, rng.sub("artforms"))
 
     _report(progress, "The world is ready", 1.0)
     return world

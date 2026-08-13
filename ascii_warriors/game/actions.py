@@ -48,6 +48,82 @@ def read_book(game, item) -> int:
     return turns
 
 
+def perform(game, form) -> int:
+    """Perform a form to whoever is standing there.
+
+    The audience is whoever can see you, which means performing in an empty
+    field is practice and performing in a tavern is a living. A tavern crowd
+    that liked it throws coins, and that is the only income in the game that
+    does not involve killing something or selling what it was carrying.
+    """
+    from ..world import artforms
+    from . import performance
+
+    p = game.player
+    audience = [c for c in game.visible_creatures()
+                if not c.is_hostile_to(p) and p.distance_to(c) <= HEARING]
+    result = performance.perform(game, game.rng, p, form, audience)
+    for line in performance.describe(result):
+        game.log.good(line) if result.good else game.log.info(line)
+
+    if not result.audience:
+        game.log.info("Nobody was listening.")
+        return performance.PERFORM_TURNS
+    _applaud(game, result)
+    return performance.PERFORM_TURNS
+
+
+#: How far a performance carries. Further than a conversation, not as far as
+#: a scream.
+HEARING = 8
+
+
+def _applaud(game, result) -> None:
+    """The audience's answer: coins, renown, or somewhere else to be."""
+    from . import performance, renown
+
+    p = game.player
+    in_tavern = (game.local is not None
+                 and game.local.tile(p.x, p.y, p.z) == "tavern")
+    if result.band >= 4:
+        thrown = sum(_throw(game, c, result.band, in_tavern)
+                     for c in result.audience)
+        result.coins = thrown
+        if thrown:
+            _pay(game, thrown)
+            game.log.good("Coins land at your feet. You gather %d." % thrown)
+        gained = renown.add(game, result.band - 3)
+        if gained and result.band >= performance.LEGENDARY_AT:
+            game.log.good("They will talk about that for years.")
+    elif result.band == 0:
+        game.log.warn("Somebody tells you to sit down.")
+
+
+def _throw(game, listener, band: int, in_tavern: bool) -> int:
+    """What one listener parts with. Most people part with nothing."""
+    odds = 0.20 + 0.14 * (band - 4)
+    if in_tavern:
+        odds += 0.25
+    if not game.rng.chance(min(0.9, odds)):
+        return 0
+    purse = listener.inventory.coins() if listener.inventory else 0
+    return max(1, min(purse, game.rng.randint(1, 3 + band * 2)))
+
+
+def _pay(game, coins: int) -> None:
+    """Put thrown coins in the player's purse."""
+    from ..data import items as item_data
+    from .item import Item
+
+    stack = game.player.inventory.by_def("coin")
+    if stack:
+        stack[0].count += coins
+        return
+    item = Item(item_data.get("coin"), "copper")
+    item.count = coins
+    game.player.inventory.add(item)
+
+
 def raise_dead(game) -> int:
     """Use the secret, if you have it and there is anything to use it on.
 

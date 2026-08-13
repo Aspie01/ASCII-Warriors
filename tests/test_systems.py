@@ -1396,3 +1396,316 @@ class TestBooks(GameFixture):
         back = save_mod.load_game(path)
         self.assertTrue(night.is_necromancer(back.player))
         path.unlink()
+
+
+class TestArtForms(GameFixture):
+    """Forms are cultural property with an owner, a date and a subject."""
+
+    def setUp(self):
+        super().setUp()
+        from ascii_warriors.world import artforms
+
+        self.artforms = artforms
+
+    def test_worldgen_gives_every_civilization_forms(self):
+        for civ in self.world.civs:
+            mine = self.artforms.of_civ(self.world, civ.id)
+            self.assertTrue(mine, "%s invented nothing" % civ.name)
+
+    def test_every_kind_of_form_exists(self):
+        kinds = {f.kind for f in self.artforms.forms(self.world)}
+        self.assertEqual(kinds, set(self.artforms.KINDS))
+
+    def test_a_form_is_owned_by_a_real_civilization(self):
+        ids = {c.id for c in self.world.civs}
+        for f in self.artforms.forms(self.world):
+            self.assertIn(f.civ_id, ids)
+
+    def test_a_musical_form_asks_for_a_real_instrument(self):
+        from ascii_warriors.data import items as item_data
+
+        for f in self.artforms.forms(self.world):
+            if f.kind != "music":
+                continue
+            self.assertTrue(item_data.get(f.instrument).has("INSTRUMENT"))
+
+    def test_nobody_wrote_the_song_before_the_battle(self):
+        for f in self.artforms.forms(self.world):
+            ev = self.artforms._event(self.world, f.event_id)
+            if ev is not None:
+                self.assertLessEqual(ev.year, f.year, f.name)
+
+    def test_some_forms_are_about_something_that_happened(self):
+        forms = self.artforms.forms(self.world)
+        bound = [f for f in forms if f.event_id is not None]
+        self.assertTrue(bound, "no form is about anything")
+        self.assertLess(len(bound), len(forms), "every form is documentary")
+
+    def test_a_form_describes_itself_completely(self):
+        form = self.artforms.forms(self.world)[0]
+        lines = self.artforms.describe(self.world, form)
+        text = " ".join(lines)
+        self.assertIn(form.name, text)
+        self.assertIn(form.structure, text)
+
+    def test_forms_survive_a_world_round_trip(self):
+        from ascii_warriors.world.worldgen import World
+
+        back = World.from_dict(self.world.to_dict())
+        self.assertEqual(len(back.forms), len(self.artforms.forms(self.world)))
+        a = self.artforms.forms(self.world)[0]
+        b = self.artforms.by_id(back, a.id)
+        self.assertEqual((b.name, b.kind, b.civ_id, b.year, b.instrument),
+                         (a.name, a.kind, a.civ_id, a.year, a.instrument))
+
+    def test_an_older_world_without_forms_still_loads(self):
+        from ascii_warriors.world.worldgen import World
+
+        raw = self.world.to_dict()
+        del raw["forms"]
+        raw["counters"] = raw["counters"][:4]
+        back = World.from_dict(raw)
+        self.assertEqual(back.forms, [])
+        self.assertGreaterEqual(back._next_form, 1)
+
+    def test_populate_is_idempotent(self):
+        before = len(self.artforms.forms(self.world))
+        self.artforms.populate(self.world, RNG("again"))
+        self.assertEqual(len(self.artforms.forms(self.world)), before)
+
+
+class TestPerformance(GameFixture):
+    """The roll, the room, and what the room takes away from it."""
+
+    def setUp(self):
+        super().setUp()
+        from ascii_warriors.game import performance
+        from ascii_warriors.world import artforms
+
+        self.perf = performance
+        self.artforms = artforms
+        self.form = self._form("poetry")
+
+    def _form(self, kind):
+        for f in self.artforms.forms(self.world):
+            if f.kind == kind:
+                return f
+        raise AssertionError("no %s form generated" % kind)
+
+    def _listener(self):
+        others = self.speakers()
+        self.assertTrue(others, "nobody to perform to")
+        return others[0]
+
+    # -- the curve --------------------------------------------------------- #
+
+    def test_an_untrained_performer_is_never_good(self):
+        p = self.game.player
+        p.skills.set_level("poetry", 0)
+        self.perf.learn(p, self.form)
+        rng = RNG("untrained")
+        worst = max(self.perf.band(self.world, rng, p, self.form)
+                    for _ in range(400))
+        self.assertLessEqual(worst, 2)
+
+    def test_a_legendary_performer_is_never_bad(self):
+        p = self.game.player
+        p.skills.set_level("poetry", 18)
+        self.perf.learn(p, self.form)
+        rng = RNG("legend")
+        best = min(self.perf.band(self.world, rng, p, self.form)
+                   for _ in range(400))
+        self.assertGreaterEqual(best, 4)
+
+    def test_skill_moves_the_curve_upwards(self):
+        p = self.game.player
+        self.perf.learn(p, self.form)
+        means = []
+        for level in (0, 6, 12, 18):
+            p.skills.set_level("poetry", level)
+            rng = RNG("curve%d" % level)
+            means.append(sum(self.perf.band(self.world, rng, p, self.form)
+                             for _ in range(200)) / 200.0)
+        self.assertEqual(means, sorted(means))
+
+    def test_knowing_the_form_is_worth_something(self):
+        p = self.game.player
+        p.skills.set_level("poetry", 8)
+        p.forms = []
+        blind = self.perf.score(self.world, p, self.form)
+        self.perf.learn(p, self.form)
+        self.assertGreater(self.perf.score(self.world, p, self.form), blind)
+
+    # -- instruments ------------------------------------------------------- #
+
+    def test_music_without_an_instrument_is_penalised(self):
+        from ascii_warriors.game.item import make_item
+
+        song = self._form("music")
+        p = self.game.player
+        p.skills.set_level("music", 8)
+        self.perf.learn(p, song)
+        empty = self.perf.score(self.world, p, song)
+        p.inventory.add(make_item(self.game.rng, song.instrument))
+        self.assertGreater(self.perf.score(self.world, p, song), empty)
+
+    def test_the_wrong_instrument_beats_none_and_loses_to_the_right_one(self):
+        from ascii_warriors.game.item import make_item
+
+        song = self._form("music")
+        wrong = [i for i in self.artforms.INSTRUMENTS if i != song.instrument][0]
+        p = self.game.player
+        self.perf.learn(p, song)
+        none_ = self.perf.instrument_for(p, song)[1]
+        bad = self.perf.instrument_for(p, song, [make_item(self.game.rng, wrong)])[1]
+        good = self.perf.instrument_for(
+            p, song, [make_item(self.game.rng, song.instrument)])[1]
+        self.assertLess(none_, bad)
+        self.assertLess(bad, good)
+
+    def test_an_instrument_in_the_room_counts_as_much_as_one_in_hand(self):
+        from ascii_warriors.game.item import make_item
+
+        song = self._form("music")
+        p = self.game.player
+        lying = [make_item(self.game.rng, song.instrument)]
+        item, bonus = self.perf.instrument_for(p, song, lying)
+        self.assertIs(item, lying[0])
+        self.assertEqual(bonus, self.perf.INSTRUMENT_BONUS)
+
+    def test_poetry_never_wants_an_instrument(self):
+        self.assertEqual(self.perf.instrument_for(self.game.player, self.form),
+                         (None, 0))
+
+    # -- what it does to the room ------------------------------------------ #
+
+    def test_a_good_performance_relieves_the_audience(self):
+        listener = self._listener()
+        listener.needs.stress = 60
+        p = self.game.player
+        p.skills.set_level("poetry", 18)
+        self.perf.learn(p, self.form)
+        self.perf.perform(self.game, RNG("good"), p, self.form, [listener])
+        self.assertLess(listener.needs.stress, 60)
+
+    def test_a_bad_performance_costs_the_audience(self):
+        listener = self._listener()
+        listener.needs.stress = 0
+        p = self.game.player
+        p.skills.set_level("poetry", 0)
+        p.forms = []
+        rng = RNG("bad")
+        for _ in range(6):
+            self.perf.perform(self.game, rng, p, self.form, [listener])
+        self.assertGreater(listener.needs.stress, 0)
+
+    def test_relief_stops_at_the_floor(self):
+        self.assertEqual(self.perf.felt(self.perf.RELIEF_FLOOR, 6), 0)
+        self.assertEqual(self.perf.felt(self.perf.RELIEF_FLOOR - 50, 6), 0)
+        self.assertLess(self.perf.felt(0, 6), 0)
+
+    def test_annoyance_stops_at_the_ceiling(self):
+        self.assertEqual(self.perf.felt(self.perf.ANNOYANCE_CEILING, 0), 0)
+        self.assertEqual(self.perf.felt(self.perf.ANNOYANCE_CEILING + 50, 0), 0)
+        self.assertGreater(self.perf.felt(0, 0), 0)
+
+    def test_no_performance_can_push_past_the_window(self):
+        """The bug that made the tavern the only system that mattered."""
+        listener = self._listener()
+        listener.needs.stress = 0
+        p = self.game.player
+        p.skills.set_level("poetry", 18)
+        self.perf.learn(p, self.form)
+        rng = RNG("many")
+        for _ in range(200):
+            self.perf.perform(self.game, rng, p, self.form, [listener],
+                              mood=1.35)
+        self.assertGreaterEqual(listener.needs.stress,
+                                self.perf.RELIEF_FLOOR - 1)
+
+    def test_the_performer_is_bounded_too(self):
+        listener = self._listener()
+        p = self.game.player
+        p.skills.set_level("poetry", 18)
+        p.needs.stress = 0
+        self.perf.learn(p, self.form)
+        rng = RNG("self")
+        for _ in range(200):
+            self.perf.perform(self.game, rng, p, self.form, [listener])
+        self.assertGreaterEqual(p.needs.stress, self.perf.RELIEF_FLOOR - 1)
+
+    def test_performing_trains_the_form_s_own_skill(self):
+        p = self.game.player
+        before = p.skills.exp("poetry")
+        self.perf.perform(self.game, RNG("train"), p, self.form,
+                          [self._listener()])
+        self.assertGreater(p.skills.exp("poetry"), before)
+
+    def test_the_dead_are_not_an_audience(self):
+        listener = self._listener()
+        listener.alive = False
+        result = self.perf.perform(self.game, RNG("dead"), self.game.player,
+                                   self.form, [listener])
+        self.assertEqual(result.audience, [])
+
+    def test_you_are_never_your_own_audience(self):
+        p = self.game.player
+        result = self.perf.perform(self.game, RNG("solo"), p, self.form, [p])
+        self.assertEqual(result.audience, [])
+
+    # -- forms travelling -------------------------------------------------- #
+
+    def test_a_good_performance_can_teach_the_form(self):
+        listener = self._listener()
+        listener.forms = []
+        p = self.game.player
+        p.skills.set_level("poetry", 18)
+        self.perf.learn(p, self.form)
+        rng = RNG("teach")
+        for _ in range(40):
+            self.perf.perform(self.game, rng, p, self.form, [listener])
+            if self.perf.knows(listener, self.form):
+                break
+        self.assertTrue(self.perf.knows(listener, self.form))
+
+    def test_a_bad_performance_teaches_nobody(self):
+        listener = self._listener()
+        listener.forms = []
+        p = self.game.player
+        p.skills.set_level("poetry", 0)
+        p.forms = []
+        rng = RNG("nope")
+        for _ in range(60):
+            self.perf.perform(self.game, rng, p, self.form, [listener])
+        self.assertFalse(self.perf.knows(listener, self.form))
+
+    def test_learning_a_form_twice_is_not_learning_it(self):
+        listener = self._listener()
+        listener.forms = []
+        self.assertTrue(self.perf.learn(listener, self.form))
+        self.assertFalse(self.perf.learn(listener, self.form))
+        self.assertEqual(listener.forms.count(self.form.id), 1)
+
+    def test_hearing_a_song_opens_the_history_it_is_about(self):
+        bound = [f for f in self.artforms.forms(self.world)
+                 if f.event_id is not None]
+        if not bound:
+            self.skipTest("no form in this world is about an event")
+        form = bound[0]
+        self.world.known_events = set()
+        lines = self.perf.reveal(self.game, form)
+        self.assertTrue(lines)
+        self.assertEqual(self.perf.reveal(self.game, form), [])
+
+    def test_a_new_adventurer_knows_their_own_people_s_songs(self):
+        self.assertTrue(self.game.player.forms)
+
+    def test_forms_survive_a_save(self):
+        from ascii_warriors.game import save as save_mod
+
+        self.perf.learn(self.game.player, self.form)
+        known = sorted(self.game.player.forms)
+        path = save_mod.save_game(self.game, "forms-test")
+        back = save_mod.load_game(path)
+        self.assertEqual(sorted(back.player.forms), known)
+        path.unlink()

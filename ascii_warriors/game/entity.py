@@ -104,6 +104,9 @@ class Creature:
         #: Secrets this creature has read off a slab. Necromancy is not a
         #: skill, it is a fact about you afterwards.
         self.secrets: List[str] = []
+        #: Ids of the artistic forms this creature can perform. Learned
+        #: growing up, or off somebody who performed one well.
+        self.forms: List[int] = []
         #: Set while this creature is deliberately trying not to be seen,
         #: and what it last did loudly enough for anybody to hear.
         self.sneaking = False
@@ -401,6 +404,8 @@ class Creature:
             d["sneaking"] = True
         if self.secrets:
             d["secrets"] = list(self.secrets)
+        if self.forms:
+            d["forms"] = list(self.forms)
         if self.curse or self.changed or self.raised_by is not None:
             d["night"] = {"curse": self.curse, "changed": self.changed,
                           "was": self.shape_was, "faction_was": self.faction_was,
@@ -450,6 +455,7 @@ class Creature:
 
         c.sneaking = bool(d.get("sneaking", False))
         c.secrets = [str(x) for x in d.get("secrets", [])]
+        c.forms = [int(x) for x in d.get("forms", [])]
 
         night = d.get("night")
         if night:

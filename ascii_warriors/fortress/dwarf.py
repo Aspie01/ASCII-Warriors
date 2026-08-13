@@ -793,6 +793,55 @@ TAVERN_RADIUS = 4
 #: there must not pay for a search every time it thinks about a drink.
 TAVERN_REPATH = 16
 
+#: Ticks to stop trying after the tavern turns out to be unreachable.
+#:
+#: TAVERN_REPATH alone bounds how often a dwarf *plans*; it does nothing about
+#: how much one plan costs. A search that succeeds stops at the goal, but a
+#: search for somewhere it cannot get to expands the entire reachable map
+#: before giving up -- about 2,300 cells here -- and every idle dwarf pays it
+#: every sixteen ticks for as long as the tavern is cut off. Measured on a
+#: fortress whose tavern sat one z-level above the floor: 76 ms a step against
+#: 1.5 ms for the same fortress with no tavern at all, with 36 of every 37
+#: seconds inside a failing A*. A walled-off, flooded or caved-in tavern is an
+#: ordinary thing to happen to a fortress and must not cost fifty times the
+#: frame.
+TAVERN_UNREACHABLE_BACKOFF = 1800
+
+
+def tavern_spot(fort, tavern=None) -> Optional[Cell]:
+    """Where in the tavern a dwarf can actually stand, or None if nowhere.
+
+    Almost always the middle of the room, because a tavern is built on ground
+    somebody checked was walkable. The rest of this exists for what happens
+    afterwards: a cave-in fills the room, water floods it, somebody walls it
+    off. The centre stops being walkable and the two halves of this function
+    used to disagree about what that meant -- `path_to` would happily route to
+    a cell *adjacent* to the blocked centre, including one a z-level away,
+    while the arrival test insisted on standing at the centre's own z. So the
+    dwarf arrived somewhere it did not believe it had arrived, threw the path
+    away and searched again, for ever.
+
+    That is the exact failure `work_positions` warns about, and it cost 76 ms
+    a step against 1.5 for the same fortress with no tavern -- 36 of every 37
+    seconds inside A*. Returning one cell that both halves use is the fix.
+    """
+    tavern = tavern or fort.tavern()
+    if tavern is None:
+        return None
+    cx, cy, cz = tavern.center
+    if fort.local.walkable(cx, cy, cz):
+        return (cx, cy, cz)
+    best = None
+    for dy in range(-TAVERN_RADIUS, TAVERN_RADIUS + 1):
+        for dx in range(-TAVERN_RADIUS, TAVERN_RADIUS + 1):
+            cell = (cx + dx, cy + dy, cz)
+            if not fort.local.walkable(*cell):
+                continue
+            d = max(abs(dx), abs(dy))
+            if best is None or d < best[0]:
+                best = (d, cell)
+    return best[1] if best else None
+
 
 def _to_the_tavern(fort, dwarf) -> bool:
     """Walk towards the tavern. True if that is what this turn was spent on.
@@ -804,8 +853,14 @@ def _to_the_tavern(fort, dwarf) -> bool:
     tavern = fort.tavern()
     if tavern is None:
         return False
+    if fort.ticks < getattr(fort, "_tavern_blocked_until", 0):
+        return False
+    spot = tavern_spot(fort, tavern)
+    if spot is None:
+        fort._tavern_blocked_until = fort.ticks + TAVERN_UNREACHABLE_BACKOFF
+        return False
     state = dwarf.fort
-    cx, cy, cz = tavern.center
+    cx, cy, cz = spot
     if dwarf.z == cz and max(abs(dwarf.x - cx), abs(dwarf.y - cy)) \
             <= TAVERN_RADIUS:
         state.path = []
@@ -827,6 +882,10 @@ def _to_the_tavern(fort, dwarf) -> bool:
     if state.idle_ticks % TAVERN_REPATH != 0:
         return False
     if not path_to(fort, dwarf, (cx, cy, cz)):
+        # Nobody else try either. One dwarf finding out the tavern is cut off
+        # is enough information for the whole fortress, and it is the only
+        # thing that keeps the cost of a walled-off tavern bounded.
+        fort._tavern_blocked_until = fort.ticks + TAVERN_UNREACHABLE_BACKOFF
         return False
     step_along(fort, dwarf)
     return True

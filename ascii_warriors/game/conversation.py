@@ -19,7 +19,7 @@ TOPICS: Tuple[str, ...] = (
     "greet", "ask_directions", "ask_rumors", "ask_troubles", "ask_self",
     "ask_family", "request_quest", "report_quest", "trade", "ask_beast",
     "ask_site", "brag", "insult", "threaten", "farewell", "recruit",
-    "dismiss", "rent_room",
+    "dismiss", "rent_room", "ask_perform",
 )
 
 _SAY = colors.UI["accent2"]
@@ -66,6 +66,8 @@ def topics_for(speaker, listener, game) -> List[Tuple[str, str]]:
     elif companion_mod.can_recruit(listener):
         out.append(("recruit", "Ask them to travel with you (%d coins)"
                     % companion_mod.hire_price(listener, speaker)))
+    if _has_forms(listener, game):
+        out.append(("ask_perform", "Ask them to perform"))
     out.append(("brag", "Boast of your deeds"))
     out.append(("insult", "Insult them"))
     out.append(("threaten", "Threaten them"))
@@ -348,6 +350,24 @@ def say(speaker, listener, topic: str, game) -> List[Frag]:
         out.append(Frag(message, colors.UI["dim"] if ok else colors.UI["warn"]))
         return out
 
+    if topic == "ask_perform":
+        from . import performance
+
+        mine = performance.repertoire(game.world, listener)
+        if not mine:
+            return _quote(listener, "I have no song in me, traveller.")
+        form = rng.choice(mine)
+        audience = [c for c in game.visible_creatures()
+                    if c is not listener and not c.is_hostile_to(speaker)]
+        result = performance.perform(game, rng, listener, form,
+                                     audience + [speaker])
+        speaker.add_exp("conversation", 10)
+        out.extend(_quote(listener, "As you like. This one is called %s."
+                          % form.name))
+        for line in performance.describe(result):
+            out.append(Frag(line, _INFO if not result.good else _SAY))
+        return out
+
     if topic == "brag":
         kills = len(speaker.kills)
         best = speaker.skills.known()[:1]
@@ -402,3 +422,20 @@ def say(speaker, listener, topic: str, game) -> List[Frag]:
         return out
 
     return _quote(listener, "I have nothing to say about that.")
+
+
+def _has_forms(listener, game) -> bool:
+    """Whether this person has anything to perform, teaching them if they might.
+
+    Everybody grew up somewhere. Rather than seed every generated townsperson
+    with a repertoire they will probably never be asked for, they learn one
+    the first time somebody looks at them and wonders.
+    """
+    from . import performance
+
+    if getattr(listener, "forms", None):
+        return True
+    if not listener.defn.intelligent or listener.is_hostile_to(game.player):
+        return False
+    performance.teach_civ(game.world, game.rng, listener, None, n=2)
+    return bool(getattr(listener, "forms", None))

@@ -22,7 +22,7 @@ EVENT_KINDS: Tuple[str, ...] = (
     "war_declared", "peace", "battle", "site_destroyed", "site_conquered",
     "artifact_created", "artifact_stolen", "beast_attack", "beast_slain",
     "hero_rose", "became_necromancer", "tower_built", "curse", "banditry",
-    "marriage", "migration", "plague", "tavern_founded",
+    "marriage", "migration", "plague", "tavern_founded", "performance",
 )
 
 
