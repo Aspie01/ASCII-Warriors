@@ -148,6 +148,13 @@ def draw_status_line(scr: Screen, x: int, y: int, w: int, fort, mode: str = "") 
     if getattr(fort, "magma", None) is not None and fort.magma.flooded:
         parts.append(Frag("| ", colors.UI["frame"]))
         parts.append(Frag("MAGMA ", colors.Color(255, 150, 60)))
+    if getattr(fort, "siege", None) is not None:
+        from ...fortress import war as war_mod
+
+        parts.append(Frag("| ", colors.UI["frame"]))
+        parts.append(Frag(war_mod.summary(fort) + " ",
+                          colors.UI["good"] if fort.siege.routed
+                          else colors.UI["danger"]))
     if getattr(fort, "breached", False):
         parts.append(Frag("| ", colors.UI["frame"]))
         parts.append(Frag("THE PIT IS OPEN ", colors.UI["danger"]))

@@ -234,6 +234,15 @@ alarm raises itself when something hostile appears and your civilians run for
 a burrow you painted; your soldiers do not. Weapon and spike traps do not miss
 and cannot be parried.
 
+**War.** Sieges are acts by civilizations that exist in the world's history:
+a named commander, soldiers off that nation's own population, armed to
+whatever its metalworking runs to, sent because it is at war with the people
+who sent you. An army that has lost enough of itself breaks and runs for the
+edge of the map rather than fighting to the last. The dead come off the
+population that raised them, so beating one makes the next one smaller — the
+only thing a fortress does that makes the world easier — and the legends
+screen records who died at your gates, or that your fortress was overrun.
+
 **A hospital.** Bleeding kills in minutes, so treatment is a race. Wounded
 dwarves stop working and take to a bed; the nearest dwarf with the medicine
 labor is sent immediately rather than waiting for the next job scan. Bandages

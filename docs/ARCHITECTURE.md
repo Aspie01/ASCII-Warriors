@@ -1865,7 +1865,40 @@ Scanning the whole square at every radius counts the middle over and over, so
 callers with different offsets got the same tile — every animal (and every
 migrant wave) arrived standing on one another.
 
-## 59. Style
+## 59. War (v3.0)
+
+### `fortress/war.py`
+```python
+class Siege: civ_id commander_hf strength killed routed recorded fleeing_since
+RAIDERS = ("goblin", "kobold") ; NOTICE_WEALTH = 500 ; BASE_STRENGTH = 3
+ROUT_LOSSES = 0.55 ; FLEE_TICKS = 3000
+def home_civ(fort) / enemies(fort)      # who sent you, and who wants you gone
+def strength_for(fort, civ)             # wealth pulls, their population caps
+def commander(fort, civ)                # a real figure, or a new one recorded
+def plan(fort) -> Siege / launch(fort, siege)
+def on_kill(fort, foe) / rout(fort) / retreat_step(fort, foe)
+def record(fort, *, won)                # legends, and the enemy's own losses
+```
+A siege used to be `spawn_attack(fort, strength)` — a number of goblins at the
+map edge. Now it is an act by a civilization from the world's history, and the
+result is an act on it:
+
+- **They can only send what they have.** `strength_for` caps the army by the
+  attacker's living population, so a nation you have beaten twice sends a
+  smaller army the third time.
+- **Armies break.** At `ROUT_LOSSES` the survivors run for the nearest edge and
+  leave the map. Invaders that fight to the last are a grind that takes the
+  fortress with them. A rout that gets wedged in a corridor is gone anyway
+  after `FLEE_TICKS`, or the alarm never stops ringing.
+- **The dead come off the population that raised them.** Winning is the only
+  thing a fortress does that makes the world easier, and `history.record`
+  writes both outcomes: who broke against your walls, or who overran you.
+
+`Fortress.civ_id` is the expedition's home civilization, found on demand.
+Everything the living world does to civ relations — declaring war, making peace
+— feeds `enemies()` without any further plumbing.
+
+## 60. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

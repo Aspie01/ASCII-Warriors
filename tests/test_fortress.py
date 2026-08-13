@@ -884,6 +884,184 @@ class TestIndustry(unittest.TestCase):
         self.assertFalse(stone.accepts(self.Item("ore", "iron")))
 
 
+class TestWar(unittest.TestCase):
+    """Sieges by civilizations that exist, and what beating one costs them."""
+
+    def setUp(self):
+        from ascii_warriors.fortress import war as war_mod
+
+        self.war = war_mod
+        self.fort = embark("war")
+        self.fort.wealth = 9000
+
+    def _veterans(self, fort):
+        """Dwarves who can actually win a fight."""
+        for d in fort.dwarves():
+            d.skills.set_level("fighter", 12)
+            d.skills.set_level("axe", 12)
+            d.skills.set_level("armor_use", 8)
+
+    def _army(self, fort):
+        plan = self.war.plan(fort)
+        self.assertIsNotNone(plan, "nobody in the world wants to attack")
+        return plan, self.war.launch(fort, plan)
+
+    # -- who and why -------------------------------------------------------- #
+
+    def test_a_fortress_belongs_to_a_civilization(self):
+        """Somebody sent the expedition, and they have enemies."""
+        civ = self.war.home_civ(self.fort)
+        self.assertIsNotNone(civ)
+        self.assertEqual(civ.race, "dwarf")
+        self.assertEqual(self.fort.civ_id, civ.id)
+
+    def test_the_enemies_are_real_civilizations(self):
+        """Not "goblins": a nation with a name and a place on the map."""
+        foes = self.war.enemies(self.fort)
+        self.assertTrue(foes)
+        for civ in foes:
+            self.assertTrue(civ.name)
+            self.assertIsNone(civ.destroyed)
+            self.assertIsNot(civ, self.war.home_civ(self.fort))
+
+    def test_nobody_walks_across_a_continent_for_a_poor_fortress(self):
+        """Wealth is what gets you noticed."""
+        self.fort.wealth = 0
+        self.assertIsNone(self.war.plan(self.fort))
+
+    def test_a_civilization_can_only_send_what_it_has(self):
+        """Raid a nation to two villages and the sieges get smaller."""
+        fort = self.fort
+        civ = self.war.enemies(fort)[0]
+        big = self.war.strength_for(fort, civ)
+        for site in fort.world.sites:
+            if site.civ_id == civ.id:
+                site.population = 1
+        self.assertLess(self.war.strength_for(fort, civ), big)
+
+    def test_the_army_has_a_named_commander(self):
+        """Somebody the legends screen can talk about afterwards."""
+        fort = self.fort
+        plan, army = self._army(fort)
+        self.assertTrue(army)
+        leader = fort.world.figures.get(plan.commander_hf)
+        self.assertIsNotNone(leader)
+        self.assertEqual(army[0].hf_id, leader.id)
+        self.assertEqual(army[0].name, leader.name)
+        self.assertTrue(any(leader.name in m.text for m in fort.log.all()))
+
+    def test_only_one_army_at_a_time(self):
+        """A second siege while the first is on the map is a pile-up."""
+        fort = self.fort
+        self._army(fort)
+        before = len(fort.hostiles())
+        for _ in range(20):
+            sim._maybe_attack(fort)
+        self.assertEqual(len(fort.hostiles()), before)
+
+    # -- how it ends -------------------------------------------------------- #
+
+    def test_an_army_breaks_when_it_has_lost_enough(self):
+        """Fighting to the last man is a grind, not a battle."""
+        fort = self.fort
+        plan, army = self._army(fort)
+        for foe in army[:int(len(army) * self.war.ROUT_LOSSES) + 1]:
+            foe.body.death_cause = "slain"
+            fort.kill_creature(foe)
+        self.assertTrue(fort.siege.routed)
+        self.assertTrue(any("break and run" in m.text for m in fort.log.all()))
+
+    def test_the_routed_leave_and_the_alarm_stops(self):
+        """The siege has to actually end."""
+        fort = self.fort
+        self._veterans(fort)
+        self._army(fort)
+        for _ in range(4000):
+            sim.step(fort)
+            if fort.siege is None:
+                break
+        self.assertIsNone(fort.siege, "the siege never ended")
+        self.assertEqual(fort.hostiles(), [])
+        self.assertEqual(fort.military.alert, "civilian")
+
+    def test_the_stuck_are_gone_anyway(self):
+        """A survivor wedged in a corridor cannot besiege you for ever."""
+        fort = self.fort
+        plan, army = self._army(fort)
+        self.war.rout(fort)
+        fort.siege.fleeing_since = fort.ticks - self.war.FLEE_TICKS - 1
+        for foe in army:
+            foe.x, foe.y, foe.z = fort.dwarves()[0].x, fort.dwarves()[0].y, \
+                fort.dwarves()[0].z
+        sim.step(fort)
+        self.assertEqual(fort.hostiles(), [])
+
+    # -- what it costs them -------------------------------------------------- #
+
+    def test_beating_an_army_takes_it_off_the_map_for_good(self):
+        """The only thing a fortress does that makes the world easier."""
+        fort = self.fort
+        plan, army = self._army(fort)
+        civ = fort.world.civ(plan.civ_id)
+        before = sum(s.population for s in fort.world.sites
+                     if s.civ_id == civ.id and not s.is_ruin)
+        for foe in army:
+            foe.body.death_cause = "slain"
+            fort.kill_creature(foe)
+        after = sum(s.population for s in fort.world.sites
+                    if s.civ_id == civ.id and not s.is_ruin)
+        self.assertLess(after, before)
+
+    def test_the_world_remembers_the_battle(self):
+        """Win or lose, it goes in the legends."""
+        fort = self.fort
+        plan, army = self._army(fort)
+        before = len(fort.world.events)
+        for foe in army:
+            foe.body.death_cause = "slain"
+            fort.kill_creature(foe)
+        told = [e for e in fort.world.events[before:] if e.kind == "battle"]
+        self.assertTrue(told)
+        self.assertIn(fort.name, told[0].text)
+
+    def test_a_battle_is_only_recorded_once(self):
+        """Every kill after the rout must not write another line."""
+        fort = self.fort
+        plan, army = self._army(fort)
+        for foe in army:
+            foe.body.death_cause = "slain"
+            fort.kill_creature(foe)
+        battles = [e for e in fort.world.events if e.kind == "battle"]
+        self.war.record(fort, won=True)
+        self.assertEqual(len([e for e in fort.world.events
+                              if e.kind == "battle"]), len(battles))
+
+    def test_a_fallen_fortress_is_recorded_as_overrun(self):
+        """Losing is fun, and written down."""
+        fort = self.fort
+        plan, army = self._army(fort)
+        civ = fort.world.civ(plan.civ_id)
+        for d in list(fort.dwarves()):
+            d.body.death_cause = "slain"
+            fort.kill_creature(d)
+        sim.step(fort)
+        self.assertTrue(fort.lost)
+        self.assertIn(civ.name, fort.loss_reason)
+        self.assertTrue(any(e.kind == "battle" and fort.name in e.text
+                            for e in fort.world.events))
+
+    def test_a_siege_survives_a_save(self):
+        """Mid-siege saves are exactly when people save."""
+        fort = self.fort
+        plan, army = self._army(fort)
+        fort.siege.killed = 2
+        again = Fortress.from_dict(fort.to_dict())
+        self.assertIsNotNone(again.siege)
+        self.assertEqual(again.siege.killed, 2)
+        self.assertEqual(again.siege.civ_id, plan.civ_id)
+        self.assertEqual(again.civ_id, fort.civ_id)
+
+
 class TestAnimals(unittest.TestCase):
     """Livestock, pets, pastures and the butcher."""
 

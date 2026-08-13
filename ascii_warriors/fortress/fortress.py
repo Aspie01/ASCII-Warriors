@@ -98,6 +98,10 @@ class Fortress:
         self.wealth = 0
         self.migrant_waves = 0
         self.siege_count = 0
+        #: The civilization that sent the expedition here.
+        self.civ_id: Optional[int] = None
+        #: The army on the map, if there is one.
+        self.siege: Optional[Any] = None
         #: Named objects made in strange moods, for the fortress's own legends.
         self.artifacts: List[Dict[str, Any]] = []
         #: The caravan currently parked outside, if any.
@@ -388,6 +392,10 @@ class Fortress:
         else:
             self.log.combat("The %s is dead." % c.short_name())
             self._record_kill(c)
+            if c.faction == "hostile":
+                from . import war as war_mod
+
+                war_mod.on_kill(self, c)
         self.drop_item(corpse_of(c), c.x, c.y, c.z)
         for item in c.inventory.remove_all():
             self.drop_item(item, c.x, c.y, c.z)
@@ -1253,6 +1261,8 @@ class Fortress:
             "wealth": self.wealth,
             "migrant_waves": self.migrant_waves,
             "siege_count": self.siege_count,
+            "civ_id": self.civ_id,
+            "siege": self.siege.to_dict() if self.siege is not None else None,
             "artifacts": self.artifacts,
             "caravan": self.caravan,
             "unreachable": {"%d,%d,%d" % c: t
@@ -1333,6 +1343,12 @@ class Fortress:
         fort.wealth = int(d.get("wealth", 0))
         fort.migrant_waves = int(d.get("migrant_waves", 0))
         fort.siege_count = int(d.get("siege_count", 0))
+        fort.civ_id = d.get("civ_id")
+        siege = d.get("siege")
+        if siege:
+            from .war import Siege
+
+            fort.siege = Siege.from_dict(siege)
         fort.artifacts = list(d.get("artifacts") or [])
         fort.caravan = d.get("caravan")
         fort.unreachable = {

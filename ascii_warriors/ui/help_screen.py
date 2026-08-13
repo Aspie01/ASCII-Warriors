@@ -189,6 +189,16 @@ weapon and a mechanic. They are the cheapest defence in the game.
 When something hostile appears the alarm raises itself and your civilians run
 for the burrow you painted with w. Your soldiers do not.
 
+An army is not "some goblins". It is sent by a civilization that exists in the
+legends screen, led by somebody with a name, armed to whatever that nation's
+metalworking runs to, and it can only be as large as the nation is. Kill
+enough of them and the rest break and run for the edge of the map.
+
+Winning costs them: the dead come off the population that raised them, so the
+next army from that nation is smaller. It is the only thing a fortress does
+that makes the world easier. All of it goes into the legends, including the
+line about your fortress being overrun, if it comes to that.
+
 WATER
 
 Water has depth, from one to seven. You can wade through two and you drown in

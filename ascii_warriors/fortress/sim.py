@@ -22,6 +22,7 @@ from ..game.item import Item
 from . import animals
 from . import dwarf as dwarf_mod
 from . import production
+from . import war
 from .buildings import Building
 from .designations import KINDS as DESIGNATION_KINDS
 from .labors import LABORS
@@ -304,7 +305,20 @@ def _triage(fort) -> None:
 
 
 def _hostiles(fort, ticks: int) -> None:
-    """Enemies hunt the nearest dwarf and hit it."""
+    """Enemies hunt the nearest dwarf and hit it, until they have had enough."""
+    routed = fort.siege is not None and fort.siege.routed
+    if routed:
+        for foe in fort.hostiles():
+            war.retreat_step(fort, foe)
+        if fort.ticks - fort.siege.fleeing_since > war.FLEE_TICKS:
+            for foe in fort.hostiles():
+                fort.creatures.pop(foe.id, None)
+        if not fort.hostiles():
+            fort.siege = None
+            fort.military.alert = "civilian"
+            fort.log.good("The last of them is gone.")
+        return
+
     targets = fort.dwarves()
     if not targets:
         return
@@ -1236,23 +1250,21 @@ def _caravan_goods(fort) -> List[Item]:
 
 
 def _maybe_attack(fort) -> None:
-    """Goblins come once you have something worth taking."""
-    living = len(fort.dwarves())
-    if living <= 0 or fort.wealth < 500:
+    """Somebody comes once you have something worth taking.
+
+    Not "some goblins": a particular civilization, with a name, that is at war
+    with the people who sent you and can only send what it actually has.
+    """
+    if not fort.dwarves() or fort.wealth < war.NOTICE_WEALTH:
+        return
+    if fort.hostiles():
         return
     if not fort.rng.chance(min(0.75, 0.2 + fort.wealth / 12000.0)):
         return
-    strength = min(12, 2 + fort.wealth // 900 + fort.siege_count)
-    ambush = strength <= 4
-    fort.siege_count += 1
-    attackers = spawn_attack(fort, strength)
-    if not attackers:
+    plan = war.plan(fort)
+    if plan is None:
         return
-    if ambush:
-        fort.log.bad("An ambush! Curse them!")
-    else:
-        fort.log.bad("A goblin siege has arrived at %s." % fort.name)
-        fort.log.warn("They number %d. Get everyone inside." % len(attackers))
+    war.launch(fort, plan)
 
 
 def spawn_demons(fort, cell, wave: int = 1) -> List:
@@ -1415,7 +1427,12 @@ def _check_loss(fort) -> None:
     fort.lost = True
     hostiles = fort.hostiles()
     if hostiles:
-        fort.loss_reason = "overrun by %s" % hostiles[0].short_name() + "s"
+        civ = (fort.world.civ(fort.siege.civ_id)
+               if fort.siege is not None and fort.siege.civ_id is not None
+               else None)
+        fort.loss_reason = ("overrun by %s" % civ.name if civ is not None
+                            else "overrun by %ss" % hostiles[0].short_name())
+        war.record(fort, won=False)
     else:
         fort.loss_reason = "starved, thirsted and forgotten"
     fort.log.bad("%s has fallen." % fort.name)
