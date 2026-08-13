@@ -74,6 +74,9 @@ class Fortress:
         #: Everything anybody has been caught doing, and some things nobody
         #: has been caught doing.
         self.crimes: List[Any] = []
+        #: ``(lower id, higher id)`` -> what those two dwarves are to each
+        #: other. One entry per pair, so there is only ever one answer.
+        self.bonds: Dict[Tuple[int, int], Any] = {}
         self.items_on_ground: Dict[Cell, List[Item]] = {}
         self.weather = Weather()
         self.water = Water()
@@ -346,8 +349,17 @@ class Fortress:
         self.creatures[c.id] = c
 
     def remove_creature(self, c: Creature) -> None:
-        """Take a creature off the map."""
+        """Take a creature off the map.
+
+        For anything that leaves rather than dies. Its bonds go with it: the
+        dead keep theirs, because who the dead were close to is what the
+        survivors are grieving, but nobody grieves somebody who walked out.
+        """
         self.creatures.pop(c.id, None)
+        if self.bonds:
+            from . import social as social_mod
+
+            social_mod.forget(self, c.id)
 
     def creature_at(self, x: int, y: int, z: int) -> Optional[Creature]:
         """The living creature standing on a cell."""
@@ -399,8 +411,12 @@ class Fortress:
                 self.abandon_job(c, state.job)
             self.designations.release_all(c.id)
             self.jobs.release_all(c.id)
+            # Everybody who knew them feels it, and nobody else pretends to.
+            from . import social as social_mod
+
+            social_mod.grieve(self, c)
             for other in self.dwarves():
-                other.needs.add_thought("lost a friend to a violent death", 18)
+                other.needs.add_thought("saw a death in the fortress", 5)
         else:
             self.log.combat("The %s is dead." % c.short_name())
             self._record_kill(c)
@@ -822,6 +838,13 @@ class Fortress:
     def levers(self) -> List[Building]:
         """Every built lever."""
         return [b for b in self.buildings if b.kind == "lever" and b.built]
+
+    def tavern(self) -> Optional[Building]:
+        """Where the fortress drinks, if it has built anywhere to."""
+        for b in self.buildings:
+            if b.kind == "tavern" and b.built:
+                return b
+        return None
 
     def gates(self) -> List[Building]:
         """Everything a lever could be linked to."""
@@ -1257,6 +1280,7 @@ class Fortress:
             "engravings": {"%d,%d,%d" % c: a.to_dict()
                            for c, a in self.engravings.items()},
             "crimes": [c.to_dict() for c in self.crimes],
+            "bonds": [b.to_dict() for b in self.bonds.values()],
             "animal_state": {
                 str(c.id): c.animal.to_dict()
                 for c in self.creatures.values()
@@ -1343,6 +1367,12 @@ class Fortress:
 
         fort.crimes = [justice_mod.Crime.from_dict(c)
                        for c in d.get("crimes", [])]
+        from . import social as social_mod
+
+        fort.bonds = {}
+        for raw in d.get("bonds", []):
+            bond = social_mod.Bond.from_dict(raw)
+            fort.bonds[bond.key] = bond
         fort.military = Military.from_dict(d.get("military") or {})
         fort.court = Court.from_dict(d.get("court") or {})
 

@@ -24,6 +24,7 @@ from . import art
 from . import dwarf as dwarf_mod
 from . import justice
 from . import production
+from . import social
 from . import war
 from .buildings import Building
 from .designations import KINDS as DESIGNATION_KINDS
@@ -129,6 +130,7 @@ def step(fort) -> None:
     for dwarf in list(fort.dwarves()):
         dwarf_mod.take_turn(fort, dwarf, ticks)
     animals.step(fort, STEP_TICKS)
+    _mingle(fort, ticks)
     _thieves(fort)
     justice.tick(fort)
     _hostiles(fort, ticks)
@@ -917,17 +919,23 @@ def _calendar(fort) -> None:
     if marker == fort.season_index:
         return
     first = fort.season_index == 0
+    turned = fort.season_index // 4 != year and not first
     fort.season_index = marker
     if first:
         return
 
     fort.log.system("It is now %s of %d." % (fort.time.season, year))
+    if turned:
+        social.birthdays(fort)
     fort.wealth = appraise(fort)
     _season_thoughts(fort)
     _appointments(fort)
 
     _world_turns(fort)
     justice.season(fort)
+    social.court(fort)
+    social.season(fort)
+    social.maybe_born(fort)
     _maybe_thief(fort)
     if fort.breached and fort.breach_cell and fort.rng.chance(0.5):
         spawn_demons(fort, fort.breach_cell, wave=2)
@@ -1115,6 +1123,40 @@ def _blame_for_mandate(fort, mandate) -> None:
         justice.report(fort, "neglect", dwarf,
                        str(mandate.get("target", "the demand")))
         return
+
+
+#: How far apart two dwarves can be and still be talking.
+MINGLE_RANGE = 1
+
+
+def _mingle(fort, ticks: int) -> None:
+    """Dwarves standing together get to know each other.
+
+    No separate socialising simulation: a bond moves where a dwarf already
+    is. Two miners sharing a shaft become colleagues over months; the tavern
+    is quicker only because that is where everybody with nothing to do ends
+    up at once, which is exactly what a tavern is for.
+    """
+    dwarves = fort.dwarves()
+    if len(dwarves) < 2:
+        return
+    by_cell: Dict[Cell, List] = {}
+    for d in dwarves:
+        d.fort.lonely += ticks
+        by_cell.setdefault((d.x, d.y, d.z), []).append(d)
+
+    seen = set()
+    for d in dwarves:
+        for dx in range(-MINGLE_RANGE, MINGLE_RANGE + 1):
+            for dy in range(-MINGLE_RANGE, MINGLE_RANGE + 1):
+                for other in by_cell.get((d.x + dx, d.y + dy, d.z), ()):
+                    if other is d:
+                        continue
+                    pair = (min(d.id, other.id), max(d.id, other.id))
+                    if pair in seen:
+                        continue
+                    seen.add(pair)
+                    social.meet(fort, d, other)
 
 
 def _tantrums(fort) -> None:

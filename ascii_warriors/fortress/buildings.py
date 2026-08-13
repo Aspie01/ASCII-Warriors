@@ -101,6 +101,15 @@ KINDS: Dict[str, BuildingKind] = {
            "barracks", "Workshops", True,
            "Where a squad spars. An untrained militia is a pile of corpses "
            "that has not happened yet."),
+        _b("tavern", "Tavern", "\u00a3", colors.Color(215, 175, 110), 3, 3,
+           ("WOOD", "STONE"), 1, 200, "building", "carpentry",
+           "tavern", "Workshops", True,
+           "Where dwarves with nothing to do go instead of standing in a "
+           "corridor. Friendships, marriages and children all start here."),
+        _b("altar", "Altar", "_", colors.Color(220, 210, 170), 1, 1,
+           ("STONE", "METAL"), 1, 160, "building", "masonry",
+           "altar", "Furniture", False,
+           "Somewhere to be quiet. A temple is an altar in a good room."),
 
         # -- furniture ----------------------------------------------------- #
         _b("bed", "Bed", "=", colors.Color(180, 140, 90), 1, 1, ("WOOD",), 1,

@@ -165,6 +165,13 @@ def draw_status_line(scr: Screen, x: int, y: int, w: int, fort, mode: str = "") 
         if note:
             parts.append(Frag("| ", colors.UI["frame"]))
             parts.append(Frag(note + " (c) ", colors.UI["warn"]))
+    if getattr(fort, "bonds", None):
+        from ...fortress import social as social_mod
+
+        note = social_mod.summary(fort)
+        if note:
+            parts.append(Frag("| ", colors.UI["frame"]))
+            parts.append(Frag(note + " ", colors.UI["accent2"]))
     mayor = fort.court.noble("mayor")
     if mayor is not None and mayor.mandate:
         parts.append(Frag("| ", colors.UI["frame"]))

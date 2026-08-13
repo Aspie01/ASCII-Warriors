@@ -167,7 +167,10 @@ def labors_for_profession(profession: str) -> LaborSet:
 def profession_title(dwarf) -> str:
     """The title a dwarf earns from its best relevant skill."""
     from ..game.skills import SKILLS, level_name
+    from .social import CHILD_AGE
 
+    if dwarf.age < CHILD_AGE:
+        return "Child"
     best_skill = ""
     best_level = 0
     for labor in dwarf.labors.enabled:

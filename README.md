@@ -283,6 +283,27 @@ medical dwarf, a sheriff and eventually a mayor, who will demand things.
 Ignore enough of it and dwarves start breaking furniture, and then each
 other.
 
+**Friends, families and the tavern.** Build a tavern and the dwarves with
+nothing to do go there instead of standing in a corridor, and that is where
+your fortress gets friends in it. Who becomes friends with whom is decided by
+personality: compatibility sets a ceiling rather than a rate, so an agreeable
+pair plateaus as acquaintances and stays that way for ever, about a quarter of
+pairs can become real friends, a handful can become close, and a few simply
+cannot stand each other.
+
+The ones who were always going to get on become lovers, and lovers marry, and
+married couples have children. Children play instead of working — which is how
+they end up in the tavern making friends of their own — and on the birthday
+they turn twelve they pick up a profession and a pick. Weddings and births go
+into the world's history, where an adventurer can read about them three
+hundred years later.
+
+And when somebody dies, the fortress grieves for what it actually lost: a
+spouse or a child is devastating, a close friend is bad, somebody you had met
+twice is a bad afternoon, and an enemy is a guilty sort of relief. That is
+where the classic dwarven death spiral comes from, and it should be — a
+fortress that never let anybody make a friend has nothing to lose.
+
 **Crime and punishment.** A dwarf at the end of its rope smashes a table or
 punches whoever is standing next to it, and now both go in the sheriff's book.
 So does an ignored mandate, which the manager answers for and the mayor never

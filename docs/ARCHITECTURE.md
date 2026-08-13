@@ -2031,7 +2031,80 @@ with days left, and what went cold. Enter tries a case now rather than waiting
 for the season; `p` pardons. The status line carries `justice.summary` and the
 units list shows "serving time" where the job would be.
 
-## 63. Style
+## 63. Friends, families and the tavern (v3.4)
+
+### `fortress/social.py`
+```python
+LEVELS: 80 close friend / 45 friend / 15 friendly with / -14 knows /
+        -44 annoyed by / -100 enemy of
+APPROACH = 14 ; MEET_COOLDOWN = 1 day ; CENTRE = 0.19 ; SPREAD = 1.6
+LOVE_AT = 70 ; MARRY_ODDS = 0.4 ; CHILD_AGE = 12 ; BIRTH_ODDS = 0.35
+class Bond: a b value kind met      # kind: lover/spouse/widowed/child
+def compatibility(a, b) -> -1..1 / ceiling(a, b) -> -100..100
+def meet(fort, a, b) / bond / bonds_of / spouse_of / describe / forget
+def grieve(fort, dead)              # thoughts in proportion to the bond
+def court(fort) / eligible / couples / maybe_born / born / birthdays
+def lonely(fort, dwarf) / season(fort) / is_child / children / summary
+```
+A fortress used to be seven strangers sharing a corridor. Every dwarf got the
+same thought when anybody died — "lost a friend to a violent death" — whether
+they had ever stood next to the corpse or not, which is the kind of detail
+that quietly admits the friendship was never modelled.
+
+**Compatibility is a ceiling, not a rate.** This is the load-bearing decision.
+As a rate, every pair given enough months in the same room ends up
+inseparable, and thirty days of tavern turned a seven-dwarf fortress into a
+commune where every bond sat at 100. As a ceiling, a merely agreeable pair
+plateaus as friendly acquaintances and stays there for ever, and only a
+well-matched one gets as far as marrying. `CENTRE`/`SPREAD` then pull tails
+out of what is otherwise a narrow band of mild fondness — they are all the
+same race with the same racial bias, so raw compatibility never goes negative
+and never gets close. Tuned to roughly: a quarter of pairs can become friends,
+1.5% close friends, 4% could be lovers, 7% end up annoyed, 0.6% enemies.
+
+**Bonds move where dwarves already are.** `sim._mingle` buckets dwarves by
+cell each step and pairs up neighbours; `meet` closes `1/APPROACH` of the
+distance still to run, once per pair per day. There is no socialising
+simulation and no social job — which is why the tavern matters. It is a
+building that defines a room (`rooms.ROOM_KINDS`), and `dwarf._to_the_tavern`
+sends idle dwarves to it instead of wandering. Two miners sharing a shaft
+become colleagues over months; the tavern is faster only because it is where
+everybody with nothing to do ends up at once.
+
+Two things had to be got right for the tavern not to cost more than it is
+worth. Nineteen dwarves converging on one 3×3 building shove each other off
+it for ever, and every shove throws away a path and buys another A* search —
+so "arrived" means anywhere within `TAVERN_RADIUS` of the middle, and a dwarf
+that has arrived clears its path and stops planning. Route-finding is gated to
+one attempt per `TAVERN_REPATH` idle ticks; walking is every tick. With those,
+a 19-dwarf idle fortress runs *faster* with a tavern (1.6 ms/step) than
+without one (5.1 ms/step, the same on v3.3), because idle dwarves stop
+wandering the map.
+
+**Grief replaces a lie.** `Fortress.kill_creature` used to hand +18 stress to
+everybody; now it calls `social.grieve`, which pays out on the actual bond —
+90 for a spouse or a child, 45 for a close friend, 8 for somebody you knew,
+and `SPITE` (a guilty −6) for an enemy — and everybody else merely "saw a
+death in the fortress". A widow's bond becomes `widowed` rather than being
+deleted, and the dead keep their bonds, because who the dead were close to is
+exactly what the survivors are grieving.
+
+**Lovers marry; there is no second threshold.** An earlier draft needed a bond
+of 90 to wed, which only 0.4% of pairs could ever reach — a wedding the game
+would never show anybody. Now `LOVE_AT` makes lovers of a pair whose ceiling
+is high enough and whose `love_propensity` rolls, and lovers marry on seasonal
+odds. Married couples have children if the fortress has food and room;
+children take no jobs (`dwarf._too_young` idles them, so they end up in the
+tavern making friends of their own), age a year per fortress year via
+`social.birthdays`, and pick up a profession and its labors on the birthday
+they stop being children. Marriages and births are written to world history,
+so an adventurer can read about them three centuries later.
+
+`ui/fort/units.py` shows the bonds in a dwarf's detail panel, closest first,
+and "playing" where the job would be for a child. The status line carries the
+child count; `profession_title` returns "Child".
+
+## 64. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

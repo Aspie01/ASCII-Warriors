@@ -60,6 +60,13 @@ def _open_spot(fort, kind: str):
     return None
 
 
+def item_for(fort, def_id: str):
+    """One item of a kind, for tests that need the larder stocked."""
+    from ascii_warriors.game.item import make_item
+
+    return make_item(fort.rng, def_id)
+
+
 def dig_room(fort, radius: int = 6) -> int:
     """Designate a block of digging near the dwarves, wherever the rock is.
 
@@ -3393,3 +3400,434 @@ class TestJustice(unittest.TestCase):
         self.assertEqual(back.loot_name, gem.name())
         self.assertEqual(back.thief_since, thief.thief_since)
         self.assertEqual(again.hostiles(), [])
+
+
+class TestSocial(unittest.TestCase):
+    """Who knows whom, what it costs when they die, and where children come from."""
+
+    def setUp(self):
+        from ascii_warriors.fortress import social as social_mod
+
+        self.social = social_mod
+
+    def _tavern(self, fort):
+        """Put up a tavern near the dwarves."""
+        spot = _open_spot(fort, "tavern")
+        self.assertIsNotNone(spot, "nowhere to put a tavern")
+        t = Building("tavern", *spot)
+        t.built = True
+        fort.buildings.append(t)
+        return t
+
+    def _pair(self, fort, ceiling):
+        """Two dwarves whose bond is forced to a chosen level."""
+        a, b = fort.dwarves()[0], fort.dwarves()[1]
+        bd = self.social.Bond(a.id, b.id, ceiling)
+        fort.bonds[bd.key] = bd
+        return a, b, bd
+
+    # -- the shape of a bond ------------------------------------------------ #
+
+    def test_a_bond_is_stored_once_per_pair(self):
+        """Two dwarves cannot disagree about what they are to each other."""
+        fort = embark("bondkey")
+        a, b = fort.dwarves()[0], fort.dwarves()[1]
+        one = self.social.meet(fort, a, b)
+        self.assertIsNotNone(one)
+        self.assertEqual(len(fort.bonds), 1)
+        self.assertIs(self.social.bond(fort, a, b),
+                      self.social.bond(fort, b, a))
+        self.assertEqual(one.key, (min(a.id, b.id), max(a.id, b.id)))
+        self.assertEqual(one.other(a.id), b.id)
+        self.assertEqual(one.other(b.id), a.id)
+
+    def test_a_bond_has_a_name_a_player_can_read(self):
+        """The number is for the simulation; the word is for the screen."""
+        cases = ((100, "close friend"), (50, "friend"), (20, "friendly with"),
+                 (0, "knows"), (-30, "annoyed by"), (-80, "enemy of"))
+        for value, expected in cases:
+            self.assertEqual(self.social.Bond(1, 2, value).level, expected)
+
+    def test_marriage_outranks_temper(self):
+        """A spouse you have fallen out with is still a spouse."""
+        bd = self.social.Bond(1, 2, -70, "spouse")
+        self.assertEqual(bd.level, "enemy of")
+        self.assertEqual(bd.label, "spouse")
+
+    def test_meeting_has_a_cooldown(self):
+        """Standing next to somebody all day is one conversation, not four."""
+        fort = embark("cooldown")
+        a, b = fort.dwarves()[0], fort.dwarves()[1]
+        first = self.social.meet(fort, a, b)
+        value = first.value
+        for _ in range(50):
+            self.social.meet(fort, a, b)
+        self.assertEqual(self.social.bond(fort, a, b).value, value)
+        fort.ticks += self.social.MEET_COOLDOWN
+        self.social.meet(fort, a, b)
+        self.assertNotEqual(self.social.bond(fort, a, b).value, value)
+
+    def test_nobody_befriends_themselves(self):
+        """Which would otherwise be the strongest bond in the fortress."""
+        fort = embark("alone")
+        d = fort.dwarves()[0]
+        self.assertIsNone(self.social.meet(fort, d, d))
+        self.assertEqual(fort.bonds, {})
+
+    # -- compatibility ------------------------------------------------------ #
+
+    def test_compatibility_decides_the_ceiling(self):
+        """Not the rate. A rate alone makes everybody inseparable eventually."""
+        fort = embark("ceiling")
+        a, b = fort.dwarves()[0], fort.dwarves()[1]
+        cap = self.social.ceiling(a, b)
+        for _ in range(400):
+            fort.ticks += self.social.MEET_COOLDOWN
+            self.social.meet(fort, a, b)
+        self.assertEqual(self.social.bond(fort, a, b).value, cap)
+
+    def test_dwarves_are_not_all_equally_compatible(self):
+        """A fortress of universal best friends is not a fortress."""
+        from ascii_warriors.engine.rng import RNG
+
+        rng = RNG("spread")
+        crowd = [dwarf_mod.make_dwarf(rng, "miner") for _ in range(40)]
+        caps = [self.social.ceiling(crowd[i], crowd[j])
+                for i in range(len(crowd)) for j in range(i + 1, len(crowd))]
+        self.assertLess(min(caps), 0, "nobody in the world dislikes anybody")
+        self.assertGreater(max(caps), 60, "nobody could ever be close")
+        friends = sum(1 for c in caps if c >= 45) / float(len(caps))
+        self.assertLess(friends, 0.5, "half the fortress cannot all be friends")
+        self.assertGreater(friends, 0.05, "nobody can be friends with anybody")
+
+    def test_compatibility_is_symmetric(self):
+        """However they meet, they get on the same amount."""
+        fort = embark("symmetry")
+        a, b = fort.dwarves()[0], fort.dwarves()[1]
+        self.assertEqual(self.social.compatibility(a, b),
+                         self.social.compatibility(b, a))
+
+    # -- the tavern --------------------------------------------------------- #
+
+    def test_idle_dwarves_go_to_the_tavern(self):
+        """Which is the whole reason to build one."""
+        fort = embark("gathering")
+        tavern = self._tavern(fort)
+        cx, cy, cz = tavern.center
+        sim.run(fort, 500)
+        near = [d for d in fort.dwarves()
+                if d.z == cz
+                and max(abs(d.x - cx), abs(d.y - cy))
+                <= dwarf_mod.TAVERN_RADIUS]
+        # Not everybody: a dwarf with a job to do is not idle, and hauling
+        # the wagon indoors is a job. Most of the fortress, though.
+        self.assertGreater(len(near), len(fort.dwarves()) // 2)
+        idle = [d for d in fort.dwarves() if d.fort.job is None]
+        self.assertTrue(set(d.id for d in idle) <= set(d.id for d in near))
+
+    def test_a_tavern_makes_friends(self):
+        """Bonds move where dwarves already are, so they move fastest here."""
+        quiet = embark("quiet-fort")
+        loud = embark("loud-fort")
+        self._tavern(loud)
+        sim.run(quiet, 2000)
+        sim.run(loud, 2000)
+        best_quiet = max((b.value for b in quiet.bonds.values()), default=0)
+        best_loud = max((b.value for b in loud.bonds.values()), default=0)
+        self.assertGreater(best_loud, best_quiet)
+
+    def test_a_fortress_with_no_tavern_still_runs(self):
+        """The idle behaviour has to survive there being nowhere to go."""
+        fort = embark("notavern")
+        self.assertIsNone(fort.tavern())
+        sim.run(fort, 200)
+        self.assertFalse(fort.lost)
+
+    def test_company_cures_loneliness(self):
+        """And the clock starts again the moment somebody says something."""
+        fort = embark("lonely")
+        a, b = fort.dwarves()[0], fort.dwarves()[1]
+        a.fort.lonely = self.social.LONELY_AT + 1
+        self.assertTrue(self.social.lonely(fort, a))
+        self.social.meet(fort, a, b)
+        self.assertEqual(a.fort.lonely, 0)
+        self.assertFalse(self.social.lonely(fort, a))
+
+    def test_loneliness_is_a_seasonal_thought(self):
+        """A fortress that never lets anybody talk pays for it."""
+        fort = embark("solitude")
+        d = fort.dwarves()[0]
+        for other in fort.dwarves():
+            other.fort.lonely = self.social.LONELY_AT + 1
+        before = d.needs.stress
+        self.social.season(fort)
+        self.assertGreater(d.needs.stress, before)
+
+    def test_knowing_a_name_is_not_company(self):
+        """Only a real friend is worth a cheerful thought."""
+        fort = embark("acquaintance")
+        a, b = fort.dwarves()[0], fort.dwarves()[1]
+        nod = self.social.Bond(a.id, b.id, 20)
+        fort.bonds[nod.key] = nod
+        before = a.needs.stress
+        self.social.season(fort)
+        self.assertEqual(a.needs.stress, before)
+        nod.value = 60
+        self.social.season(fort)
+        self.assertLess(a.needs.stress, before)
+
+    # -- grief -------------------------------------------------------------- #
+
+    def test_grief_is_proportional_to_the_bond(self):
+        """The whole point. A stranger is not a spouse."""
+        fort = embark("grief")
+        dwarves = fort.dwarves()
+        dead, close, stranger = dwarves[0], dwarves[1], dwarves[2]
+        bd = self.social.Bond(dead.id, close.id, 100)
+        fort.bonds[bd.key] = bd
+        before_close = close.needs.stress
+        before_stranger = stranger.needs.stress
+        self.social.grieve(fort, dead)
+        self.assertGreater(close.needs.stress - before_close,
+                           stranger.needs.stress - before_stranger)
+        self.assertEqual(stranger.needs.stress, before_stranger)
+
+    def test_a_widow_is_widowed(self):
+        """And feels it more than anybody."""
+        fort = embark("widow")
+        dead, spouse = fort.dwarves()[0], fort.dwarves()[1]
+        bd = self.social.Bond(dead.id, spouse.id, 95, "spouse")
+        fort.bonds[bd.key] = bd
+        self.social.grieve(fort, dead)
+        self.assertEqual(bd.kind, "widowed")
+        self.assertGreaterEqual(spouse.needs.stress, 80)
+        self.assertTrue(any("widowed" in m.text for m in fort.log.all()))
+        self.assertTrue(any("spouse" in t
+                            for t in spouse.needs.recent_thoughts(4)))
+
+    def test_nobody_mourns_an_enemy(self):
+        """They are quietly pleased, and ashamed of it."""
+        fort = embark("spite")
+        dead, foe = fort.dwarves()[0], fort.dwarves()[1]
+        bd = self.social.Bond(dead.id, foe.id, -80)
+        fort.bonds[bd.key] = bd
+        before = foe.needs.stress
+        self.social.grieve(fort, dead)
+        self.assertLess(foe.needs.stress, before)
+
+    def test_a_death_grieves_through_the_real_loop(self):
+        """Not only when the test calls grieve by hand."""
+        fort = embark("realgrief")
+        dead, close = fort.dwarves()[0], fort.dwarves()[1]
+        bd = self.social.Bond(dead.id, close.id, 100)
+        fort.bonds[bd.key] = bd
+        before = close.needs.stress
+        dead.body.dead = True
+        dead.body.death_cause = "slain"
+        fort.kill_creature(dead)
+        self.assertGreaterEqual(close.needs.stress - before, 40)
+
+    def test_a_dwarf_that_leaves_takes_its_bonds_with_it(self):
+        """Nobody grieves somebody who walked out."""
+        fort = embark("departed")
+        a, b, bd = self._pair(fort, 90)
+        fort.remove_creature(a)
+        self.assertNotIn(bd.key, fort.bonds)
+        self.assertEqual(self.social.bonds_of(fort, b), [])
+
+    def test_the_dead_keep_their_bonds(self):
+        """Who the dead were close to is what the survivors are grieving."""
+        fort = embark("keepbonds")
+        dead, close = fort.dwarves()[0], fort.dwarves()[1]
+        bd = self.social.Bond(dead.id, close.id, 90)
+        fort.bonds[bd.key] = bd
+        dead.body.dead = True
+        fort.kill_creature(dead)
+        self.assertIn(bd.key, fort.bonds)
+
+    # -- love and children --------------------------------------------------- #
+
+    def test_lovers_become_spouses(self):
+        """Lovers marry. There is no second, higher bond to clear."""
+        fort = embark("wedding")
+        a, b, bd = self._pair(fort, 100)
+        bd.kind = "lover"
+        for _ in range(30):
+            self.social.court(fort)
+            if bd.kind == "spouse":
+                break
+        self.assertEqual(bd.kind, "spouse")
+        self.assertTrue(any("married" in m.text for m in fort.log.all()))
+        self.assertIs(self.social.spouse_of(fort, a), b)
+        self.assertIs(self.social.spouse_of(fort, b), a)
+
+    def test_a_wedding_is_written_into_the_world(self):
+        """So an adventurer can read about it three hundred years later."""
+        fort = embark("weddinghistory")
+        a, b, bd = self._pair(fort, 100)
+        bd.kind = "lover"
+        before = len(fort.world.events)
+        for _ in range(30):
+            self.social.court(fort)
+            if bd.kind == "spouse":
+                break
+        marriages = [e for e in fort.world.events[before:]
+                     if e.kind == "marriage"]
+        self.assertEqual(len(marriages), 1)
+        self.assertIn(a.name, marriages[0].text)
+        self.assertIn(fort.name, marriages[0].text)
+
+    def test_nobody_marries_twice(self):
+        """A married dwarf is not eligible, however charming the neighbour."""
+        fort = embark("bigamy")
+        a, b, bd = self._pair(fort, 100)
+        bd.kind = "spouse"
+        c = fort.dwarves()[2]
+        other = self.social.Bond(a.id, c.id, 100)
+        fort.bonds[other.key] = other
+        self.assertFalse(self.social.eligible(fort, a))
+        for _ in range(30):
+            self.social.court(fort)
+        self.assertEqual(other.kind, "")
+
+    def test_children_are_born_to_couples(self):
+        """And only to couples who could have one."""
+        fort = embark("cradle")
+        a, b, bd = self._pair(fort, 100)
+        bd.kind = "spouse"
+        a.female, b.female = True, False
+        for _ in range(400):
+            fort.drop_item(item_for(fort, "plump_helmet"), a.x, a.y, a.z)
+        before = len(fort.dwarves())
+        child = None
+        for _ in range(60):
+            child = self.social.maybe_born(fort)
+            if child is not None:
+                break
+        self.assertIsNotNone(child, "no child in fifteen years of trying")
+        self.assertEqual(len(fort.dwarves()), before + 1)
+        self.assertTrue(self.social.is_child(child))
+        self.assertEqual(child.age, 0)
+        self.assertTrue(any("given birth" in m.text for m in fort.log.all()))
+
+    def test_a_child_knows_its_parents(self):
+        """It is born knowing exactly two people, and very well."""
+        fort = embark("family")
+        a, b, bd = self._pair(fort, 100)
+        bd.kind = "spouse"
+        a.female, b.female = True, False
+        child = self.social.born(fort, a, b)
+        self.assertEqual(self.social.describe(fort, child, a), "child")
+        self.assertEqual(self.social.describe(fort, child, b), "child")
+        births = [e for e in fort.world.events if e.kind == "birth"
+                  and child.name in e.text]
+        self.assertEqual(len(births), 1)
+
+    def test_a_hungry_fortress_has_no_children(self):
+        """Nobody gives birth into a famine."""
+        fort = embark("famine")
+        a, b, bd = self._pair(fort, 100)
+        bd.kind = "spouse"
+        a.female, b.female = True, False
+        fort.items_on_ground.clear()
+        self.assertLess(fort.food_stock(), self.social.BIRTH_FOOD)
+        for _ in range(40):
+            self.assertIsNone(self.social.maybe_born(fort))
+
+    def test_a_child_does_no_work(self):
+        """It plays, which is how it ends up with friends of its own."""
+        fort = embark("playing")
+        a, b, bd = self._pair(fort, 100)
+        bd.kind = "spouse"
+        a.female, b.female = True, False
+        child = self.social.born(fort, a, b)
+        dig_room(fort)
+        sim.scan_jobs(fort)
+        for _ in range(40):
+            dwarf_mod.take_turn(fort, child, 10)
+        self.assertIsNone(child.fort.job)
+        self.assertEqual(labors.profession_title(child), "Child")
+
+    def test_a_child_grows_up_and_works(self):
+        """The fortress gets a dwarf out of it eventually."""
+        fort = embark("growingup")
+        a, b, bd = self._pair(fort, 100)
+        bd.kind = "spouse"
+        a.female, b.female = True, False
+        child = self.social.born(fort, a, b)
+        for _ in range(self.social.CHILD_AGE):
+            self.social.birthdays(fort)
+        self.assertFalse(self.social.is_child(child))
+        self.assertTrue(child.fort.labors.enabled)
+        self.assertTrue(child.profession)
+        self.assertTrue(any("grown up" in m.text for m in fort.log.all()))
+
+    def test_birthdays_come_round_in_the_real_loop(self):
+        """A year of fortress time is a year of everybody's life."""
+        fort = embark("ageing")
+        d = fort.dwarves()[0]
+        before = d.age
+        for _ in range(5):
+            fort.time.advance(TICKS_PER_DAY * 95)
+            sim.step(fort)
+        self.assertEqual(d.age, before + 1)
+
+    # -- the screens --------------------------------------------------------- #
+
+    def test_the_status_line_counts_the_children(self):
+        """And says "1 child", not "1 children"."""
+        from ascii_warriors.engine.screen import Screen
+        from ascii_warriors.ui.fort.sidebar import draw_status_line
+
+        fort = embark("kidcount")
+        a, b, bd = self._pair(fort, 100)
+        bd.kind = "spouse"
+        a.female, b.female = True, False
+        self.assertEqual(self.social.summary(fort), "")
+        self.social.born(fort, a, b)
+        self.assertEqual(self.social.summary(fort), "1 child")
+        self.social.born(fort, a, b)
+        self.assertEqual(self.social.summary(fort), "2 children")
+        scr = Screen(130, 4)
+        draw_status_line(scr, 0, 0, 130, fort)
+        self.assertIn("2 children", "\n".join(scr.to_text()))
+
+    def test_a_dwarf_s_relationships_render(self):
+        """Who it knows, in the panel that describes it."""
+        from ascii_warriors.engine.screen import Screen
+        from ascii_warriors.ui.fort import units as units_ui
+
+        fort = embark("relui")
+        a, b, bd = self._pair(fort, 95)
+        bd.kind = "spouse"
+        lines = []
+        units_ui._relationships(fort, a, lines)
+        text = " ".join(
+            f.text if hasattr(f, "text") else
+            (" ".join(getattr(p, "text", str(p)) for p in f)
+             if isinstance(f, list) else str(f))
+            for f in lines)
+        self.assertIn("Relationships", text)
+        self.assertIn("spouse", text)
+        self.assertIn(b.name, text)
+        scr = Screen(110, 34)
+        units_ui.UnitsScene(_FakeApp(), fort).draw(scr)
+        self.assertEqual(len(scr.to_text()), 34)
+
+    # -- persistence -------------------------------------------------------- #
+
+    def test_bonds_survive_a_save(self):
+        """Including who is married to whom and how long they have known."""
+        fort = embark("bondsave")
+        a, b, bd = self._pair(fort, 64)
+        bd.kind = "spouse"
+        bd.met = 4321
+        a.fort.lonely = 999
+        again = Fortress.from_dict(fort.to_dict())
+        back = again.bonds[bd.key]
+        self.assertEqual(back.value, 64)
+        self.assertEqual(back.kind, "spouse")
+        self.assertEqual(back.met, 4321)
+        self.assertEqual(again.creatures[a.id].fort.lonely, 999)
+        self.assertIs(self.social.spouse_of(again, again.creatures[a.id]),
+                      again.creatures[b.id])

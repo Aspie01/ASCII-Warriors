@@ -70,7 +70,7 @@ WHAT TO DO FIRST
 
   d      designate. Press d again for mining, i for a stairway. Enter marks one
          corner of a rectangle, Enter again paints it. Dig into a hillside.
-  b      build. A still first, then a farm plot, then beds.
+  b      build. A still first, then a farm plot, then beds, then a tavern.
   p      place a stockpile so loose goods get carried indoors.
   o      queue work at a workshop. A still with a repeating 'brew ale' order is
          the difference between a fortress and a graveyard.
@@ -251,6 +251,29 @@ a sheriff and eventually a mayor. The mayor will demand things. Ignoring the
 demands makes the mayor furious, and a furious dwarf in a fortress full of
 unhappy dwarves is how tantrums start: broken furniture, then somebody going
 berserk with an axe.
+
+FRIENDS AND FAMILIES
+
+Build a tavern (b, Workshops) and dwarves with nothing to do go there instead
+of standing in a corridor. That is where friendships happen: bonds move where
+dwarves already are, and the tavern is simply where everybody idle ends up at
+once.
+
+Who gets on with whom is personality, not luck. Compatibility sets a ceiling,
+so a merely agreeable pair will be acquaintances for ever however long they
+share a room. About a quarter of pairs can become friends, a few can become
+close, and a few cannot stand each other at all. Press u and look at a dwarf
+to see who it knows.
+
+The pairs who were always going to get on become lovers, lovers marry, and
+married couples have children if there is food in store. Children play rather
+than work, and at twelve they take up a profession. Weddings and births are
+written into the world's history.
+
+When a dwarf dies the fortress grieves for what it lost. A spouse or a child
+is devastating; somebody you had met twice is a bad afternoon. This is where
+the death spiral comes from, and a fortress with no friendships in it has
+nothing to lose and no reason to keep going either.
 
 CRIME AND THE LAW
 

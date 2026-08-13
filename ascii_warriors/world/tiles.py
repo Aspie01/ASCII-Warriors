@@ -160,6 +160,8 @@ TILES: Dict[str, TileDef] = {
            "FLOOR", "FURNITURE"),
         _t("barracks", "barracks", "!", colors.Color(180, 172, 200), True, True,
            "FLOOR", "FURNITURE", "CONSTRUCTED"),
+        _t("tavern", "tavern floor", "\u00a3", colors.Color(205, 165, 105),
+           True, True, "FLOOR", "FURNITURE", "CONSTRUCTED"),
         _t("trap", "trap", "^", colors.Color(190, 120, 110), True, True,
            "FLOOR", "TRAP", "CONSTRUCTED"),
         _t("lever", "lever", "\\", colors.Color(200, 180, 120), True, True,

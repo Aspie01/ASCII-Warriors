@@ -32,7 +32,7 @@ class DwarfState:
 
     __slots__ = ("labors", "job", "path", "path_goal", "nickname", "bed",
                  "mood", "mood_ticks", "idle_ticks", "squad", "carrying",
-                 "workshop", "blocked", "sleeping")
+                 "workshop", "blocked", "sleeping", "lonely")
 
     def __init__(self, labors: Optional[LaborSet] = None) -> None:
         self.labors = labors or LaborSet()
@@ -49,6 +49,8 @@ class DwarfState:
         self.squad = False
         self.carrying: Optional[int] = None
         self.workshop: Optional[int] = None
+        #: Ticks since this dwarf last spoke to anybody.
+        self.lonely = 0
 
     def to_dict(self) -> Dict[str, Any]:
         """Serialise the fortress-only state."""
@@ -61,6 +63,7 @@ class DwarfState:
             "mood_ticks": self.mood_ticks,
             "squad": self.squad,
             "workshop": self.workshop,
+            "lonely": self.lonely,
         }
 
     @classmethod
@@ -73,6 +76,7 @@ class DwarfState:
         s.mood_ticks = int(d.get("mood_ticks", 0))
         s.squad = bool(d.get("squad", False))
         s.workshop = d.get("workshop")
+        s.lonely = int(d.get("lonely", 0))
         return s
 
 
@@ -89,11 +93,19 @@ def attach(dwarf: Creature, profession: str = "") -> Creature:
     return dwarf
 
 
-def make_dwarf(rng: RNG, profession: str = "", *, race: str = "dwarf") -> Creature:
-    """Create a fortress dwarf of a given profession."""
+def make_dwarf(rng: RNG, profession: str = "", *, race: str = "dwarf",
+               age: Optional[int] = None) -> Creature:
+    """Create a fortress dwarf of a given profession.
+
+    *age* is for the ones that are born here rather than walking in: a
+    newborn has no profession and no skills, and picks both up on the
+    birthday it stops being a child.
+    """
     from ..game.entity import make_creature
 
     c = make_creature(rng, race, faction="fortress", equip=False)
+    if age is not None:
+        c.age = age
     attach(c, profession)
     if profession in ("miner", "woodcutter"):
         c.inventory.add(Item("pick" if profession == "miner" else "axe", "iron"))
@@ -287,6 +299,8 @@ def take_turn(fort, dwarf, ticks: int) -> None:
         return
     if _serving_time(fort, dwarf):
         return
+    if _too_young(fort, dwarf):
+        return
 
     job = state.job
     if job is None or job.id not in fort.jobs.jobs:
@@ -297,6 +311,22 @@ def take_turn(fort, dwarf, ticks: int) -> None:
             return
 
     _work_job(fort, dwarf, job, ticks)
+
+
+def _too_young(fort, dwarf) -> bool:
+    """Children play. True if that is what this turn was.
+
+    They idle rather than working, which means they end up in the tavern with
+    everybody else, which is how a child comes to have friends of its own by
+    the time it is old enough to hold a pick.
+    """
+    from . import social
+
+    if not social.is_child(dwarf):
+        return False
+    release_job(fort, dwarf)
+    _idle(fort, dwarf)
+    return True
 
 
 def _serving_time(fort, dwarf) -> bool:
@@ -730,10 +760,12 @@ def _work_job(fort, dwarf, job: Job, ticks: int) -> None:
 
 
 def _idle(fort, dwarf) -> None:
-    """Wander a little when there is nothing to do."""
+    """Go to the tavern when there is nothing to do, or wander if there is none."""
     state = dwarf.fort
     state.idle_ticks += 1
     if state.idle_ticks % 4 != 0:
+        return
+    if _to_the_tavern(fort, dwarf):
         return
     if fort.rng.chance(0.5):
         dx, dy = fort.rng.dir8()
@@ -743,3 +775,53 @@ def _idle(fort, dwarf) -> None:
     if state.idle_ticks > 600:
         dwarf.needs.add_thought("had nothing to do", 2)
         state.idle_ticks = 0
+
+
+#: How far from the tavern's middle still counts as being in the tavern.
+#: The whole room, not the three tiles the furniture stands on: twenty idle
+#: dwarves converging on one 3x3 building shove each other off it for ever,
+#: and every shove throws away a path and buys another A* search.
+TAVERN_RADIUS = 4
+
+#: Idle ticks between attempts to plan a route there. Walking is cheap and
+#: happens every idle tick; planning is not, and a dwarf that cannot get
+#: there must not pay for a search every time it thinks about a drink.
+TAVERN_REPATH = 16
+
+
+def _to_the_tavern(fort, dwarf) -> bool:
+    """Walk towards the tavern. True if that is what this turn was spent on.
+
+    A dwarf that has arrived stays in the room and lets the others come to
+    it, which is what makes the tavern a place where everybody meets rather
+    than a place everybody walks through.
+    """
+    tavern = fort.tavern()
+    if tavern is None:
+        return False
+    state = dwarf.fort
+    cx, cy, cz = tavern.center
+    if dwarf.z == cz and max(abs(dwarf.x - cx), abs(dwarf.y - cy)) \
+            <= TAVERN_RADIUS:
+        state.path = []
+        # Standing about in a tavern is the point of a tavern. Drift a little
+        # so the room mixes and everybody does not talk to the same neighbour.
+        if fort.rng.chance(0.3):
+            dx, dy = fort.rng.dir8()
+            cell = (dwarf.x + dx, dwarf.y + dy, dwarf.z)
+            if max(abs(cell[0] - cx), abs(cell[1] - cy)) <= TAVERN_RADIUS \
+                    and fort.local.walkable(*cell) \
+                    and fort.creature_at(*cell) is None:
+                dwarf.x, dwarf.y, dwarf.z = cell
+        return True
+    if state.path and state.path_goal == (cx, cy, cz):
+        if step_along(fort, dwarf):
+            return True
+        state.path = []
+        return True
+    if state.idle_ticks % TAVERN_REPATH != 0:
+        return False
+    if not path_to(fort, dwarf, (cx, cy, cz)):
+        return False
+    step_along(fort, dwarf)
+    return True

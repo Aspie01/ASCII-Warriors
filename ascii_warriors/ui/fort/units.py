@@ -12,11 +12,48 @@ from ...fortress.labors import CATEGORIES, LABORS, profession_title
 from ..app import Scene
 
 
+def _child(dwarf) -> bool:
+    """Too young to hold a pick."""
+    from ...fortress import social
+
+    return social.is_child(dwarf)
+
+
 def _jailed(fort, dwarf) -> bool:
     """Whether this dwarf is off the roster because the sheriff says so."""
     from ...fortress import justice
 
     return justice.is_jailed(fort, dwarf)
+
+
+#: How a bond is coloured in the detail panel.
+BOND_COLORS = {
+    "spouse": "accent2", "lover": "accent2", "child": "accent2",
+    "close friend": "good", "friend": "good",
+    "annoyed by": "warn", "enemy of": "danger",
+}
+
+
+def _relationships(fort, dwarf, lines: List) -> None:
+    """Who this dwarf knows, closest first, into an existing line list."""
+    from ...fortress import social
+
+    bonds = [bd for bd in social.bonds_of(fort, dwarf)
+             if bd.kind or abs(bd.value) >= 15]
+    if not bonds:
+        return
+    lines.append("")
+    lines.append(Frag("Relationships", colors.UI["accent"]))
+    for bd in bonds[:8]:
+        other = fort.creatures.get(bd.other(dwarf.id))
+        if other is None:
+            continue
+        colour = colors.UI[BOND_COLORS.get(bd.label, "fg")]
+        lines.append([
+            Frag("  %-11s " % bd.label, colour),
+            Frag(other.name, colors.UI["fg"]),
+            Frag("" if other.alive else " (dead)", colors.UI["dim"]),
+        ])
 
 
 def _sentence(fort, dwarf) -> str:
@@ -109,6 +146,8 @@ class UnitsScene(Scene):
             name = "%s the %s" % (name, title)
         if state.mood:
             what, colour = "possessed", colors.MAGIC
+        elif _child(d):
+            what, colour = "playing", colors.UI["accent2"]
         elif self.fort.crimes and _jailed(self.fort, d):
             what, colour = "serving time", colors.UI["danger"]
         elif state.job is not None:
@@ -217,6 +256,7 @@ class UnitsScene(Scene):
                 lines.append("Sleeps in %s" % room.name)
             else:
                 lines.append(Frag("Has no bedroom", colors.UI["warn"]))
+            _relationships(self.fort, creature, lines)
             lines.append("")
             lines.append(Frag("Thoughts", colors.UI["accent"]))
             thoughts = creature.needs.recent_thoughts(6)
