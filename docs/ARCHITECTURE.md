@@ -1966,7 +1966,72 @@ greeting` changes with standing, `quests.generate_quest` scales the reward by
 `1 + renown/120`, and the pause menu can retire the adventurer — the opposite
 of dying, and the adventure-mode mirror of retiring a fortress in v2.4.
 
-## 62. Style
+## 62. Crime and punishment (v3.3)
+
+### `fortress/justice.py`
+```python
+CRIMES = {vandalism:1, assault:2, theft:2, murder:4, neglect:1}  # kind -> severity
+JAIL_TICKS = 4 days per point ; COLD_CASE = 90 days ; UNSOLVED_STRESS = 3
+class Crime: id kind culprit tick detail convicted until pardoned
+def report(fort, kind, culprit, detail) -> Optional[Crime]
+def open_cases / cold_cases / serving / is_jailed / culprit_of / describe
+def sheriff(fort) / can_try(fort, crime) / hold_court(fort) / convict / pardon
+def tick(fort)     # every step: hold court every 3 days, release the served
+def season(fort)   # unsolved crime raises stress; warns to appoint a sheriff
+def days_left(fort, crime) / summary(fort)
+```
+The fortress had dwarves who smash the furniture and mayors who demand statues
+nobody builds, and no consequences for any of it. This is the consequences.
+
+Four things generate crime, and none of them is a special case bolted on:
+
+- **Vandalism** — `sim._throw_tantrum` already destroyed a building; now it
+  writes down who.
+- **Assault**, and **murder** when it goes too far — `sim._start_brawl`, taken
+  35% of the time in place of breaking furniture. One barehanded blow at an
+  adjacent dwarf: a fistfight in the dining hall is a crime and a bruise, not
+  an execution, but `melee_attack` is real combat and it can still kill.
+- **Theft** — `sim._maybe_thief` sends one kobold a season at a fortress worth
+  400. It walks to the nearest item worth 20, takes it, and leaves by
+  `war.retreat_step`. The crime is filed with `culprit=None`.
+- **Neglect** — `sim._blame_for_mandate` pins an ignored mandate on the
+  manager, or the expedition leader if there is no manager. Never the mayor.
+
+Five rules make it a system rather than a log:
+
+- **A thief is not a siege.** `Fortress.hostiles()` excludes `c.thief`, so one
+  kobold with its eye on a mug does not sound the alarm, call up the militia
+  and stop everybody drinking. The fortress finds out from the gap where the
+  mug used to be. Dwarves that can *see* it still react — soldiers chase,
+  civilians run — because `dwarf._handle_danger` scans the faction directly.
+  The alarm is fortress-wide; seeing a kobold is local.
+- **Nothing may loiter.** A thief that finds nothing worth taking leaves after
+  `THIEF_PATIENCE`, and one that cannot walk out at all — `retreat_step` heads
+  for the nearest edge on one z-level, so a robbery five levels down ends at a
+  wall — is gone after `THIEF_GONE`. Both are the lesson `war.FLEE_TICKS`
+  already learned: a creature wedged in a corridor that nobody hunts is a
+  permanent resident, and every dwarf working near it flees for ever.
+- **A crime with no suspect cannot be tried.** `can_try` needs a living
+  culprit still in the fortress. A theft in the night stays open until
+  `COLD_CASE`, and `season()` charges the fortress stress for every day of it.
+  That gap is the pressure to appoint a sheriff, not a bug in the trial.
+- **The law has to be visible.** `tick()` holds court every three days, not
+  once a season: a bad week fills the book with a dozen cases, and a sheriff
+  who answers them in three months is a sheriff nobody can see working. The
+  status line carries both halves — unsolved *and* serving — because a
+  fortress with four fifths of its labour in a cell needs telling.
+- **A sentence has to cost something.** `dwarf._serving_time` runs after needs
+  and before jobs: a convicted dwarf eats, drinks and sleeps, drops its job
+  and takes no other. Four days without your legendary mason is the entire
+  point of having a law, and `pardon()` is the button that buys the mason back
+  at the price of everyone else's opinion of you.
+
+`ui/fort/justice_screen.py` (`c`) is the sheriff's book: open cases, sentences
+with days left, and what went cold. Enter tries a case now rather than waiting
+for the season; `p` pardons. The status line carries `justice.summary` and the
+units list shows "serving time" where the job would be.
+
+## 63. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

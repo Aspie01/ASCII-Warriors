@@ -162,6 +162,10 @@ class FortScene(Scene):
             from .levers import LeverScene
 
             self.app.push(LeverScene(self.app, fort))
+        elif key == "c":
+            from .justice_screen import JusticeScene
+
+            self.app.push(JusticeScene(self.app, fort))
         elif key == "w":
             from .build_menu import BurrowScene
 
@@ -307,6 +311,7 @@ HELP_LINES: Tuple[str, ...] = (
     "",
     "m        the militia: raise squads, arm them, order them about",
     "h        health: who is hurt and who can treat them",
+    "c        crime: the sheriff's book, trials and pardons",
     "L        levers: link them to gates and pull them",
     "w        mark the safe burrow civilians retreat into",
     "n        paint a pasture for the livestock",

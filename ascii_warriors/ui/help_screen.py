@@ -79,6 +79,7 @@ WHAT TO DO FIRST
   w      mark the safe burrow civilians retreat into
   n      paint a pasture for the livestock
   h      health: who is hurt and who can treat them
+  c      crime: the sheriff's book, trials and pardons
   L      levers: link them to gates and pull them
   u      units: everybody, what they are doing, and their labors
   z      stocks: everything you own
@@ -250,6 +251,28 @@ a sheriff and eventually a mayor. The mayor will demand things. Ignoring the
 demands makes the mayor furious, and a furious dwarf in a fortress full of
 unhappy dwarves is how tantrums start: broken furniture, then somebody going
 berserk with an axe.
+
+CRIME AND THE LAW
+
+A dwarf that has had enough breaks a table or hits whoever is nearest, and
+both go in the sheriff's book. So does an ignored mandate — the manager
+answers for that one, never the mayor. So does the kobold thief who walks in,
+takes the nearest thing worth carrying and walks out again. One thief is not
+a siege: it raises no alarm, and you find out from the gap where the gem was.
+
+Press c for the book. A fortress of eighteen appoints a sheriff, and only a
+sheriff can try anything. The sheriff opens the book every few days. A conviction is four days off the roster per point
+of severity — murder is worth four — and it costs you whatever that dwarf was
+good at, which is the entire point of having a law. Everybody else is calmer
+for seeing it done.
+
+A crime nobody was caught at cannot be tried at all. It stays open for three
+months, and every season it is open the fortress thinks about it and gets
+angrier. That is the pressure to grow big enough for a sheriff.
+
+You can hold a trial at once instead of waiting for the season, and you can
+pardon somebody. A pardon buys your mason back this afternoon, and every other
+dwarf spends a season remembering that the law is whatever you say it is.
 
 WHEN IT ENDS
 

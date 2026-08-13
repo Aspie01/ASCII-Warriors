@@ -285,6 +285,8 @@ def take_turn(fort, dwarf, ticks: int) -> None:
         return
     if _handle_needs(fort, dwarf, ticks):
         return
+    if _serving_time(fort, dwarf):
+        return
 
     job = state.job
     if job is None or job.id not in fort.jobs.jobs:
@@ -295,6 +297,23 @@ def take_turn(fort, dwarf, ticks: int) -> None:
             return
 
     _work_job(fort, dwarf, job, ticks)
+
+
+def _serving_time(fort, dwarf) -> bool:
+    """A convicted dwarf does no work. True if that is what is happening.
+
+    It still eats, drinks and sleeps -- the needs run before this -- but it
+    takes no job and it does not wander, which is what being held amounts to.
+    A sentence costs the fortress its legendary mason for a few days, and that
+    cost is the whole point of having a law.
+    """
+    from . import justice
+
+    if not fort.crimes or not justice.is_jailed(fort, dwarf):
+        return False
+    release_job(fort, dwarf)
+    dwarf.fort.idle_ticks = 0
+    return True
 
 
 #: How far a soldier will chase, and how far a civilian panics.

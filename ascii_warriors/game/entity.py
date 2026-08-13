@@ -101,6 +101,12 @@ class Creature:
         self.gold_reward = 0
         #: Set for uniquely generated creatures (forgotten beasts, titans).
         self.unique_def: Optional[CreatureDef] = None
+        #: A thief came to steal, not to fight. It is not part of a siege, it
+        #: raises no alarm, and it leaves the moment its hands are full.
+        self.thief = False
+        self.thief_since = 0
+        self.loot: Optional[int] = None
+        self.loot_name = ""
 
     # -- definition -------------------------------------------------------- #
 
@@ -366,6 +372,9 @@ class Creature:
             "gold_reward": self.gold_reward,
             "speech": self.speech,
         }
+        if self.thief:
+            d["thief"] = {"since": self.thief_since, "loot": self.loot,
+                          "name": self.loot_name}
         if self.unique_def is not None:
             u = self.unique_def
             d["unique"] = {
@@ -408,6 +417,13 @@ class Creature:
         c.kills = list(d.get("kills", []))
         c.gold_reward = int(d.get("gold_reward", 0))
         c.speech = dict(d.get("speech") or {})
+
+        thief = d.get("thief")
+        if thief:
+            c.thief = True
+            c.thief_since = int(thief.get("since", 0))
+            c.loot = thief.get("loot")
+            c.loot_name = str(thief.get("name", ""))
 
         unique = d.get("unique")
         if unique:

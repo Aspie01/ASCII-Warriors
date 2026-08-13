@@ -1712,14 +1712,46 @@ class TestLivingWorld(unittest.TestCase):
         return beast
 
     def test_a_season_passing_moves_the_world(self):
-        """The fortress clock drives world history, not just its own."""
+        """The fortress clock drives world history, not just its own.
+
+        A pocket world records about one event every other season, so counting
+        events over a year and a half measures the dice rather than the wiring.
+        What the wiring guarantees is that the world's own clock is dragged
+        along by the fortress's, once per season change and no more.
+        """
         fort = embark("seasons")
+        before_year = fort.world.year
+        seen = []
+        real_advance = self.lw.advance
+
+        def counting_advance(world, rng, year, **kw):
+            seen.append(year)
+            return real_advance(world, rng, year, **kw)
+
+        self.lw.advance = counting_advance
+        try:
+            for _ in range(6):
+                fort.time.advance(TICKS_PER_DAY * 95)
+                sim.step(fort)
+                sim.step(fort)  # a second step in the same season adds nothing
+        finally:
+            self.lw.advance = real_advance
+        # Six jumps of 95 days, less the first season change, which is the
+        # fortress noticing what season it embarked in.
+        self.assertEqual(len(seen), 5, "the world did not keep step")
+        self.assertEqual(seen, sorted(seen))
+        self.assertGreater(fort.world.year, before_year)
+        self.assertEqual(fort.world.year, fort.time.year)
+
+    def test_a_year_and_a_half_of_world_history_says_something(self):
+        """Over enough seasons the world does actually do things."""
+        fort = embark("seasons-long")
         before = len(fort.world.events)
-        for _ in range(6):
+        for _ in range(16):
             fort.time.advance(TICKS_PER_DAY * 95)
             sim.step(fort)
         self.assertGreater(len(fort.world.events), before,
-                           "a year and a half passed and the world did not")
+                           "four years passed and the world did nothing")
 
     def test_travellers_bring_word(self):
         """What happens out there has to reach the player."""
@@ -1955,6 +1987,15 @@ class TestEvents(unittest.TestCase):
         self.assertGreater(sim.appraise(fort), 0)
 
 
+class _FakeApp:
+    """Just enough of the app for a scene to be constructed and drawn."""
+
+    def __init__(self) -> None:
+        self.screen = None
+        self.term = None
+        self.game = None
+
+
 class TestFortressUI(unittest.TestCase):
     """The screens, driven headlessly."""
 
@@ -1962,7 +2003,7 @@ class TestFortressUI(unittest.TestCase):
         """A command bound to a scroll key can never fire."""
         from ascii_warriors.ui.fort import fort_screen
 
-        commands = set("dbpnwujzotk?+-<>mhL")
+        commands = set("dbpnwujzotk?+-<>mhLc")
         for key in commands:
             self.assertIsNone(fort_screen.scroll_delta(key),
                               "%r scrolls the map and cannot be a command" % key)
@@ -2005,6 +2046,42 @@ class TestFortressUI(unittest.TestCase):
         for buffer in (scr.fgs, scr.bgs):
             for value in buffer:
                 self.assertIsInstance(value, Color)
+
+    def test_the_sheriff_s_book_renders(self):
+        """Open cases, sentences and cold cases, drawn into a buffer."""
+        from ascii_warriors.engine.screen import Screen
+        from ascii_warriors.fortress import justice
+        from ascii_warriors.ui.fort.justice_screen import JusticeScene
+
+        fort = embark("bookui")
+        sim.migrants(fort, 18)
+        law = fort.dwarves()[-1]
+        fort.court.appoint("sheriff", law.id, fort.ticks)
+        justice.report(fort, "vandalism", fort.dwarves()[0], "a table")
+        justice.report(fort, "theft", None, "a gold statue")
+        justice.hold_court(fort)
+        scene = JusticeScene(_FakeApp(), fort)
+        scr = Screen(100, 34)
+        scene.draw(scr)
+        text = "\n".join(scr.to_text())
+        self.assertIn("Open cases", text)
+        self.assertIn("Serving", text)
+        self.assertIn(law.name[:8], text)
+
+    def test_the_status_line_mentions_crime(self):
+        """So you know to press c without opening anything."""
+        from ascii_warriors.engine.screen import Screen
+        from ascii_warriors.fortress import justice
+        from ascii_warriors.ui.fort.sidebar import draw_status_line
+
+        fort = embark("statuscrime")
+        scr = Screen(120, 4)
+        draw_status_line(scr, 0, 0, 120, fort)
+        self.assertNotIn("unsolved", "\n".join(scr.to_text()))
+        justice.report(fort, "theft", None, "a mug")
+        scr = Screen(120, 4)
+        draw_status_line(scr, 0, 0, 120, fort)
+        self.assertIn("1 unsolved", "\n".join(scr.to_text()))
 
     def test_embark_suggestion_is_habitable(self):
         """The suggested site must not be underwater or occupied."""
@@ -2981,3 +3058,338 @@ class TestWater(unittest.TestCase):
         recipe = production.RECIPES.get("mechanisms")
         self.assertIsNotNone(recipe)
         self.assertEqual(recipe.output, "mechanism")
+
+
+class TestJustice(unittest.TestCase):
+    """Crimes, the sheriff who tries them, and what a sentence costs."""
+
+    def setUp(self):
+        from ascii_warriors.fortress import justice as justice_mod
+
+        self.justice = justice_mod
+
+    def _with_sheriff(self, seed="law"):
+        """A fortress big enough to have somebody keeping order."""
+        fort = embark(seed)
+        sim.migrants(fort, 18)
+        law = fort.dwarves()[-1]
+        law.fort.labors.enable("military")
+        fort.court.appoint("sheriff", law.id, fort.ticks)
+        return fort, law
+
+    # -- the book ----------------------------------------------------------- #
+
+    def test_a_crime_is_written_down(self):
+        """Somebody did something, and the fortress remembers who."""
+        fort = embark("book")
+        d = fort.dwarves()[0]
+        crime = self.justice.report(fort, "vandalism", d, "table")
+        self.assertIsNotNone(crime)
+        self.assertEqual(crime.culprit, d.id)
+        self.assertIn(crime, fort.crimes)
+        self.assertIn(crime, self.justice.open_cases(fort))
+        self.assertIn(d.name, self.justice.describe(fort, crime))
+
+    def test_a_crime_nobody_was_caught_at_has_no_name_on_it(self):
+        """Which is exactly how a fortress experiences a theft."""
+        fort = embark("nameless")
+        crime = self.justice.report(fort, "theft", None, "a gold statue")
+        self.assertIsNone(crime.culprit)
+        self.assertFalse(self.justice.can_try(fort, crime))
+        self.assertIn("Somebody", self.justice.describe(fort, crime))
+
+    def test_an_invented_crime_is_not_a_crime(self):
+        """The book only has so many pages."""
+        fort = embark("nocrime")
+        self.assertIsNone(self.justice.report(fort, "jaywalking",
+                                              fort.dwarves()[0]))
+        self.assertEqual(fort.crimes, [])
+
+    def test_a_case_goes_cold(self):
+        """Nobody is tried for something that happened three months ago."""
+        fort = embark("cold")
+        crime = self.justice.report(fort, "theft", None, "a mug")
+        fort.ticks += self.justice.COLD_CASE + 1
+        self.assertEqual(self.justice.open_cases(fort), [])
+        self.assertIn(crime, self.justice.cold_cases(fort))
+
+    # -- the sheriff -------------------------------------------------------- #
+
+    def test_the_sheriff_opens_the_book_every_few_days(self):
+        """Not once a season. A bad week fills the book in a week."""
+        fort, _law = self._with_sheriff("cadence")
+        guilty = fort.dwarves()[0]
+        crime = self.justice.report(fort, "vandalism", guilty, "a table")
+        sim.step(fort)
+        self.assertTrue(crime.convicted, "the sheriff never looked")
+        second = self.justice.report(fort, "assault", fort.dwarves()[1], "x")
+        sim.step(fort)
+        self.assertFalse(second.convicted, "court sat twice in one day")
+        fort.ticks += self.justice.COURT_INTERVAL
+        sim.step(fort)
+        self.assertTrue(second.convicted)
+
+    def test_the_status_line_shows_both_halves(self):
+        """Four fifths of the fortress in a cell has to be visible."""
+        fort, _law = self._with_sheriff("both")
+        self.assertEqual(self.justice.summary(fort), "")
+        self.justice.report(fort, "theft", None, "a mug")
+        self.assertEqual(self.justice.summary(fort), "1 unsolved")
+        self.justice.report(fort, "vandalism", fort.dwarves()[0], "a table")
+        self.justice.hold_court(fort)
+        self.assertEqual(self.justice.summary(fort), "1 unsolved, 1 serving")
+
+    def test_without_a_sheriff_nothing_is_tried(self):
+        """A fortress of seven has no law, and lives with it."""
+        fort = embark("nolaw")
+        self.justice.report(fort, "vandalism", fort.dwarves()[0], "chair")
+        self.assertIsNone(self.justice.sheriff(fort))
+        self.assertEqual(self.justice.hold_court(fort), [])
+        self.assertEqual(len(self.justice.open_cases(fort)), 1)
+
+    def test_the_sheriff_convicts(self):
+        """One appointment turns an open case into a sentence."""
+        fort, law = self._with_sheriff("convict")
+        guilty = fort.dwarves()[0]
+        self.assertIsNot(guilty, law)
+        crime = self.justice.report(fort, "assault", guilty, law.name)
+        self.assertEqual(self.justice.hold_court(fort), [crime])
+        self.assertTrue(crime.convicted)
+        self.assertTrue(self.justice.is_jailed(fort, guilty))
+        self.assertIn(crime, self.justice.serving(fort))
+
+    def test_a_worse_crime_is_a_longer_sentence(self):
+        """Four days a point, and murder is worth four points."""
+        fort, _law = self._with_sheriff("severity")
+        a, b = fort.dwarves()[0], fort.dwarves()[1]
+        small = self.justice.report(fort, "vandalism", a, "a chair")
+        big = self.justice.report(fort, "murder", b, "a friend")
+        self.justice.hold_court(fort)
+        self.assertGreater(self.justice.days_left(fort, big),
+                           self.justice.days_left(fort, small))
+        self.assertEqual(self.justice.days_left(fort, small), 4)
+
+    def test_a_sentence_ends(self):
+        """The fortress gets its mason back."""
+        fort, _law = self._with_sheriff("release")
+        guilty = fort.dwarves()[0]
+        crime = self.justice.report(fort, "vandalism", guilty, "a door")
+        self.justice.hold_court(fort)
+        self.assertTrue(self.justice.is_jailed(fort, guilty))
+        fort.ticks = crime.until + 1
+        self.justice.tick(fort)
+        self.assertFalse(self.justice.is_jailed(fort, guilty))
+        self.assertFalse(crime.pardoned, "served is not pardoned")
+        self.assertTrue(any("served their sentence" in m.text
+                            for m in fort.log.all()))
+
+    def test_a_convicted_dwarf_does_no_work(self):
+        """Which is the entire cost of having a law."""
+        fort, law = self._with_sheriff("noworkjail")
+        dig_room(fort)
+        sim.run(fort, 30)
+        working = [d for d in fort.dwarves()
+                   if d is not law and d.fort.job is not None]
+        self.assertTrue(working, "nothing to be taken away")
+        guilty = working[0]
+        self.justice.report(fort, "vandalism", guilty, "a table")
+        self.justice.hold_court(fort)
+        # The sentence takes the job off it, and it takes no new one.
+        for _ in range(20):
+            dwarf_mod.take_turn(fort, guilty, 10)
+            self.assertIsNone(guilty.fort.job)
+
+    def test_everybody_else_is_calmer_for_it(self):
+        """A conviction upsets one dwarf and settles the rest."""
+        fort, _law = self._with_sheriff("thoughts")
+        guilty = fort.dwarves()[0]
+        other = fort.dwarves()[1]
+        before = other.needs.stress
+        self.justice.report(fort, "vandalism", guilty, "a table")
+        self.justice.hold_court(fort)
+        self.assertLess(other.needs.stress, before)
+        self.assertTrue(any("convicted" in t
+                            for t in guilty.needs.recent_thoughts(6)))
+
+    def test_a_pardon_frees_one_dwarf_and_annoys_the_rest(self):
+        """The overseer's prerogative, and what it is worth."""
+        fort, _law = self._with_sheriff("pardon")
+        guilty = fort.dwarves()[0]
+        other = fort.dwarves()[1]
+        crime = self.justice.report(fort, "murder", guilty, "a friend")
+        self.justice.hold_court(fort)
+        before = other.needs.stress
+        self.assertTrue(self.justice.pardon(fort, crime))
+        self.assertFalse(self.justice.is_jailed(fort, guilty))
+        self.assertGreater(other.needs.stress, before)
+        # And the book remembers that this one walked.
+        self.assertTrue(crime.pardoned)
+        self.assertTrue(Fortress.from_dict(fort.to_dict()).crimes[0].pardoned)
+        # And it cannot be done twice.
+        self.assertFalse(self.justice.pardon(fort, crime))
+
+    def test_unpunished_crime_wears_on_everybody(self):
+        """No sheriff is a decision with a price."""
+        fort = embark("unsolved")
+        for _ in range(3):
+            self.justice.report(fort, "theft", None, "a gem")
+        d = fort.dwarves()[0]
+        before = d.needs.stress
+        self.justice.season(fort)
+        self.assertGreater(d.needs.stress, before)
+        self.assertTrue(any("sheriff" in m.text for m in fort.log.all()))
+
+    # -- where the crimes come from ----------------------------------------- #
+
+    def test_a_tantrum_is_a_crime(self):
+        """Smashing the furniture goes in the book."""
+        fort = embark("vandal")
+        table = Building("table", *_open_spot(fort, "table"))
+        table.built = True
+        fort.buildings.append(table)
+        from ascii_warriors.fortress import nobles
+
+        d = fort.dwarves()[0]
+        for _ in range(40000):
+            d.needs.stress = nobles.STRESS_TANTRUM + 5
+            sim._tantrums(fort)
+            if any(c.kind == "vandalism" for c in fort.crimes):
+                break
+        self.assertTrue(any(c.kind == "vandalism" for c in fort.crimes))
+
+    def test_a_brawl_is_a_crime(self):
+        """A dwarf that hits another dwarf has committed one."""
+        fort = embark("brawl")
+        a, b = fort.dwarves()[0], fort.dwarves()[1]
+        b.x, b.y, b.z = a.x + 1, a.y, a.z
+        for _ in range(200):
+            if sim._start_brawl(fort, a):
+                break
+        self.assertTrue(any(c.kind in ("assault", "murder")
+                            for c in fort.crimes))
+        self.assertTrue(any("lashes out" in m.text for m in fort.log.all()))
+
+    def test_an_ignored_mandate_is_somebody_s_fault(self):
+        """The manager answers for it. Never the mayor."""
+        fort = embark("neglect")
+        sim.migrants(fort, 18)
+        sim._appointments(fort)
+        fort.court.appoint("mayor", fort.dwarves()[0].id, fort.ticks)
+        mayor = fort.court.noble("mayor")
+        mayor.mandate = {"target": "statue", "kind": "building",
+                         "text": "A statue.", "deadline": fort.ticks - 1}
+        sim._appointments(fort)
+        neglect = [c for c in fort.crimes if c.kind == "neglect"]
+        self.assertEqual(len(neglect), 1)
+        self.assertNotEqual(neglect[0].culprit, fort.dwarves()[0].id)
+
+    # -- thieves ------------------------------------------------------------ #
+
+    def _thief(self, fort, side="west"):
+        """A kobold at the edge of the map, with something to take."""
+        from ascii_warriors.game.entity import make_creature
+        from ascii_warriors.game.item import make_item
+
+        entry = fort.local.edge_entry(fort.rng, side)
+        thief = make_creature(fort.rng, "kobold", faction="hostile", level=1)
+        thief.x, thief.y, thief.z = fort._free_spot(entry, 0)
+        thief.wx, thief.wy = fort.wx, fort.wy
+        thief.thief = True
+        thief.thief_since = fort.ticks
+        fort.add_creature(thief)
+        gem = make_item(fort.rng, "gem")
+        fort.drop_item(gem, thief.x, thief.y, thief.z)
+        return thief, gem
+
+    def test_a_thief_does_not_raise_the_alarm(self):
+        """One kobold is not a reason to stop everybody drinking."""
+        fort = embark("quiet")
+        thief, _gem = self._thief(fort)
+        self.assertEqual(fort.hostiles(), [])
+        self.assertIn(thief.id, fort.creatures)
+
+    def test_a_thief_takes_something_and_leaves(self):
+        """And the fortress finds out from the gap where it used to be."""
+        fort = embark("robbed")
+        thief, gem = self._thief(fort)
+        for _ in range(60):
+            sim.step(fort)
+            if thief.id not in fort.creatures:
+                break
+        self.assertNotIn(thief.id, fort.creatures)
+        self.assertIsNone(fort.item_cell(gem))
+        thefts = [c for c in fort.crimes if c.kind == "theft"]
+        self.assertEqual(len(thefts), 1)
+        self.assertIn("gem", thefts[0].detail)
+        self.assertTrue(any("escapes with" in m.text for m in fort.log.all()))
+
+    def test_a_thief_with_nothing_to_take_gives_up(self):
+        """Rather than standing in a corridor for the rest of the game."""
+        fort = embark("bored")
+        fort.items_on_ground.clear()
+        thief, _gem = self._thief(fort)
+        fort.items_on_ground.clear()
+        thief.thief_since = fort.ticks - sim.THIEF_PATIENCE - 1
+        for _ in range(120):
+            sim.step(fort)
+            if thief.id not in fort.creatures:
+                break
+        self.assertNotIn(thief.id, fort.creatures)
+        self.assertEqual([c for c in fort.crimes if c.kind == "theft"], [])
+
+    def test_a_thief_that_cannot_get_out_is_gone_anyway(self):
+        """A kobold wedged five levels down is a permanent resident."""
+        fort = embark("wedged")
+        thief, gem = self._thief(fort)
+        thief.loot = gem.id
+        thief.loot_name = gem.name()
+        fort.take_item(gem)
+        # Somewhere it cannot walk out of: the middle of solid rock.
+        thief.x, thief.y = fort.local.width // 2, fort.local.height // 2
+        thief.z = fort.local.zmin + 1
+        thief.thief_since = fort.ticks - sim.THIEF_GONE - 1
+        sim._thieves(fort)
+        self.assertNotIn(thief.id, fort.creatures)
+        self.assertEqual(len([c for c in fort.crimes if c.kind == "theft"]), 1)
+
+    def test_a_thief_is_not_two_thieves(self):
+        """One at a time, or the fortress is a market."""
+        fort = embark("onethief")
+        fort.wealth = 5000
+        self._thief(fort)
+        for _ in range(50):
+            sim._maybe_thief(fort)
+        self.assertEqual(len([c for c in fort.creatures.values() if c.thief]), 1)
+
+    # -- persistence -------------------------------------------------------- #
+
+    def test_the_book_survives_a_save(self):
+        """Sentences keep running across a reload."""
+        fort, _law = self._with_sheriff("lawsave")
+        guilty = fort.dwarves()[0]
+        self.justice.report(fort, "murder", guilty, "a friend")
+        self.justice.report(fort, "theft", None, "a mug")
+        self.justice.hold_court(fort)
+        again = Fortress.from_dict(fort.to_dict())
+        self.assertEqual(len(again.crimes), 2)
+        kinds = sorted(c.kind for c in again.crimes)
+        self.assertEqual(kinds, ["murder", "theft"])
+        served = next(c for c in again.crimes if c.kind == "murder")
+        self.assertTrue(served.convicted)
+        self.assertTrue(self.justice.is_jailed(
+            again, again.creatures[guilty.id]))
+        self.assertEqual(len(self.justice.open_cases(again)), 1)
+
+    def test_a_thief_survives_a_save(self):
+        """Loot and patience come back with it."""
+        fort = embark("thiefsave")
+        thief, gem = self._thief(fort)
+        thief.loot = gem.id
+        thief.loot_name = gem.name()
+        again = Fortress.from_dict(fort.to_dict())
+        back = again.creatures[thief.id]
+        self.assertTrue(back.thief)
+        self.assertEqual(back.loot, gem.id)
+        self.assertEqual(back.loot_name, gem.name())
+        self.assertEqual(back.thief_since, thief.thief_since)
+        self.assertEqual(again.hostiles(), [])

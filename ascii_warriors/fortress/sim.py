@@ -22,6 +22,7 @@ from ..game.item import Item
 from . import animals
 from . import art
 from . import dwarf as dwarf_mod
+from . import justice
 from . import production
 from . import war
 from .buildings import Building
@@ -128,6 +129,8 @@ def step(fort) -> None:
     for dwarf in list(fort.dwarves()):
         dwarf_mod.take_turn(fort, dwarf, ticks)
     animals.step(fort, STEP_TICKS)
+    _thieves(fort)
+    justice.tick(fort)
     _hostiles(fort, ticks)
     _traps(fort)
     _watch(fort)
@@ -924,6 +927,8 @@ def _calendar(fort) -> None:
     _appointments(fort)
 
     _world_turns(fort)
+    justice.season(fort)
+    _maybe_thief(fort)
     if fort.breached and fort.breach_cell and fort.rng.chance(0.5):
         spawn_demons(fort, fort.breach_cell, wave=2)
 
@@ -1089,7 +1094,27 @@ def _appointments(fort) -> None:
         fort.log.bad("%s is furious that the mandate was ignored."
                      % holder.name)
         holder.needs.add_thought("had a mandate ignored", 25)
+        _blame_for_mandate(fort, mayor.mandate)
         mayor.mandate = None
+
+
+def _blame_for_mandate(fort, mandate) -> None:
+    """Somebody has to answer for an ignored demand.
+
+    The manager, if there is one, because keeping the work orders straight is
+    the job. Otherwise whoever was in charge of the wagon. Nobody blames the
+    mayor, which is the traditional shape of the arrangement.
+    """
+    for position in ("manager", "expedition_leader"):
+        noble = fort.court.noble(position)
+        if noble is None:
+            continue
+        dwarf = fort.creatures.get(noble.dwarf_id)
+        if dwarf is None or dwarf.body.dead:
+            continue
+        justice.report(fort, "neglect", dwarf,
+                       str(mandate.get("target", "the demand")))
+        return
 
 
 def _tantrums(fort) -> None:
@@ -1112,11 +1137,18 @@ def _tantrums(fort) -> None:
             dwarf.needs.add_thought("brooded over its lot", 0)
 
 
+#: How often a dwarf at the end of its rope hits somebody instead of a table.
+BRAWL_ODDS = 0.35
+
+
 def _throw_tantrum(fort, dwarf) -> None:
-    """Break something, and upset everybody who sees it."""
+    """Break something -- or somebody -- and upset everybody who sees it."""
     from . import dwarf as dwarf_mod
 
     dwarf_mod.release_job(fort, dwarf)
+    if fort.rng.chance(BRAWL_ODDS) and _start_brawl(fort, dwarf):
+        dwarf.needs.stress = max(0, dwarf.needs.stress - 40)
+        return
     breakable = [b for b in fort.buildings
                  if b.built and b.z == dwarf.z
                  and b.kind in ("table", "chair", "cabinet", "coffer", "door",
@@ -1131,12 +1163,41 @@ def _throw_tantrum(fort, dwarf) -> None:
             fort.dig_out((cx, cy, cz), "floor")
         fort.log.bad("%s throws a tantrum and destroys a %s!"
                      % (dwarf.name, target.defn.name.lower()))
+        justice.report(fort, "vandalism", dwarf, target.defn.name.lower())
     else:
         fort.log.bad("%s throws a tantrum." % dwarf.name)
     dwarf.needs.stress = max(0, dwarf.needs.stress - 40)
     for other in fort.dwarves():
         if other is not dwarf:
             other.needs.add_thought("saw a tantrum", 4)
+
+
+def _start_brawl(fort, dwarf) -> bool:
+    """Take a swing at whoever is standing there. True if there was somebody.
+
+    Barehanded, and only one blow: a fistfight in the dining hall is a crime
+    and a bruise, not an execution. It can still go wrong -- a dwarf that
+    punches badly enough to kill has committed the other kind of crime, and
+    the sheriff's book says so.
+    """
+    near = [d for d in fort.dwarves()
+            if d is not dwarf and d.z == dwarf.z
+            and geometry.chebyshev(dwarf.x, dwarf.y, d.x, d.y) <= 1]
+    if not near:
+        return False
+    victim = fort.rng.choice(near)
+    fort.log.bad("%s lashes out at %s!" % (dwarf.name, victim.name))
+    combat.melee_attack(dwarf, victim, weapon=None, rng=fort.rng, log=fort.log)
+    if victim.body.dead:
+        fort.kill_creature(victim)
+        justice.report(fort, "murder", dwarf, victim.name)
+    else:
+        justice.report(fort, "assault", dwarf, victim.name)
+        victim.needs.add_thought("was attacked by a friend", 20)
+    for other in fort.dwarves():
+        if other is not dwarf and other is not victim:
+            other.needs.add_thought("saw a brawl", 6)
+    return True
 
 
 def _go_berserk(fort, dwarf) -> None:
@@ -1267,6 +1328,104 @@ def _maybe_attack(fort) -> None:
     if plan is None:
         return
     war.launch(fort, plan)
+
+
+#: Odds per season that somebody tries the door while nobody is looking.
+THIEF_ODDS = 0.2
+
+#: What a thief will not bother carrying off.
+THIEF_IGNORES = ("boulder", "log", "corpse", "ore", "coal")
+
+#: The cheapest thing worth the trip.
+THIEF_WANTS = 20
+
+#: How long a kobold will keep looking before it gives up and goes home.
+#: A thief that cannot reach anything must not stand in a corridor for ever.
+THIEF_PATIENCE = TICKS_PER_DAY * 2
+
+#: And a thief that cannot find its way out is gone anyway after this long.
+#: ``retreat_step`` walks towards the nearest edge on one level, so a kobold
+#: that robbed you five levels down will walk into a wall and stay there,
+#: which is a permanent resident nobody hunts. It found a way out you did not
+#: know about, the same story ``war.FLEE_TICKS`` tells about a wedged army.
+THIEF_GONE = TICKS_PER_DAY * 5
+
+
+def _maybe_thief(fort) -> None:
+    """A kobold sneaks in for whatever is nearest the door.
+
+    Not a siege: one creature, no announcement, and it leaves the moment it
+    has something. The fortress finds out from the sheriff's book, or from
+    the gap where the artifact used to be.
+    """
+    if fort.lost or not fort.dwarves() or fort.wealth < 400:
+        return
+    if any(c.thief for c in fort.creatures.values()):
+        return
+    if not fort.rng.chance(THIEF_ODDS):
+        return
+    side = fort.rng.choice(["north", "south", "east", "west"])
+    entry = fort.local.edge_entry(fort.rng, side)
+    thief = make_creature(fort.rng, "kobold", faction="hostile", level=1)
+    thief.x, thief.y, thief.z = fort._free_spot(entry, 0)
+    thief.wx, thief.wy = fort.wx, fort.wy
+    thief.thief = True
+    thief.thief_since = fort.ticks
+    thief.skills.set_level("sneak", 8)
+    fort.add_creature(thief)
+
+
+def _thieves(fort) -> None:
+    """Move whatever is currently robbing you.
+
+    A thief with something in its hands leaves by the shortest way out. So
+    does one that has run out of patience: a kobold that cannot reach anything
+    worth taking goes home empty-handed rather than standing in a corridor
+    until somebody trips over it.
+    """
+    from . import war as war_mod
+
+    for c in list(fort.creatures.values()):
+        if not c.thief or c.body.dead:
+            continue
+        here = fort.ticks - c.thief_since
+        if c.loot is None and here <= THIEF_PATIENCE:
+            _thief_step(fort, c)
+            continue
+        out = war_mod.retreat_step(fort, c)
+        if not out and here > THIEF_GONE:
+            fort.creatures.pop(c.id, None)
+            out = True
+        if not out or c.loot is None:
+            continue
+        justice.report(fort, "theft", None, c.loot_name)
+        fort.log.bad("A kobold thief escapes with %s!" % c.loot_name)
+
+
+def _thief_step(fort, thief) -> None:
+    """One step towards the nearest thing worth stealing."""
+    best, best_d = None, None
+    for cell, pile in fort.items_on_ground.items():
+        for item in pile:
+            if item.def_id in THIEF_IGNORES or item.value < THIEF_WANTS:
+                continue
+            dist = (geometry.chebyshev(thief.x, thief.y, cell[0], cell[1])
+                    + abs(thief.z - cell[2]) * 8)
+            if best_d is None or dist < best_d:
+                best, best_d = (item, cell), dist
+    if best is None:
+        # Nothing on the floor is worth the walk. Wait for the haulers to put
+        # something down, but not for ever -- patience is running.
+        return
+    item, cell = best
+    if geometry.chebyshev(thief.x, thief.y, cell[0], cell[1]) <= 1 \
+            and thief.z == cell[2]:
+        fort.take_item(item)
+        thief.inventory.items.append(item)
+        thief.loot = item.id
+        thief.loot_name = item.name()
+        return
+    _hostile_step(fort, thief, cell)
 
 
 def spawn_demons(fort, cell, wave: int = 1) -> List:

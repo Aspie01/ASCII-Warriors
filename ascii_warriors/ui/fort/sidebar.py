@@ -158,6 +158,13 @@ def draw_status_line(scr: Screen, x: int, y: int, w: int, fort, mode: str = "") 
     if getattr(fort, "breached", False):
         parts.append(Frag("| ", colors.UI["frame"]))
         parts.append(Frag("THE PIT IS OPEN ", colors.UI["danger"]))
+    if getattr(fort, "crimes", None):
+        from ...fortress import justice as justice_mod
+
+        note = justice_mod.summary(fort)
+        if note:
+            parts.append(Frag("| ", colors.UI["frame"]))
+            parts.append(Frag(note + " (c) ", colors.UI["warn"]))
     mayor = fort.court.noble("mayor")
     if mayor is not None and mayor.mandate:
         parts.append(Frag("| ", colors.UI["frame"]))

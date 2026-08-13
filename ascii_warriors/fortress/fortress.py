@@ -71,6 +71,9 @@ class Fortress:
         self.grazed: Dict[Cell, int] = {}
         #: Cell -> what an engraver carved on that wall.
         self.engravings: Dict[Cell, Any] = {}
+        #: Everything anybody has been caught doing, and some things nobody
+        #: has been caught doing.
+        self.crimes: List[Any] = []
         self.items_on_ground: Dict[Cell, List[Item]] = {}
         self.weather = Weather()
         self.water = Water()
@@ -119,6 +122,8 @@ class Fortress:
         self._magma_mark = 0
         self._warned: Set[str] = set()
         self._next_scan = 0
+        #: When the sheriff next looks at the book.
+        self._next_court = 0
         self.site_id: Optional[int] = None
         #: Set once the fortress has been written into world history.
         self.recorded = False
@@ -369,10 +374,15 @@ class Fortress:
         ]
 
     def hostiles(self) -> List[Creature]:
-        """Every living enemy on the map."""
+        """Every living enemy on the map.
+
+        Thieves are not in here. One kobold with its eye on a mug is not a
+        reason to sound the alarm, send the militia and stop everybody
+        drinking; it is a reason to notice the mug is gone.
+        """
         return [
             c for c in self.creatures.values()
-            if c.faction == "hostile" and not c.body.dead
+            if c.faction == "hostile" and not c.body.dead and not c.thief
         ]
 
     def kill_creature(self, c: Creature) -> None:
@@ -1246,6 +1256,7 @@ class Fortress:
             "grazed": {"%d,%d,%d" % c: t for c, t in self.grazed.items()},
             "engravings": {"%d,%d,%d" % c: a.to_dict()
                            for c, a in self.engravings.items()},
+            "crimes": [c.to_dict() for c in self.crimes],
             "animal_state": {
                 str(c.id): c.animal.to_dict()
                 for c in self.creatures.values()
@@ -1279,6 +1290,7 @@ class Fortress:
                             for c, t in self.unreachable.items()},
             "warned": sorted(self._warned),
             "next_scan": self._next_scan,
+            "next_court": self._next_court,
             "site_id": self.site_id,
             "recorded": self.recorded,
         }
@@ -1327,6 +1339,10 @@ class Fortress:
             tuple(int(v) for v in k.split(",")): art_mod.Engraving.from_dict(a)
             for k, a in (d.get("engravings") or {}).items()
         }
+        from . import justice as justice_mod
+
+        fort.crimes = [justice_mod.Crime.from_dict(c)
+                       for c in d.get("crimes", [])]
         fort.military = Military.from_dict(d.get("military") or {})
         fort.court = Court.from_dict(d.get("court") or {})
 
@@ -1373,6 +1389,7 @@ class Fortress:
         }
         fort._warned = set(d.get("warned", []))
         fort._next_scan = int(d.get("next_scan", 0))
+        fort._next_court = int(d.get("next_court", 0))
         fort.site_id = d.get("site_id")
         fort.recorded = bool(d.get("recorded", False))
         return fort

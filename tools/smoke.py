@@ -73,6 +73,8 @@ FORTRESS_SCRIPT: List[str] = (
     + ["h", "j", "ENTER", "ESC", "ESC"]
     # Levers and gates
     + ["L", "j", "l", "ESC", "ESC"]
+    # The sheriff's book: try a case, try to pardon, back out
+    + ["c", "j", "ENTER", "j", "p", "ESC", "ESC"]
     # Every panel
     + ["u", "j", "ENTER", "ESC", "l", "SPACE", "j", "SPACE", "ESC", "ESC"]
     + ["z", "j", "j", "ESC"]

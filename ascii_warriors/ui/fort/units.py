@@ -12,6 +12,24 @@ from ...fortress.labors import CATEGORIES, LABORS, profession_title
 from ..app import Scene
 
 
+def _jailed(fort, dwarf) -> bool:
+    """Whether this dwarf is off the roster because the sheriff says so."""
+    from ...fortress import justice
+
+    return justice.is_jailed(fort, dwarf)
+
+
+def _sentence(fort, dwarf) -> str:
+    """What a dwarf is serving, and for how much longer."""
+    from ...fortress import justice
+
+    for crime in justice.serving(fort):
+        if crime.culprit == dwarf.id:
+            return "Serving %d days: %s" % (justice.days_left(fort, crime),
+                                            crime.description)
+    return ""
+
+
 class UnitsScene(Scene):
     """The list of everybody in the fortress."""
 
@@ -91,6 +109,8 @@ class UnitsScene(Scene):
             name = "%s the %s" % (name, title)
         if state.mood:
             what, colour = "possessed", colors.MAGIC
+        elif self.fort.crimes and _jailed(self.fort, d):
+            what, colour = "serving time", colors.UI["danger"]
         elif state.job is not None:
             what, colour = state.job.label, state.job.color
         elif d.body.unconscious > 0:
@@ -205,7 +225,11 @@ class UnitsScene(Scene):
                     lines.append("  " + t)
             else:
                 lines.append("  Nothing much has happened to it.")
-            if state.job is not None:
+            sentence = _sentence(self.fort, creature)
+            if sentence:
+                lines.append("")
+                lines.append(Frag(sentence, colors.UI["danger"]))
+            elif state.job is not None:
                 lines.append("")
                 lines.append("Currently: %s" % state.job.label)
         popup(self.app.screen, self.app.term, lines,

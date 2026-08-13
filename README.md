@@ -59,7 +59,8 @@ before the wagon empties, because a fortress without drink is a short one.
 
 Then migrants arrive and eat it all. Then goblins arrive, and you find out
 whether your militia trained. Then somebody is seized by a strange mood and
-locks themselves in a workshop; later the mayor demands a statue.
+locks themselves in a workshop; later the mayor demands a statue, nobody
+builds it, and the sheriff wants to know whose fault that was.
 
 ### One world, two games
 
@@ -177,6 +178,7 @@ python -m ascii_warriors --dump-world - --size small --history 200 | less
 | `p` `w` `n` | place a stockpile / mark the safe burrow / paint a pasture |
 | `o` | queue work orders at a workshop |
 | `m` `h` `L` | the militia / health / levers and gates |
+| `c` | crime: the sheriff's book, trials and pardons |
 | `u` `z` `j` | units / stocks / outstanding jobs |
 | `k` `t` | look / trade with the caravan |
 | `?` | help |
@@ -280,6 +282,21 @@ notices every season. A growing fortress appoints a manager, a broker, a chief
 medical dwarf, a sheriff and eventually a mayor, who will demand things.
 Ignore enough of it and dwarves start breaking furniture, and then each
 other.
+
+**Crime and punishment.** A dwarf at the end of its rope smashes a table or
+punches whoever is standing next to it, and now both go in the sheriff's book.
+So does an ignored mandate, which the manager answers for and the mayor never
+does. So does the kobold who walks in one night, picks up the nearest thing
+worth carrying, and walks back out — one thief, not a siege, so it does not
+sound the alarm or call up the militia. You find out from the gap where the
+gem used to be.
+
+A fortress of eighteen appoints a sheriff, and the sheriff opens the book
+every few days: a conviction is days off the roster, which costs you your legendary mason and
+settles everybody else down. A crime nobody was caught at cannot be tried at
+all, and every season it stays open the fortress thinks about it and gets
+angrier. Press `c` for the book — you can hold a trial now instead of waiting
+for the season, or pardon somebody and wear what the rest of them think of it.
 
 **Engravings.** Smooth a wall, then carve it. An engraver picks something that
 actually happened out of the world's history — the siege you survived last

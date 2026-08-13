@@ -269,15 +269,21 @@ def retreat_step(fort, foe) -> bool:
         dx = 0
     else:
         dy = 0
+    # Straight out if it can, round the obstacle if it cannot -- but never
+    # back the way it came. A list that contains the reverse of the heading
+    # walks one step out and one step back for ever, and the retreat never
+    # ends.
+    if dx:
+        steps = ((dx, dy), (dx, -1), (dx, 1), (0, -1), (0, 1))
+    else:
+        steps = ((dx, dy), (-1, dy), (1, dy), (-1, 0), (1, 0))
+
     for _ in range(RETREAT_SPEED):
         if foe.x <= 0 or foe.y <= 0 or foe.x >= lm.width - 1 \
                 or foe.y >= lm.height - 1:
             fort.creatures.pop(foe.id, None)
             return True
-        # Straight out if it can, round the obstacle if it cannot. A routed
-        # army wedged in a corridor would besiege the place for ever.
-        for step in ((dx, dy), (dx, 0), (0, dy), (dx, 1), (dx, -1),
-                     (1, dy), (-1, dy)):
+        for step in steps:
             cell = (foe.x + step[0], foe.y + step[1], foe.z)
             if cell[:2] == (foe.x, foe.y):
                 continue
