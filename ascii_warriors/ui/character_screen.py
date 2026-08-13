@@ -70,6 +70,15 @@ class CharacterScene(Scene):
             for line in renown_mod.summary(game):
                 out.append(Frag("  " + line, colors.UI["fg"]))
             out.append(Frag("  %d foes slain" % len(p.kills), colors.UI["fg"]))
+            from ..game import standing as standing_mod
+
+            out.append(Frag(""))
+            out.append(Frag("Standing", colors.UI["accent"]))
+            for line in standing_mod.summary(game):
+                colour = (colors.UI["danger"] if "-" in line.split()[-1]
+                          else colors.UI["good"] if "+" in line
+                          else colors.UI["dim"])
+                out.append(Frag("  " + line, colour))
             for k in p.kills[-8:]:
                 out.append(Frag("    %s" % k, colors.UI["dim"]))
 

@@ -77,6 +77,13 @@ def topics_for(speaker, listener, game) -> List[Tuple[str, str]]:
 
 def greeting(npc, game) -> str:
     """A context-appropriate opening line."""
+    from . import standing as standing_mod
+
+    tone = standing_mod.greeting_tone(game, npc)
+    if tone in _COLD_WELCOME:
+        return _COLD_WELCOME[tone]
+    if tone in _WARM_WELCOME:
+        return _WARM_WELCOME[tone]
     hour = game.time.hour
     part = ("morning" if hour < 12 else
             "afternoon" if hour < 18 else "evening")
@@ -439,3 +446,18 @@ def _has_forms(listener, game) -> bool:
         return False
     performance.teach_civ(game.world, game.rng, listener, None, n=2)
     return bool(getattr(listener, "forms", None))
+
+
+#: What somebody says when their people have made up their mind about you.
+#: Ahead of the ordinary greeting, because how a stranger's town treats you is
+#: the first thing you should learn on walking into it.
+_COLD_WELCOME = {
+    "hated": "Get out. You know what you did.",
+    "disliked": "We know your face here. Keep walking.",
+    "distrusted": "...you. What do you want?",
+}
+_WARM_WELCOME = {
+    "welcome": "You are welcome here, traveller.",
+    "honoured": "It is good to see you again. Sit, if you like.",
+    "revered": "They still tell the story. You honour us.",
+}

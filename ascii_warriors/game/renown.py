@@ -158,8 +158,16 @@ def record_kill(game, victim) -> Optional[Any]:
 
 def record_quest(game, quest) -> Optional[Any]:
     """A finished job for somebody is worth remembering too."""
+    from . import standing as standing_mod
+
     hero = figure(game)
     add(game, QUEST_RENOWN)
+    # A people find out about a finished job whether or not anybody watched
+    # you do it, which is why this is credited by site rather than by witness.
+    site_obj = (game.world.site(quest.site_id)
+                if getattr(quest, "site_id", None) else None)
+    if site_obj is not None and getattr(site_obj, "civ_id", None):
+        standing_mod.did(game, "quest", civ_id=site_obj.civ_id)
     site = quest.site_name or "the wilds"
     return history_mod.record(
         game.world, game.time.year, "hero_rose",

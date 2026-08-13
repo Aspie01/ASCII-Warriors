@@ -241,10 +241,32 @@ def slay(world, year: int, killer, beast, where: str, site=None) -> Any:
     )
 
 
+def _quarrel(rng: RNG, civs):
+    """Pick the two peoples who go to war, favouring the ones who disagree.
+
+    This used to be `rng.sample(civs, 2)`: nothing in the world simulation had
+    ever asked *why* two civilizations fought. Ethics have been generated per
+    people since civilizations were, so an elf nation and a goblin one now
+    have measurably more to fall out about than two human ones -- without ever
+    making a war between friends impossible, because history is not tidy.
+    """
+    from ..game.standing import ethical_distance
+
+    pairs = []
+    weights = []
+    for i, a in enumerate(civs):
+        for b in civs[i + 1:]:
+            pairs.append((a, b))
+            weights.append(0.35 + ethical_distance(a, b))
+    if not pairs:
+        return rng.sample(civs, 2)
+    return pairs[rng.pick_index(weights)]
+
+
 def _wars(world, rng: RNG, year: int, civs) -> None:
     """Wars are declared, fought and ended while you dig."""
     if len(civs) >= 2 and rng.chance(WAR_DECLARED):
-        a, b = rng.sample(civs, 2)
+        a, b = _quarrel(rng, civs)
         if b.id not in a.at_war_with:
             a.at_war_with.add(b.id)
             b.at_war_with.add(a.id)

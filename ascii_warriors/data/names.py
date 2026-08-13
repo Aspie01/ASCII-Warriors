@@ -79,7 +79,7 @@ _KOBOLD_SYL = ("kik", "yip", "snik", "tak", "rik", "zib", "quix", "nib", "pak",
 _WORDS_NOUN = (
     "hammer", "anvil", "mountain", "tunnel", "gate", "vault", "forge", "shield",
     "axe", "sword", "crown", "throne", "pillar", "bridge", "tower", "chasm",
-    "cavern", "torch", "lantern", "helm", "wall", "moat", "grave", "bone",
+    "cavern", "brazier", "lantern", "helm", "wall", "moat", "grave", "bone",
     "blood", "iron", "steel", "gold", "silver", "gem", "diamond", "coal",
     "ale", "beard", "oath", "song", "riddle", "boat", "wheel", "key", "lock",
     "mine", "quarry", "spring", "river", "lake", "peak", "star", "moon", "sun",

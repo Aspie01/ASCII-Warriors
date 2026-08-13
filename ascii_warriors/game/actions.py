@@ -92,6 +92,9 @@ def _applaud(game, result) -> None:
         if thrown:
             _pay(game, thrown)
             game.log.good("Coins land at your feet. You gather %d." % thrown)
+        from . import standing as standing_mod
+
+        standing_mod.did(game, "performance", seen_by=result.audience)
         gained = renown.add(game, result.band - 3)
         if gained and result.band >= performance.LEGENDARY_AT:
             game.log.good("They will talk about that for years.")

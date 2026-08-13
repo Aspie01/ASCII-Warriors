@@ -2421,7 +2421,49 @@ finding your own footprints and mistaking them for a wolf is a worse
 experience than the system is worth. `s` reads the ground and the look panel
 reports a trail on any cell, both routed through the same `read`.
 
-## 70. Style
+## 70. Ethics and standing (v3.10)
+
+`Civilization.ethics` has been generated since civilizations were: six moral
+positions per people -- killing, theft, trespassing, slavery, eating the dead,
+felling trees -- each `unthinkable`, `shun`, `misguided`, a `personal_matter`,
+`acceptable` or `required`. Elves have always thought felling a tree
+unthinkable and eating a sapient acceptable; kobolds have always thought theft
+*required*. The only thing that ever read any of it was the legends screen,
+which printed it.
+
+So the game had renown, which only goes up and is the same number to
+everybody, and nothing else. Killing a merchant in the middle of a human town
+left the town's opinion of you unchanged, because the town had no opinion.
+
+**Standing is per-people and signed.** One value from -100 to 100 per
+civilization in `game/standing.py`. What a deed costs depends on whose ethics
+it offends: `ETHIC_WEIGHT` turns `unthinkable` into the full price and
+`acceptable` into nothing, so the same murder is ruinous in a dwarven town and
+free in a goblin one. `required` is negative on purpose -- a people who think
+theft is required think *better* of a thief.
+
+**Being seen is the whole of it.** Witnesses come from v3.6's `noticed_by`, so
+a murder nobody saw is a murder nobody minds, and the stealth skill that has
+hidden you from a guard's attention since v3.6 now hides what you did from a
+nation's memory. Deeds a people find out about anyway -- a finished job, a
+beast killed in their name -- are credited by site instead.
+
+Consequences run through machinery that already existed. `enforce` adds the
+player to the `hostile_to` set that `Creature.is_hostile_to` already consults,
+rather than teaching that method about civilizations: it is called on every
+pair in every combat check and has no game to ask. Prices take a factor, and
+`price_to_buy`/`price_to_sell` gained an optional `game` because two of their
+four callers quote a price with no world to hand. Greetings lead with the
+welcome before the ordinary line, because how a town treats you is the first
+thing you should learn on walking into it.
+
+**Peoples fall out for reasons now.** `_wars` used to be `rng.sample(civs, 2)`
+-- nothing had ever asked *why* two civilizations fought. `ethical_distance`
+scores how far apart two moral codes are, and the pair is drawn weighted by
+it, so an elf nation and a goblin one have measurably more to fall out about
+than two human ones, without making a war between friends impossible.
+
+## 71. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

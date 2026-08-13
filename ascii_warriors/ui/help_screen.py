@@ -256,6 +256,23 @@ demands makes the mayor furious, and a furious dwarf in a fortress full of
 unhappy dwarves is how tantrums start: broken furniture, then somebody going
 berserk with an axe.
 
+STANDING
+
+Every people has its own opinion of you, and its own reasons. Their ethics are
+generated with them: some think killing unthinkable, some find it acceptable,
+and kobolds think theft is required. The same act therefore costs you
+differently depending on whose town you did it in.
+
+Kill somebody who was not trying to kill you, where people can see you, and
+the watching people will think less of you -- how much less is their business,
+not yours. Do enough of it and they attack on sight. Finish work for a people
+and it goes the other way; so does a good performance.
+
+They have to see it. Sneaking (v) hides what you did as well as where you are.
+
+Prices move with standing, and so does how people greet you. Press C to see
+where you stand with everybody who has made up their mind.
+
 TRACKS
 
 Everything that walks leaves prints on soft ground -- grass, dirt, sand, mud,

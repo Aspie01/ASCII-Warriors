@@ -20,6 +20,7 @@ from .entity import Creature, make_creature
 from .item import Item, corpse_of, starting_kit
 from .log import MessageLog
 from .quests import QuestLog
+from . import standing as standing_mod
 from . import tracks as tracks_mod
 from .weather import Weather, starting_weather
 
@@ -794,6 +795,11 @@ class Game:
         self.player.needs.add_thought("killed a foe", -2)
         from . import renown as renown_mod
 
+        # Beside the renown record rather than at the top of the method: this
+        # is the point the game already treats a death as the player's doing,
+        # and standing is the other half of that ledger -- the half that can
+        # go down.
+        standing_mod.on_kill(self, c)
         told = renown_mod.record_kill(self, c)
         if told is not None:
             self.log.good("They will tell this one. (%s)"
@@ -880,6 +886,7 @@ class Game:
             "death_message": self.death_message,
             "weather": self.weather.to_dict(),
             "tracks": tracks_mod.to_list(self),
+            "standing": standing_mod.book(self).to_dict(),
             "companion_ids": list(self.companion_ids),
             "companions": [c.to_dict() for c in self.travelling_companions],
             "cache": {
@@ -907,6 +914,8 @@ class Game:
         game.death_message = str(d.get("death_message", ""))
         game.weather = Weather.from_dict(d.get("weather") or {})
         tracks_mod.from_list(game, d.get("tracks") or [])
+        game.standing = standing_mod.Standing.from_dict(
+            d.get("standing") or {})
         game.companion_ids = [int(i) for i in d.get("companion_ids", [])]
         game._season_mark = int(d.get("season_mark", 0))
         game.travelling_companions = [

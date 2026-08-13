@@ -510,6 +510,17 @@ generated history. Ask for work and you get a quest that points at a real
 megabeast in a real lair, or a real artifact in a real ruin. Threaten somebody
 and they will either talk or attack you.
 
+**Standing, and why it differs by people.** Every civilization is generated
+with its own ethics — whether killing, theft, trespassing, slavery, eating the
+dead and felling trees are unthinkable, acceptable or somewhere between — and
+those ethics decide what your deeds cost. The same murder ruins you with a
+people who think killing unthinkable and costs nothing among goblins who do
+not. They have to see it, and witnesses are found the same way guards notice a
+sneak, so a killing nobody saw is a killing nobody minds. Standing moves
+prices, changes how you are greeted, and past a point gets you attacked on
+sight. Civilizations also go to war with the peoples they disagree with rather
+than at random.
+
 **Tracking.** Everything that walks leaves prints on soft ground, and what you
 get out of one is your Tracker skill: untrained you can tell only that
 something passed, and trained you get its direction, its species, how old the

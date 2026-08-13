@@ -1958,3 +1958,233 @@ class TestTracks(GameFixture):
         del raw["tracks"]
         back = Game.from_dict(raw)
         self.assertEqual(self.tracks.layer(back), {})
+
+
+class TestStanding(GameFixture):
+    """Six ethics per people, finally read by something other than a screen."""
+
+    def setUp(self):
+        super().setUp()
+        from ascii_warriors.game import standing
+
+        self.standing = standing
+
+    def _folk(self):
+        out = [c for c in self.game.creatures.values()
+               if not c.is_player and c.defn.intelligent]
+        if not out:
+            self.skipTest("nobody intelligent on this map")
+        return out
+
+    def _gather(self, n=4):
+        """Put some townsfolk where the player can be seen by them."""
+        p = self.game.player
+        folk = self._folk()[:n]
+        for i, c in enumerate(folk):
+            c.x, c.y, c.z = p.x + 1 + (i % 2), p.y + (i // 2), p.z
+        self.game.update_fov()
+        return folk
+
+    def _civ_with(self, key, value):
+        for civ in self.world.civs:
+            if civ.ethics.get(key) == value:
+                return civ
+        return None
+
+    # -- the book ---------------------------------------------------------- #
+
+    def test_everybody_starts_indifferent(self):
+        for civ in self.world.civs:
+            self.assertEqual(self.standing.of(self.game, civ.id), 0)
+            self.assertEqual(self.standing.attitude(self.game, civ.id),
+                             "unknown")
+
+    def test_standing_is_clamped(self):
+        civ = self.world.civs[0]
+        book = self.standing.book(self.game)
+        book.add(civ.id, 10000)
+        self.assertEqual(book.get(civ.id), self.standing.CEILING)
+        book.add(civ.id, -100000)
+        self.assertEqual(book.get(civ.id), self.standing.FLOOR)
+
+    def test_every_level_has_a_name(self):
+        seen = {self.standing.level_name(v)
+                for v in range(self.standing.FLOOR, self.standing.CEILING + 1)}
+        self.assertEqual(len(seen), len(self.standing.LEVELS))
+
+    # -- ethics decide the cost -------------------------------------------- #
+
+    def test_a_people_who_mind_killing_mind_a_killing(self):
+        civ = self._civ_with("killing", "unthinkable")
+        if civ is None:
+            self.skipTest("no people here minds killing")
+        self.assertLess(self.standing.value_of(self.game, civ.id, "murder"),
+                        -20)
+
+    def test_a_people_who_do_not_mind_killing_do_not_mind(self):
+        civ = self._civ_with("killing", "acceptable")
+        if civ is None:
+            self.skipTest("everybody here minds killing")
+        self.assertEqual(self.standing.value_of(self.game, civ.id, "murder"), 0)
+
+    def test_the_same_murder_costs_different_peoples_differently(self):
+        strict = self._civ_with("killing", "unthinkable")
+        loose = self._civ_with("killing", "acceptable")
+        if strict is None or loose is None:
+            self.skipTest("this world agrees about killing")
+        self.assertLess(self.standing.value_of(self.game, strict.id, "murder"),
+                        self.standing.value_of(self.game, loose.id, "murder"))
+
+    def test_a_people_who_require_theft_think_better_of_a_thief(self):
+        civ = self._civ_with("theft", "required")
+        if civ is None:
+            self.skipTest("nobody here requires theft")
+        self.assertGreater(self.standing.value_of(self.game, civ.id, "theft"), 0)
+
+    def test_good_deeds_are_not_weighted_by_ethics(self):
+        for civ in self.world.civs:
+            self.assertEqual(self.standing.value_of(self.game, civ.id, "quest"),
+                             self.standing.DEEDS["quest"][0])
+
+    # -- being seen -------------------------------------------------------- #
+
+    def test_a_murder_in_front_of_people_is_noticed(self):
+        folk = self._gather()
+        victim = folk[0]
+        victim.faction = "town"
+        changes = self.standing.on_kill(self.game, victim)
+        if not changes:
+            self.skipTest("nobody here minds")
+        self.assertTrue(any(v < 0 for v in changes.values()))
+
+    def test_a_murder_nobody_saw_costs_nothing(self):
+        """v3.6's stealth now hides what you did, not only where you are."""
+        folk = self._folk()
+        victim = folk[0]
+        victim.faction = "town"
+        for c in self.game.creatures.values():
+            if not c.is_player:
+                c.x, c.y, c.z = c.x + 400, c.y + 400, c.z
+        self.game.update_fov()
+        self.assertEqual(self.standing.on_kill(self.game, victim), {})
+
+    def test_killing_something_hostile_is_not_murder(self):
+        folk = self._gather()
+        victim = folk[0]
+        victim.faction = "hostile"
+        self.assertEqual(self.standing.on_kill(self.game, victim), {})
+
+    def test_killing_an_animal_is_nobody_s_business(self):
+        beasts = [c for c in self.game.creatures.values()
+                  if not c.is_player and not c.defn.intelligent]
+        if not beasts:
+            self.skipTest("no animals here")
+        self.assertEqual(self.standing.on_kill(self.game, beasts[0]), {})
+
+    # -- consequences ------------------------------------------------------ #
+
+    def test_a_people_who_hate_you_turn_on_you(self):
+        folk = self._gather()
+        cid = self.standing.civ_of(self.game, folk[0])
+        if cid is None:
+            self.skipTest("these people belong to nobody")
+        self.standing.book(self.game).add(cid, self.standing.FLOOR)
+        self.standing.enforce(self.game)
+        theirs = [c for c in folk
+                  if self.standing.civ_of(self.game, c) == cid]
+        self.assertTrue(theirs)
+        self.assertTrue(all(c.is_hostile_to(self.game.player) for c in theirs))
+
+    def test_a_people_who_like_you_do_not(self):
+        folk = self._gather()
+        cid = self.standing.civ_of(self.game, folk[0])
+        if cid is None:
+            self.skipTest("these people belong to nobody")
+        self.standing.book(self.game).add(cid, 50)
+        self.standing.enforce(self.game)
+        theirs = [c for c in folk
+                  if self.standing.civ_of(self.game, c) == cid
+                  and c.faction not in ("hostile", "wild_hostile")]
+        self.assertTrue(all(self.game.player.id not in c.hostile_to
+                            for c in theirs))
+
+    def test_standing_moves_prices(self):
+        from ascii_warriors.game import trade
+        from ascii_warriors.game.item import make_item
+
+        folk = self._gather()
+        merchant = folk[0]
+        cid = self.standing.civ_of(self.game, merchant)
+        if cid is None:
+            self.skipTest("this merchant belongs to nobody")
+        item = make_item(self.game.rng, "sword")
+        neutral = trade.price_to_buy(item, merchant, self.game.player, self.game)
+        self.standing.book(self.game).add(cid, self.standing.CEILING)
+        liked = trade.price_to_buy(item, merchant, self.game.player, self.game)
+        self.assertLess(liked, neutral)
+
+    def test_a_price_without_a_game_is_unchanged(self):
+        """Two of the four callers quote a price with no world to hand."""
+        from ascii_warriors.game import trade
+        from ascii_warriors.game.item import make_item
+
+        merchant = self._folk()[0]
+        item = make_item(self.game.rng, "sword")
+        self.assertEqual(
+            trade.price_to_buy(item, merchant, self.game.player),
+            trade.price_to_buy(item, merchant, self.game.player, None))
+
+    def test_a_hated_people_greet_you_accordingly(self):
+        from ascii_warriors.game import conversation
+
+        npc = self._folk()[0]
+        cid = self.standing.civ_of(self.game, npc)
+        if cid is None:
+            self.skipTest("this person belongs to nobody")
+        self.standing.book(self.game).add(cid, self.standing.FLOOR)
+        self.assertIn("Get out", conversation.greeting(npc, self.game))
+
+    # -- peoples disliking each other -------------------------------------- #
+
+    def test_ethical_distance_is_zero_between_a_people_and_itself(self):
+        civ = self.world.civs[0]
+        self.assertEqual(self.standing.ethical_distance(civ, civ), 0.0)
+
+    def test_peoples_who_disagree_are_further_apart(self):
+        by_race = {c.race: c for c in self.world.civs}
+        if "elf" not in by_race or "goblin" not in by_race:
+            near = [c for c in self.world.civs if c.race in ("dwarf", "human")]
+            if len(near) < 2:
+                self.skipTest("not enough peoples to compare")
+            self.assertLess(
+                self.standing.ethical_distance(near[0], near[1]), 0.5)
+            return
+        far = self.standing.ethical_distance(by_race["elf"], by_race["goblin"])
+        self.assertGreater(far, 0.3)
+
+    def test_ethical_distance_stays_in_range(self):
+        for a in self.world.civs:
+            for b in self.world.civs:
+                d = self.standing.ethical_distance(a, b)
+                self.assertGreaterEqual(d, 0.0)
+                self.assertLessEqual(d, 1.0)
+
+    # -- persistence -------------------------------------------------------- #
+
+    def test_standing_survives_a_save(self):
+        from ascii_warriors.game import save as save_mod
+
+        civ = self.world.civs[0]
+        self.standing.book(self.game).add(civ.id, -37)
+        path = save_mod.save_game(self.game, "standing-test")
+        back = save_mod.load_game(path)
+        self.assertEqual(self.standing.of(back, civ.id), -37)
+        path.unlink()
+
+    def test_a_save_without_standing_still_loads(self):
+        from ascii_warriors.game.state import Game
+
+        raw = self.game.to_dict()
+        del raw["standing"]
+        back = Game.from_dict(raw)
+        self.assertEqual(self.standing.book(back).by_civ, {})

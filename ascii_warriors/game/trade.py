@@ -94,16 +94,22 @@ def _haggle_factor(customer, merchant) -> float:
     return max(0.0, min(0.45, bonus))
 
 
-def price_to_buy(item: Item, merchant, customer) -> int:
-    """What the merchant charges the customer for one unit of *item*."""
+def price_to_buy(item: Item, merchant, customer, game=None) -> int:
+    """What the merchant charges the customer for one unit of *item*.
+
+    *game* is optional because two of the four callers are prices quoted
+    without a world to hand; with it, what the merchant's people think of you
+    moves the number, though never as far as the Appraiser skill does.
+    """
     unit = max(1, item.value // max(1, item.count))
     greed = merchant.personality.greed_factor() if merchant is not None else 1.0
     price = unit * BASE_BUY_RATE * (0.75 + 0.5 * greed)
     price *= 1.0 - _haggle_factor(customer, merchant)
+    price *= _standing_factor(game, merchant)
     return max(1, int(round(price)))
 
 
-def price_to_sell(item: Item, merchant, customer) -> int:
+def price_to_sell(item: Item, merchant, customer, game=None) -> int:
     """What the merchant pays the customer for one unit of *item*."""
     if merchant is not None and not wants(merchant, item):
         return 0
@@ -111,6 +117,7 @@ def price_to_sell(item: Item, merchant, customer) -> int:
     greed = merchant.personality.greed_factor() if merchant is not None else 1.0
     price = unit * BASE_SELL_RATE * (1.25 - 0.4 * greed)
     price *= 1.0 + _haggle_factor(customer, merchant)
+    price /= _standing_factor(game, merchant)
     return max(1, int(round(price)))
 
 
@@ -142,7 +149,7 @@ def buy(game, merchant, item: Item, count: int = 1) -> Tuple[bool, str]:
     """Customer buys *count* units from the merchant."""
     customer = game.player
     count = max(1, min(count, item.count))
-    unit = price_to_buy(item, merchant, customer)
+    unit = price_to_buy(item, merchant, customer, game)
     total = unit * count
     if customer.inventory.coins() < total:
         return (False, "You cannot afford that. It costs %d." % total)
@@ -169,7 +176,7 @@ def sell(game, merchant, item: Item, count: int = 1) -> Tuple[bool, str]:
     if not wants(merchant, item):
         return (False, "%s has no interest in that." % merchant.display_name())
     count = max(1, min(count, item.count))
-    unit = price_to_sell(item, merchant, customer)
+    unit = price_to_sell(item, merchant, customer, game)
     total = unit * count
     if merchant.inventory.coins() < total:
         return (False, "%s cannot afford that." % merchant.display_name())
@@ -211,3 +218,12 @@ def rent_room(game, keeper) -> Tuple[bool, str]:
     customer.needs.add_thought("slept in a proper bed", -8)
     game._tick_world(ticks)
     return (True, "You pay %d coins and sleep soundly until morning." % price)
+
+
+def _standing_factor(game, merchant) -> float:
+    """What the merchant's people's opinion of you does to their prices."""
+    if game is None or merchant is None:
+        return 1.0
+    from . import standing
+
+    return standing.price_factor(game, merchant)

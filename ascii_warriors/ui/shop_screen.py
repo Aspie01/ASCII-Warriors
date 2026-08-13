@@ -36,7 +36,7 @@ class ShopScene(Scene):
         items: List[MenuItem] = []
         if self.tabs.index == 0:
             for it in trade.for_sale(self.merchant):
-                price = trade.price_to_buy(it, self.merchant, player)
+                price = trade.price_to_buy(it, self.merchant, player, self.game)
                 afford = player.inventory.coins() >= price
                 label = list(it.colored_name())
                 if not afford:
@@ -47,7 +47,7 @@ class ShopScene(Scene):
                 items = [MenuItem("(nothing for sale)", None, enabled=False)]
         else:
             for it in trade.sellable(player, self.merchant):
-                price = trade.price_to_sell(it, self.merchant, player)
+                price = trade.price_to_sell(it, self.merchant, player, self.game)
                 items.append(MenuItem(
                     it.colored_name(), it, desc="%d" % price, enabled=price > 0))
             if not items:
