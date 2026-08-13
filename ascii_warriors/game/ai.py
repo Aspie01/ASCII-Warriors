@@ -255,6 +255,25 @@ def take_turn(creature, game) -> int:
         ai.mode = "raise"
         return ACTION_COST
 
+    # Nor does a creature in a web go anywhere until it is out of it.
+    from . import webs
+
+    if webs.caught(game, creature):
+        _free, said = webs.struggle(game, creature, game.rng)
+        if said and game.can_see_creature(creature):
+            game.log.info(said)
+        ai.mode = "stuck"
+        return ACTION_COST
+
+    # A spinner throws one at what it is hunting, ahead of where that is now.
+    if webs.spins(creature):
+        prey = _web_prey(creature, game)
+        if webs.maybe_spin(game, creature, prey, game.rng) is not None:
+            ai.mode = "spin"
+            if prey is not None and prey.is_player:
+                game.log.warn("%s throws a web!" % creature.short_name().capitalize())
+            return ACTION_COST
+
     mode = pick_mode(creature, game)
     ai.mode = mode
 
@@ -322,3 +341,17 @@ def take_turn(creature, game) -> int:
         return ACTION_COST
 
     return ACTION_COST
+
+
+def _web_prey(creature, game):
+    """The nearest thing this spinner would like to hold still."""
+    best, best_d = None, 999
+    for other in game.creatures.values():
+        if other is creature or not other.alive:
+            continue
+        if not creature.is_hostile_to(other):
+            continue
+        d = creature.distance_to(other)
+        if d < best_d:
+            best, best_d = other, d
+    return best

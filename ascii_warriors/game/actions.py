@@ -176,7 +176,15 @@ def toggle_sneak(game) -> int:
 
 def move_or_attack(game, dx: int, dy: int) -> int:
     """Walk one step, or attack whatever is in the way."""
+    from . import webs
+
     p = game.player
+    if webs.caught(game, p):
+        # Struggling is the move. You do not get to also walk out of it.
+        _free, said = webs.struggle(game, p, game.rng)
+        if said:
+            game.log.warn(said)
+        return NORMAL
     nx, ny, nz = p.x + dx, p.y + dy, p.z
     if not game.local.in_bounds(nx, ny, nz):
         game.log.warn("You have reached the edge of the area. Travel to move on.")

@@ -21,6 +21,8 @@ from .item import Item, corpse_of, starting_kit
 from .log import MessageLog
 from .quests import QuestLog
 from . import standing as standing_mod
+from . import venom as venom_mod
+from . import webs as webs_mod
 from . import tracks as tracks_mod
 from .weather import Weather, starting_weather
 
@@ -659,11 +661,15 @@ class Game:
         )
         for m in msgs:
             self.log.warn(m)
+        for m in venom_mod.tick(p, ticks, self.rng):
+            if m:
+                self.log.warn(m)
 
         for c in list(self.creatures.values()):
             if c is p or c.body.dead:
                 continue
             c.needs.tick(ticks, c, self)
+            venom_mod.tick(c, ticks, self.rng)
             c.body.tick(
                 self.rng, ticks, c.attributes.factor("toughness"),
                 c.attributes.factor("recuperation"),
@@ -887,6 +893,7 @@ class Game:
             "weather": self.weather.to_dict(),
             "tracks": tracks_mod.to_list(self),
             "standing": standing_mod.book(self).to_dict(),
+            "webs": webs_mod.to_list(self),
             "companion_ids": list(self.companion_ids),
             "companions": [c.to_dict() for c in self.travelling_companions],
             "cache": {
@@ -916,6 +923,7 @@ class Game:
         tracks_mod.from_list(game, d.get("tracks") or [])
         game.standing = standing_mod.Standing.from_dict(
             d.get("standing") or {})
+        webs_mod.from_list(game, d.get("webs") or [])
         game.companion_ids = [int(i) for i in d.get("companion_ids", [])]
         game._season_mark = int(d.get("season_mark", 0))
         game.travelling_companions = [

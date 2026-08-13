@@ -510,6 +510,16 @@ generated history. Ask for work and you get a quest that points at a real
 megabeast in a real lair, or a real artifact in a real ruin. Threaten somebody
 and they will either talk or attack you.
 
+**Venom and webs.** Venomous things do nothing at the moment they bite you —
+that is what separates venom from a wound. Then it starts: slower, in pain,
+and for some of them throwing up, for the next several hundred turns.
+Toughness and Discipline shorten it, a second dose extends the clock rather
+than doubling the effect, and there is no antidote — only somebody who knows
+to cut and bind, which halves what is left. Giant spiders and scorpions throw
+webs, which are tiles you can see and walk around; walk into one and you are
+held until you tear out. Spinners walk their own, so you cannot lead one into
+its own trap.
+
 **Standing, and why it differs by people.** Every civilization is generated
 with its own ethics — whether killing, theft, trespassing, slavery, eating the
 dead and felling trees are unthinkable, acceptable or somewhere between — and

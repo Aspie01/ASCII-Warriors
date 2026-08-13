@@ -2188,3 +2188,281 @@ class TestStanding(GameFixture):
         del raw["standing"]
         back = Game.from_dict(raw)
         self.assertEqual(self.standing.book(back).by_civ, {})
+
+
+class TestVenom(GameFixture):
+    """POISON_BITE, finally read by something."""
+
+    def setUp(self):
+        super().setUp()
+        from ascii_warriors.game import venom
+
+        self.venom = venom
+        self.spider = self._spawn("giant_cave_spider")
+
+    def _spawn(self, def_id):
+        from ascii_warriors.game.entity import make_creature
+
+        c = make_creature(self.game.rng, def_id, faction="hostile")
+        p = self.game.player
+        c.x, c.y, c.z = p.x + 1, p.y, p.z
+        self.game.add_creature(c)
+        return c
+
+    # -- who carries what -------------------------------------------------- #
+
+    def test_a_venomous_creature_carries_venom(self):
+        self.assertEqual(self.venom.carries(self.spider), "spider")
+
+    def test_something_harmless_carries_none(self):
+        self.assertIsNone(self.venom.carries(self.game.player))
+
+    def test_every_venomous_creature_maps_to_a_real_venom(self):
+        from ascii_warriors.data import creatures as creature_data
+
+        found = 0
+        for cid, defn in creature_data.CREATURES.items():
+            if not defn.has("POISON_BITE"):
+                continue
+            found += 1
+            kind = self.venom.BY_CREATURE.get(cid, "rot")
+            self.assertIn(kind, self.venom.KINDS, cid)
+        self.assertGreater(found, 0, "nothing in the data is venomous")
+
+    # -- getting it -------------------------------------------------------- #
+
+    def test_a_bite_envenoms(self):
+        from ascii_warriors.game import combat
+
+        p = self.game.player
+        for _ in range(80):
+            combat.melee_attack(self.spider, p, rng=self.game.rng, log=None)
+            if p.venom:
+                break
+        self.assertTrue(p.venom, "eighty spider bites and no venom")
+
+    def test_venom_does_not_bite_itself(self):
+        other = self._spawn("giant_cave_spider")
+        self.assertIsNone(self.venom.on_bite(self.spider, other))
+
+    def test_a_second_dose_extends_rather_than_stacks(self):
+        p = self.game.player
+        first = self.venom.inject(p, "spider")
+        self.assertIsNotNone(first)
+        was = first.left
+        for _ in range(20):
+            self.venom.inject(p, "spider")
+        self.assertEqual(len(p.venom), 1)
+        self.assertGreater(p.venom[0].left, was)
+        self.assertLessEqual(p.venom[0].left,
+                             int(first.total * self.venom.MAX_EXTEND))
+
+    def test_toughness_and_discipline_shorten_it(self):
+        p = self.game.player
+        p.skills.set_level("discipline", 0)
+        soft = self.venom.resistance(p)
+        p.skills.set_level("discipline", 15)
+        self.assertGreater(self.venom.resistance(p), soft)
+        self.assertLessEqual(self.venom.resistance(p), self.venom.MAX_RESIST)
+
+    def test_resistance_shortens_the_dose(self):
+        p = self.game.player
+        p.skills.set_level("discipline", 0)
+        p.venom = []
+        weak = self.venom.inject(p, "scorpion").left
+        p.venom = []
+        p.skills.set_level("discipline", 18)
+        self.assertLess(self.venom.inject(p, "scorpion").left, weak)
+
+    # -- living with it ----------------------------------------------------- #
+
+    def test_venom_waits_before_it_starts(self):
+        p = self.game.player
+        dose = self.venom.inject(p, "spider")
+        self.assertFalse(dose.active)
+        self.assertGreater(dose.onset, 0)
+
+    def test_it_announces_itself_when_it_starts(self):
+        p = self.game.player
+        dose = self.venom.inject(p, "spider")
+        msgs = self.venom.tick(p, dose.onset + 1, self.game.rng)
+        self.assertTrue(any("heavy" in m for m in msgs), msgs)
+        self.assertTrue(dose.active)
+
+    def test_venom_slows_you(self):
+        p = self.game.player
+        clean = p.effective_speed()
+        dose = self.venom.inject(p, "spider")
+        dose.onset = 0
+        self.assertLess(p.effective_speed(), clean)
+
+    def test_venom_hurts(self):
+        p = self.game.player
+        dose = self.venom.inject(p, "scorpion")
+        dose.onset = 0
+        before = p.body.pain
+        self.venom.tick(p, 400, self.game.rng)
+        self.assertGreater(p.body.pain, before)
+
+    def test_venom_ends(self):
+        p = self.game.player
+        dose = self.venom.inject(p, "scorpion")
+        dose.onset = 0
+        msgs = self.venom.tick(p, dose.left + 10, self.game.rng)
+        self.assertFalse(p.venom)
+        self.assertTrue(any("fades" in m or "passes" in m or "clean" in m
+                            for m in msgs), msgs)
+
+    def test_nothing_runs_for_ever(self):
+        p = self.game.player
+        self.venom.inject(p, "rot")
+        for _ in range(400):
+            self.venom.tick(p, 100, self.game.rng)
+        self.assertFalse(p.venom)
+
+    def test_the_afflicted_list_reads(self):
+        p = self.game.player
+        dose = self.venom.inject(p, "spider")
+        self.assertEqual(self.venom.afflicted(p), [])
+        dose.onset = 0
+        self.assertEqual(self.venom.afflicted(p), ["spider venom"])
+
+    # -- treating it -------------------------------------------------------- #
+
+    def test_an_untrained_healer_cannot_treat_venom(self):
+        p = self.game.player
+        self.venom.inject(p, "spider")
+        p.skills.set_level("diagnose", 0)
+        ok, _said = self.venom.treat(p, p)
+        self.assertFalse(ok)
+
+    def test_treating_halves_what_is_left(self):
+        p = self.game.player
+        dose = self.venom.inject(p, "spider")
+        was = dose.left
+        p.skills.set_level("diagnose", 6)
+        ok, _said = self.venom.treat(p, p)
+        self.assertTrue(ok)
+        self.assertLess(dose.left, was)
+        self.assertTrue(dose.treated)
+
+    def test_treating_a_clean_patient_does_nothing(self):
+        p = self.game.player
+        p.skills.set_level("diagnose", 6)
+        ok, _said = self.venom.treat(p, p)
+        self.assertFalse(ok)
+
+    def test_venom_survives_a_save(self):
+        from ascii_warriors.game import save as save_mod
+
+        p = self.game.player
+        dose = self.venom.inject(p, "scorpion")
+        path = save_mod.save_game(self.game, "venom-test")
+        back = save_mod.load_game(path)
+        self.assertEqual(len(back.player.venom), 1)
+        self.assertEqual((back.player.venom[0].kind, back.player.venom[0].left),
+                         (dose.kind, dose.left))
+        path.unlink()
+
+
+class TestWebs(GameFixture):
+    """WEBBER and the `web` tile, joined up at last."""
+
+    def setUp(self):
+        super().setUp()
+        from ascii_warriors.game import webs
+
+        self.webs = webs
+        self.spider = self._spawn("giant_cave_spider")
+        self.here = (self.game.player.x, self.game.player.y,
+                     self.game.player.z)
+
+    def _spawn(self, def_id):
+        from ascii_warriors.game.entity import make_creature
+
+        c = make_creature(self.game.rng, def_id, faction="hostile")
+        p = self.game.player
+        c.x, c.y, c.z = p.x + 1, p.y, p.z
+        self.game.add_creature(c)
+        return c
+
+    def test_a_spinner_spins(self):
+        self.assertTrue(self.webs.spins(self.spider))
+        self.assertFalse(self.webs.spins(self.game.player))
+
+    def test_a_web_can_be_laid(self):
+        self.assertTrue(self.webs.spin(self.game, self.spider, self.here))
+        self.assertTrue(self.webs.is_web(self.game, self.here))
+
+    def test_a_web_cannot_be_laid_twice(self):
+        self.webs.spin(self.game, self.spider, self.here)
+        self.assertFalse(self.webs.spin(self.game, self.spider, self.here))
+
+    def test_a_web_catches_you(self):
+        self.webs.spin(self.game, self.spider, self.here)
+        self.assertTrue(self.webs.caught(self.game, self.game.player))
+
+    def test_a_spinner_walks_its_own_web(self):
+        self.webs.spin(self.game, self.spider, self.here)
+        self.spider.x, self.spider.y, self.spider.z = self.here
+        self.assertFalse(self.webs.caught(self.game, self.spider))
+
+    def test_struggling_always_tears_something(self):
+        self.webs.spin(self.game, self.spider, self.here)
+        before = self.webs.strength_at(self.game, self.here)
+        self.webs.struggle(self.game, self.game.player, self.game.rng)
+        self.assertLess(self.webs.strength_at(self.game, self.here), before)
+
+    def test_nobody_is_stuck_for_ever(self):
+        """Even the weakest creature tears MIN_TEAR away every try."""
+        self.webs.spin(self.game, self.spider, self.here)
+        p = self.game.player
+        for _ in range(self.webs.STRENGTH // self.webs.MIN_TEAR + 2):
+            free, _said = self.webs.struggle(self.game, p, self.game.rng)
+            if free:
+                break
+        self.assertFalse(self.webs.caught(self.game, p))
+
+    def test_tearing_free_clears_the_tile(self):
+        self.webs.spin(self.game, self.spider, self.here)
+        p = self.game.player
+        for _ in range(20):
+            free, _said = self.webs.struggle(self.game, p, self.game.rng)
+            if free:
+                break
+        self.assertFalse(self.webs.is_web(self.game, self.here))
+
+    def test_a_stuck_player_struggles_instead_of_walking(self):
+        from ascii_warriors.game import actions
+
+        self.webs.spin(self.game, self.spider, self.here)
+        p = self.game.player
+        was = (p.x, p.y, p.z)
+        actions.move_or_attack(self.game, 0, 1)
+        self.assertEqual((p.x, p.y, p.z), was)
+
+    def test_a_spinner_throws_one_eventually(self):
+        cells = []
+        for _ in range(400):
+            self.game.scheduler.ticks += self.webs.COOLDOWN
+            cell = self.webs.maybe_spin(self.game, self.spider,
+                                        self.game.player, self.game.rng)
+            if cell is not None:
+                cells.append(cell)
+        self.assertTrue(cells, "a spider never spun in four hundred tries")
+
+    def test_a_spinner_will_not_reach_across_the_map(self):
+        self.spider.x += 60
+        self.game.scheduler.ticks += self.webs.COOLDOWN * 2
+        self.assertIsNone(self.webs.maybe_spin(
+            self.game, self.spider, self.game.player, self.game.rng))
+
+    def test_webs_survive_a_save(self):
+        from ascii_warriors.game import save as save_mod
+
+        self.webs.spin(self.game, self.spider, self.here)
+        self.webs.strands(self.game)[self.here] = 42
+        path = save_mod.save_game(self.game, "web-test")
+        back = save_mod.load_game(path)
+        self.assertEqual(self.webs.strength_at(back, self.here), 42)
+        path.unlink()

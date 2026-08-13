@@ -256,6 +256,24 @@ demands makes the mayor furious, and a furious dwarf in a fortress full of
 unhappy dwarves is how tantrums start: broken furniture, then somebody going
 berserk with an axe.
 
+VENOM AND WEBS
+
+Some things that bite you are venomous. Nothing happens at the moment it
+lands -- that is what makes venom different from a wound. Then it starts, and
+for the next while you are slower, in more pain, and in some cases throwing
+up. Toughness shortens it and so does Discipline, because what venom mostly
+does is make you stop.
+
+There is no antidote. Somebody with Diagnostician 2 or better can cut and bind
+a venomous bite (A) and halve what is left of it, and that somebody can be
+you.
+
+Giant spiders and scorpions throw webs. A web is a tile you can see and walk
+around; walk into one and you are held until you tear out, which takes a few
+turns and some strength. Spinners walk their own webs, so you cannot lead one
+into its trap. Being stuck while something walks towards you is the oldest
+trap there is and it still works.
+
 STANDING
 
 Every people has its own opinion of you, and its own reasons. Their ethics are

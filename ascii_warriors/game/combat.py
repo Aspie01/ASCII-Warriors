@@ -409,8 +409,14 @@ def melee_attack(
     # A bite from something cursed is how the curse travels. What matters is
     # the attack that landed, not whether the thing also owns a sword.
     if attack_def.name in BITES:
-        from . import night
+        from . import night, venom
 
+        dose = venom.on_bite(attacker, defender, rng)
+        if dose is not None:
+            result.add("%s been envenomed."
+                       % ("You have" if defender.is_player
+                          else "%s has" % _subject(defender)),
+                       colors.UI["danger"])
         if night.on_bite(attacker, defender, rng, log):
             result.add("%s been bitten by something unclean."
                        % ("You have" if defender.is_player

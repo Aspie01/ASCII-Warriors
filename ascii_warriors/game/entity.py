@@ -107,6 +107,8 @@ class Creature:
         #: Ids of the artistic forms this creature can perform. Learned
         #: growing up, or off somebody who performed one well.
         self.forms: List[int] = []
+        #: Venom currently working in this creature.
+        self.venom: List[Any] = []
         #: Set while this creature is deliberately trying not to be seen,
         #: and what it last did loudly enough for anybody to hear.
         self.sneaking = False
@@ -274,6 +276,10 @@ class Creature:
         speed *= 0.7 + 0.3 * self.attributes.factor("agility")
         if self.needs.fatigue > 1200:
             speed *= 0.8
+        if self.venom:
+            from . import venom as venom_mod
+
+            speed *= venom_mod.slow_factor(self)
         return max(10, int(speed))
 
     def sight_radius(self, light: float = 1.0) -> int:
@@ -406,6 +412,10 @@ class Creature:
             d["secrets"] = list(self.secrets)
         if self.forms:
             d["forms"] = list(self.forms)
+        if self.venom:
+            from . import venom as venom_mod
+
+            d["venom"] = venom_mod.to_list(self)
         if self.curse or self.changed or self.raised_by is not None:
             d["night"] = {"curse": self.curse, "changed": self.changed,
                           "was": self.shape_was, "faction_was": self.faction_was,
@@ -456,6 +466,10 @@ class Creature:
         c.sneaking = bool(d.get("sneaking", False))
         c.secrets = [str(x) for x in d.get("secrets", [])]
         c.forms = [int(x) for x in d.get("forms", [])]
+        if d.get("venom"):
+            from . import venom as venom_mod
+
+            venom_mod.from_list(c, d["venom"])
 
         night = d.get("night")
         if night:

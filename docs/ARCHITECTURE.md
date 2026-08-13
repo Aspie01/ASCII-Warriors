@@ -2463,7 +2463,46 @@ scores how far apart two moral codes are, and the pair is drawn weighted by
 it, so an elf nation and a goblin one have measurably more to fall out about
 than two human ones, without making a war between friends impossible.
 
-## 71. Style
+## 71. Venom and webs (v3.11)
+
+The audit widened from skills to flags. `POISON_BITE` has been on the giant
+cave spider, the giant desert scorpion and the alligator since the creature
+data was written; `WEBBER` has been on the two spinners; and the tile table has
+had a `web` tile with a `WEB` flag for just as long. Not one of the three was
+ever read by a line of code. A giant cave spider was a large animal that bit
+you, which is not what a giant cave spider is for.
+
+**A syndrome is a clock, not a number.** The combat model is about tissue --
+momentum through skin, fat, muscle and bone, leaving a wound that bleeds and
+hurts. Venom is the thing that model has no vocabulary for, because it does
+nothing at the moment it lands. `game/venom.py` gives each dose an onset, a
+duration and a per-tick effect: pain and bleeding feed the existing body
+model, `slow` feeds `effective_speed` so a poisoned adventurer is slower in
+the only way the scheduler understands, and nausea costs food.
+
+A second dose *extends* the clock rather than adding a second one, bounded at
+2.5x the base. Otherwise a nest of spiders is arithmetic rather than a fight
+you should have run from. Toughness shortens it, and so does `discipline` --
+the first line in the game to read that skill, and the right one, because what
+a syndrome mostly does is make you stop.
+
+Treatment is `diagnose` rather than a new skill: there is no antidote in this
+world, only somebody who has seen it before and knows to cut and bind. It
+halves what is left.
+
+**A web is a tile, not a status.** It sits on the floor, it is visible, it can
+be walked around, and it catches whatever walks in -- except spinners, who
+walk their own, which is both true of spiders and the only thing stopping one
+webbing itself into a corner. Getting out is a strength roll against the
+strands, and a failed struggle still tears `MIN_TEAR` away, so nobody is ever
+permanently stuck by bad luck: the worst case is several turns of being
+somewhere a spider knows about, which is bad enough.
+
+A spinner aims *ahead* of its prey rather than at it. A web laid where
+somebody already stands is one they walk out of next turn; a web laid in their
+path is a trap.
+
+## 72. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).
