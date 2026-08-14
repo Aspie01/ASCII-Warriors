@@ -274,6 +274,25 @@ you are extremely visible next to one -- worth remembering if you are sneaking.
 In the fortress, magma sets fire to anything flammable near it. Keep the
 woodpile away from the forge.
 
+FIGHTING WITH YOUR HANDS
+
+Punching, kicking and biting are three different skills — striker, kicker and
+biter — and wrestling is for grappling. A wrestler is good at all of them; a
+wolf is good at exactly one. Picking the wrestler profession means something
+now.
+
+LYING AND WRITING
+
+Boast of your deeds and you speak of what you have really done. With nothing
+real to say, you make something up instead, and whether it lands depends on
+how good a liar you are against how observant they are. Get caught and they
+remember it, and so does everyone who saw.
+
+Carry a blank book and press V to write one. You can only write about what you
+know well, history and biography aside, and how deep a work you produce
+depends on both your writing and your knowledge of the subject. It takes most
+of a day or more, and not with company. Bind a blank book from hide.
+
 WEAR AND REPAIR
 
 Things wear out. A weapon wears from landing blows, armour from stopping them,

@@ -49,6 +49,10 @@ _r("make_bandage", "Tear a bandage", "crafting", 0, (("cloak", 1),), "bandage", 
 _r("make_arrows", "Fletch arrows", "bowyer", 2, (("log", 1),), "arrow", 12, ())
 _r("make_bolts", "Carve bolts", "bowyer", 2, (("log", 1),), "bolt", 12, ())
 _r("make_rope", "Braid a rope", "crafting", 1, (("hide", 2),), "rope", 1, ())
+# Somewhere to put the writing. Every book in the world arrived already
+# written, so an adventurer had nothing blank to fill.
+_r("bind_book", "Bind a blank book", "leatherwork", 2, (("hide", 2),),
+   "book", 1, (), "Pages, and a cover to hold them.")
 _r("tan_leather", "Tan a hide", "leatherwork", 1, (("hide", 1),), "tunic", 1, ())
 _r("carve_bone_dagger", "Carve a bone dagger", "crafting", 2,
    (("bone_item", 3),), "dagger", 1, ())

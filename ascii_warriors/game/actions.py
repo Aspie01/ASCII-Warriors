@@ -809,6 +809,42 @@ def sharpen(game, item: Optional[Item] = None) -> int:
     return FREE
 
 
+def write_book(game, item: Optional[Item] = None, kind: str = "") -> int:
+    """Fill a blank book with what you know.
+
+    `writing` has been in the skill table since it was written and the scholar
+    profession starts with four of it. Every book in the world arrived already
+    written; nobody could add one.
+    """
+    from . import books
+
+    p = game.player
+    if not books.can_write(p):
+        game.log.warn("You do not know how to set words down.")
+        return FREE
+    if item is None:
+        item = next((i for i in p.inventory.items if books.writable(i)), None)
+    if item is None:
+        game.log.warn("You have no blank book to write in.")
+        return FREE
+    if game.hostiles_in_sight():
+        game.log.warn("Not with company.")
+        return FREE
+    subjects = books.subjects_for(p)
+    if not subjects:
+        game.log.warn("You know nothing well enough to fill a book.")
+        return FREE
+    kind = kind or subjects[0][0]
+    turns = books.write_turns(p, kind)
+    book, said = books.write(game.world, game.rng, p, item, kind)
+    if book is None:
+        game.log.warn(said)
+        return FREE
+    game.log.good(said)
+    p.needs.fatigue += turns // 30
+    return turns
+
+
 def craft_recipe(game, recipe) -> int:
     """Make something."""
     ok, msg = crafting.craft(game.player, recipe, game)

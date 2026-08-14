@@ -271,6 +271,8 @@ class PlayScene(Scene):
             cost = actions.set_fire(game)
         elif key == "X":
             cost = actions.sharpen(game)
+        elif key == "V":
+            cost = actions.write_book(game)
         elif key == "s":
             cost = actions.search(game)
         elif key == "S":

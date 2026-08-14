@@ -61,11 +61,44 @@ class AttackResult:
 # --------------------------------------------------------------------------- #
 
 
-def _skill_for_weapon(attacker, weapon: Optional[Item]) -> str:
-    """The skill governing an attack with *weapon*."""
+#: Which skill governs an unarmed attack, by what the attack is called.
+#:
+#: `striker`, `kicker` and `biter` are in the skill table, the wrestler
+#: profession starts with `striker` 4 and `kicker` 3, and nine species carry
+#: an authored `biter` -- a dragon has 12 of it. None of them had ever been
+#: read: every unarmed attack asked for `wrestling`, which a dragon does not
+#: have and a wrestler was given for grappling. Bites and stings are done with
+#: the mouth, kicks with the feet, and everything else a body does to somebody
+#: is striking.
+NATURAL_SKILL: Dict[str, str] = {
+    "bite": "biter", "sting": "biter",
+    "kick": "kicker",
+}
+STRIKING = "striker"
+
+
+def skill_for_attack(attacker, weapon: Optional[Item],
+                     attack_def: Optional[AttackDef] = None) -> str:
+    """The skill governing one particular blow.
+
+    The weapon decides it when there is one. Without a weapon it is the
+    *attack* that decides, which is the part that was missing: a punch, a kick
+    and a bite are three different things to be good at.
+    """
     if weapon is not None and weapon.defn.weapon is not None:
         return weapon.defn.weapon.skill
-    return "wrestling"
+    if attack_def is None:
+        return "wrestling"
+    return NATURAL_SKILL.get(attack_def.name, STRIKING)
+
+
+def _skill_for_weapon(attacker, weapon: Optional[Item]) -> str:
+    """The skill governing an attack with *weapon*, ignoring which attack.
+
+    Kept for the places that ask about a creature's weapon rather than about
+    a blow -- parrying, and pricing a swing before one is chosen.
+    """
+    return skill_for_attack(attacker, weapon)
 
 
 def attack_power(attacker, skill_id: str) -> float:
@@ -110,7 +143,7 @@ def compute_momentum(attacker, weapon: Optional[Item], attack_def: AttackDef) ->
     strength = attacker.attributes.factor("strength")
     size_factor = (attacker.defn.size / SIZE_REFERENCE) ** 0.34
     mass = weapon.unit_weight if weapon is not None else 0.0
-    skill_id = _skill_for_weapon(attacker, weapon)
+    skill_id = skill_for_attack(attacker, weapon, attack_def)
     skill = skill_bonus(attacker.skills.level(skill_id))
 
     momentum = BASE_MOMENTUM * strength * size_factor
@@ -198,7 +231,7 @@ def attack_cost(attacker, weapon: Optional[Item], attack_def: AttackDef) -> int:
     """
     factor = swing_time(attack_def) / float(BASELINE_SWING)
     factor *= 1.0 + HEFT_PENALTY * max(0.0, heft(attacker, weapon) - 1.0)
-    skill = attacker.skills.level(_skill_for_weapon(attacker, weapon))
+    skill = attacker.skills.level(skill_for_attack(attacker, weapon, attack_def))
     factor *= max(0.5, 1.0 - SKILL_RELIEF * skill)
     return int(ACTION_COST * max(FASTEST, min(SLOWEST, factor)))
 
@@ -418,7 +451,7 @@ def melee_attack(
         attack_def = choose_attack(attacker, weapon, rng)
     result.cost = attack_cost(attacker, weapon, attack_def)
 
-    skill_id = _skill_for_weapon(attacker, weapon)
+    skill_id = skill_for_attack(attacker, weapon, attack_def)
     chance = to_hit_chance(attacker, defender, skill_id)
     if target_part and not ambush:
         chance *= 0.7  # aimed strikes are harder

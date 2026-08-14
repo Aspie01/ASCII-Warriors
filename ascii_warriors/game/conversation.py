@@ -377,16 +377,29 @@ def say(speaker, listener, topic: str, game) -> List[Frag]:
 
     if topic == "brag":
         kills = len(speaker.kills)
-        best = speaker.skills.known()[:1]
+        best = [s for s, lv in speaker.skills.known() if lv >= NOTABLE_SKILL]
         if kills == 0 and not best:
-            line = "You have done nothing worth the telling."
-            return [Frag(line, colors.UI["dim"])]
+            # Having nothing to boast of used to say "you speak of your 0
+            # notable kills" and take the same reaction as a hero. It is the
+            # one place a liar has something to offer, and `lying` -- which
+            # the thief starts with 3 of and the bard 2, and which nothing had
+            # ever read -- is what decides whether it lands. The old test was
+            # `not skills.known()`, which is only true of somebody who has
+            # never learned anything at all: the branch could not be reached.
+            return _brag_falsely(speaker, listener, game, rng, out)
         speaker.add_exp("persuasion", 15)
         reaction = rng.choice([
             "Is that so.", "Hah! A likely tale.", "You have the look of it, I'll say that.",
             "Then you are welcome here.", "Words are cheap, traveller.",
         ])
-        out.append(Frag("You speak of your %d notable kills." % kills, _INFO))
+        if kills:
+            out.append(Frag("You speak of your %d notable kills." % kills, _INFO))
+        else:
+            from .skills import SKILLS
+
+            title = getattr(SKILLS.get(best[0]), "name", best[0])
+            out.append(Frag("You speak of your reputation as %s."
+                            % _a_an(title.lower()), _INFO))
         return out + _quote(listener, reaction)
 
     if topic == "insult":
@@ -429,6 +442,60 @@ def say(speaker, listener, topic: str, game) -> List[Frag]:
         return out
 
     return _quote(listener, "I have nothing to say about that.")
+
+
+#: The level at which a skill is worth boasting about -- "Talented" in the
+#: descriptor table. Below it you are bragging about being competent.
+NOTABLE_SKILL = 6
+
+
+def _a_an(word: str) -> str:
+    """"a swordsman" / "an axeman", for the one place that needs it."""
+    return ("an " if word[:1].lower() in "aeiou" else "a ") + word
+
+
+#: What a lie is worth against a listener who is paying attention. A liar
+#: is believed roughly as often as a fighter lands a blow, which is to say
+#: often enough to try and not often enough to rely on.
+LIE_BASE = 0.30
+LIE_PER_LEVEL = 0.055
+
+
+def lie_chance(speaker, listener) -> float:
+    """Whether a story about nothing gets believed."""
+    skill = speaker.skills.level("lying")
+    doubt = listener.skills.level("observer")
+    odds = LIE_BASE + LIE_PER_LEVEL * skill - 0.055 * doubt
+    # A trusting listener is easier. v3.15 rolled thirty facets per creature
+    # and this is another of them finally being asked.
+    odds += (listener.personality.facet("trust") - 50) / 400.0
+    return max(0.02, min(0.92, odds))
+
+
+def _brag_falsely(speaker, listener, game, rng, out) -> List[Frag]:
+    """Boast of things you have not done."""
+    from . import standing as standing_mod
+
+    if speaker.skills.level("lying") <= 0:
+        out.append(Frag("You have done nothing worth the telling.",
+                        colors.UI["dim"]))
+        return out
+    speaker.add_exp("lying", 18)
+    out.append(Frag("You tell them a story about yourself.", _INFO))
+    if rng.chance(lie_chance(speaker, listener)):
+        listener.speech["impressed"] = True
+        return out + _quote(listener, rng.choice([
+            "You have led quite a life.",
+            "Well! We do not get many like you through here.",
+            "Then you are welcome at my table.",
+        ]))
+    listener.needs.add_thought("was lied to", 5)
+    standing_mod.did(game, "insult", seen_by=[listener])
+    return out + _quote(listener, rng.choice([
+        "That is not how I heard it.",
+        "You have never done any such thing.",
+        "Save it for somebody who was not there.",
+    ]))
 
 
 def _has_forms(listener, game) -> bool:

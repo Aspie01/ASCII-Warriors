@@ -262,6 +262,84 @@ def attach(item, book: Book) -> Book:
 
 
 # --------------------------------------------------------------------------- #
+# Writing them
+# --------------------------------------------------------------------------- #
+#
+# `writing` is in the skill table and the scholar profession starts with 4 of
+# it. Nothing had ever read it: books existed only because worldgen had made
+# them, and an adventurer who had killed a hydra and learned the secret of
+# life and death could not write any of it down.
+
+#: A book cannot be deeper than the writer is skilled, whatever they know.
+#: A brilliant surgeon who cannot write produces a pamphlet.
+MAX_DEPTH = 5
+
+#: How much of a subject you have to know before you can write about it.
+KNOWS_ENOUGH = 3
+
+#: Turns per point of depth. Writing is much slower than reading, which is
+#: why nobody does it in a corridor with goblins in it.
+WRITE_TURNS = 260
+
+
+def writable(item) -> bool:
+    """A blank book, waiting for somebody to fill it."""
+    return item is not None and item.defn.has("BOOK") and of(item) is None
+
+
+def can_write(writer) -> bool:
+    """Whether this creature could write a book at all."""
+    return can_read(writer) and writer.skills.level("writing") > 0
+
+
+def subjects_for(writer) -> List[Tuple[str, str]]:
+    """What this writer is qualified to write about, best first.
+
+    A book has to be about something you know. `history` and `biography`
+    teach no skill and are open to anybody literate -- you were there, or you
+    heard it from somebody who was.
+    """
+    out: List[Tuple[str, str]] = []
+    for kind, phrase, skill in SUBJECTS:
+        if skill is None:
+            out.append((kind, phrase))
+            continue
+        if writer.skills.level(skill) >= KNOWS_ENOUGH:
+            out.append((kind, phrase))
+    return out
+
+
+def write_depth(writer, kind: str) -> int:
+    """How deep a work this writer can produce on this subject."""
+    craft = writer.skills.level("writing")
+    entry = next((s for s in SUBJECTS if s[0] == kind), None)
+    known = writer.skills.level(entry[2]) if entry and entry[2] else craft
+    return max(1, min(MAX_DEPTH, (craft + known) // 3))
+
+
+def write_turns(writer, kind: str) -> int:
+    """How long it takes. Deeper work is longer work."""
+    return WRITE_TURNS * write_depth(writer, kind)
+
+
+def write(world, rng, writer, item, kind: str) -> Tuple[Optional[Book], str]:
+    """Fill a blank book. Returns the work and what to tell the writer."""
+    if not writable(item):
+        return (None, "There is already something written in that.")
+    if not can_write(writer):
+        return (None, "You do not know how to set words down.")
+    if kind not in {k for k, _p in subjects_for(writer)}:
+        return (None, "You do not know enough about that to fill a book.")
+    book = bind(world, rng, item, kind=kind,
+                depth=write_depth(writer, kind),
+                author=writer.display_name())
+    # You have read your own book. It would be strange to learn from it.
+    book.read_by.append(writer.id)
+    writer.add_exp("writing", 40 * book.depth)
+    return (book, "You finish %s." % book.title)
+
+
+# --------------------------------------------------------------------------- #
 # Reading them
 # --------------------------------------------------------------------------- #
 

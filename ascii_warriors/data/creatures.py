@@ -342,7 +342,7 @@ _c("camel", "camel", "h", colors.Color(198, 168, 118), "quadruped", 500000, 1,
    group=(1, 5), speed=120, diet="herbivore", lifespan=(30, 45))
 _c("gorilla", "gorilla", "G", colors.Color(70, 68, 66), "humanoid", 200000, 3,
    frozenset({"jungle", "tropical_forest"}), ("SAVAGE", "PACK"),
-   HUMANOID_ATTACKS, attributes={"strength": 2400}, skills={"wrestling": 5},
+   HUMANOID_ATTACKS, attributes={"strength": 2400}, skills={"wrestling": 5, "striker": 5, "kicker": 4, "biter": 4},
    group=(2, 6), speed=110, lifespan=(30, 45))
 
 # -- birds, fish, vermin ---------------------------------------------------- #
@@ -411,13 +411,15 @@ _c("troll", "troll", "T", colors.Color(120, 140, 110), "giant_humanoid",
    300000, 3, ANY_LAND | UNDERGROUND, ("SAVAGE", "EVIL", "SUBTERRANEAN"),
    HUMANOID_ATTACKS, attributes={"strength": 2400, "toughness": 2200,
                                  "analytical_ability": 400},
-   skills={"fighter": 4, "wrestling": 4}, group=(1, 3), speed=90,
+   skills={"fighter": 4, "wrestling": 4, "striker": 4, "kicker": 3,
+           "biter": 3}, group=(1, 3), speed=90,
    lifespan=(80, 120), armor=2,
    desc="Lumbering, ugly and hard to put down.")
 _c("ogre", "ogre", "O", colors.Color(150, 130, 96), "giant_humanoid", 400000, 4,
    ANY_LAND, ("SAVAGE", "EVIL", "SEMIMEGABEAST"), HUMANOID_ATTACKS,
    attributes={"strength": 2800, "toughness": 2300},
-   skills={"fighter": 6, "wrestling": 5}, speed=100, lifespan=(100, 150), armor=2)
+   skills={"fighter": 6, "wrestling": 5, "striker": 5, "kicker": 4,
+           "biter": 4}, speed=100, lifespan=(100, 150), armor=2)
 _c("minotaur", "minotaur", "M", colors.Color(150, 106, 74), "giant_humanoid",
    350000, 4, frozenset({"mountain", "hills"}),
    ("SAVAGE", "EVIL", "SEMIMEGABEAST", "INTELLIGENT"),
@@ -429,7 +431,8 @@ _c("cyclops", "cyclops", "C", colors.Color(180, 150, 120), "giant_humanoid",
    1000000, 5, frozenset({"mountain", "hills", "shrubland"}),
    ("SAVAGE", "EVIL", "SEMIMEGABEAST", "INTELLIGENT"), HUMANOID_ATTACKS,
    plural="cyclopes", attributes={"strength": 3400, "toughness": 2800},
-   skills={"fighter": 8, "wrestling": 7}, speed=100, lifespan=(400, 600), armor=3)
+   skills={"fighter": 8, "wrestling": 7, "striker": 7, "kicker": 6,
+           "biter": 5}, speed=100, lifespan=(400, 600), armor=3)
 _c("ettin", "ettin", "E", colors.Color(140, 128, 108), "giant_humanoid",
    900000, 5, ANY_LAND, ("SAVAGE", "EVIL", "SEMIMEGABEAST", "INTELLIGENT"),
    HUMANOID_ATTACKS, attributes={"strength": 3200, "toughness": 2700},
@@ -459,7 +462,8 @@ _c("bronze_colossus", "bronze colossus", "C", colors.BRONZE, "giant_humanoid",
                           "NO_FEAR", "FIREIMMUNE", "OPPOSED_TO_LIFE"),
    HUMANOID_ATTACKS, plural="bronze colossuses",
    attributes={"strength": 5000, "toughness": 5000},
-   skills={"fighter": 10, "wrestling": 10}, speed=80, blood="",
+   skills={"fighter": 10, "wrestling": 10, "striker": 10, "kicker": 8,
+           "biter": 6}, speed=80, blood="",
    lifespan=(100000, 100000), armor=10,
    desc="A statue that walks. Bronze does not bleed.")
 _c("giant", "giant", "G", colors.Color(190, 170, 150), "giant_humanoid",
@@ -480,7 +484,8 @@ _c("night_troll", "night troll", "T", colors.Color(80, 70, 90), "giant_humanoid"
    250000, 4, ANY_LAND, ("SAVAGE", "EVIL", "NIGHT_CREATURE", "NOCTURNAL",
                          "NO_FEAR", "INTELLIGENT"),
    HUMANOID_ATTACKS, attributes={"strength": 2600, "toughness": 2400},
-   skills={"fighter": 6, "wrestling": 6}, speed=120, lifespan=(500, 900), armor=2)
+   skills={"fighter": 6, "wrestling": 6, "striker": 6, "kicker": 5,
+           "biter": 6}, speed=120, lifespan=(500, 900), armor=2)
 
 # -- undead ----------------------------------------------------------------- #
 
@@ -489,7 +494,8 @@ _c("zombie", "zombie", "z", colors.Color(126, 140, 110), "humanoid", 70000, 2,
               "OPPOSED_TO_LIFE"),
    HUMANOID_ATTACKS, attributes={"strength": 1400, "toughness": 1600,
                                  "agility": 700},
-   skills={"wrestling": 2}, group=(2, 6), speed=70, blood="",
+   skills={"wrestling": 2, "striker": 2, "kicker": 1, "biter": 3},
+   group=(2, 6), speed=70, blood="",
    lifespan=(100000, 100000), desc="It does not tire, and it does not stop.")
 _c("skeleton", "skeleton", "z", colors.BONE, "humanoid", 40000, 2,
    ANY_LAND, ("UNDEAD", "EVIL", "NO_EAT", "NO_DRINK", "NO_SLEEP", "NO_FEAR",
@@ -528,7 +534,8 @@ _c("demon", "demon", "&", colors.Color(220, 70, 60), "giant_humanoid",
     "NO_SLEEP", "FIREIMMUNE", "OPPOSED_TO_LIFE", "INTELLIGENT", "FLIER"),
    HUMANOID_ATTACKS, plural="demons",
    attributes={"strength": 3400, "toughness": 3200, "agility": 2400},
-   skills={"fighter": 10, "wrestling": 8, "dodging": 6}, speed=130,
+   skills={"fighter": 10, "wrestling": 8, "dodging": 6, "striker": 8,
+           "kicker": 7, "biter": 7}, speed=130,
    blood="", lifespan=(100000, 100000), armor=4, frequency=0,
    desc="It was under the adamantine, and now it is not.")
 

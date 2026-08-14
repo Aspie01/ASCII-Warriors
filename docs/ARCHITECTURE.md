@@ -2875,7 +2875,55 @@ an edge, which a maul does not. And `flint_and_steel` -- tradeable and
 lootable since the item table was written, never once asked for -- now lights
 what v3.17 needed a burning torch for.
 
-## 81. Style
+## 81. The skills you were sold (v3.21)
+
+The skill table has sixty-seven entries. Auditing which of them any code
+outside the table itself reads turned up a cluster that character creation
+*hands out* and nothing had ever asked for.
+
+**`striker`, `kicker` and `biter`.** The wrestler profession -- "No weapon. No
+armour. No mercy." -- starts with `striker` 4 and `kicker` 3. Nine species
+carry an authored `biter`; a dragon has 12 of it. Every unarmed attack asked
+for `wrestling`, which a dragon does not have and which a wrestler was given
+for grappling. `skill_for_attack` reads the *attack* when there is no weapon:
+bites and stings are done with the mouth, kicks with the feet, and everything
+else a body does to somebody is striking. `_skill_for_weapon` stays for the
+places that ask about a creature's weapon rather than about a blow -- parrying,
+and pricing a swing before one has been chosen.
+
+That change would have silently gutted eight species. Gorilla, troll, ogre,
+cyclops, bronze colossus, night troll, zombie and demon were authored with
+`wrestling` *because that is what the game read*, and punch/kick/bite would
+suddenly have found nothing. They were given the specialisations their data
+meant -- a bronze colossus is a legendary striker -- and kept `wrestling`,
+which still governs grappling. **An audit that reads data differently has to
+check who was writing for the old reading.**
+
+**`lying`**, which the thief starts with 3 of and the bard 2. Bragging with
+nothing to show used to print "You speak of your 0 notable kills" and take the
+same reaction as a hero. It is now a lie, and `lie_chance` weighs the liar's
+skill against the listener's `observer` and their `trust` facet: a thief is
+believed by about two listeners in five and by one in ten who is paying
+attention. Getting caught costs standing through v3.10 and a thought through
+v3.15. The guard on the old branch was `not skills.known()` -- true only of
+somebody who had never learned anything at all -- so it could not be reached;
+it is a notable *reputation* (`NOTABLE_SKILL`, "Talented") or real kills that
+count as something to boast about.
+
+**`writing`**, which the scholar starts with 4 of. Every book in the world
+arrived already written and nobody could add one, though `bind` had done the
+work since v3.7. A writer can only write what they know -- `KNOWS_ENOUGH` in
+the subject, or history and biography, which are open to anybody literate --
+and depth comes from the craft and the knowledge together, so a brilliant
+surgeon who cannot write produces a pamphlet. It takes hundreds of turns and
+cannot be done with hostiles in sight. There was nothing blank to write in, so
+the crafting table binds one.
+
+Left dead and deliberately: `misc_weapon` and `ArmorDef.permit_size`, which no
+row in either table populates, and `surgery`, which exists as a book topic but
+would need an operation to perform rather than a wiring.
+
+## 82. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

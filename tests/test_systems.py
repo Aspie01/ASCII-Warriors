@@ -4595,3 +4595,268 @@ class TestWear(GameFixture):
         p.inventory.add(Item("flint_and_steel", "iron"))
         actions.set_fire(self.game)
         self.assertTrue(self.game.fire.anything_burning)
+
+
+class TestSkillsYouWereSold(GameFixture):
+    """Skills in the table, handed out at character creation, never read."""
+
+    # -- what a blow is done with -------------------------------------------- #
+
+    def test_a_punch_a_kick_and_a_bite_are_three_different_things(self):
+        from ascii_warriors.data.items import BITE, KICK, PUNCH
+        from ascii_warriors.game import combat
+        from ascii_warriors.game.entity import make_creature
+
+        c = make_creature(RNG("c"), "human", equip=False)
+        self.assertEqual(combat.skill_for_attack(c, None, PUNCH), "striker")
+        self.assertEqual(combat.skill_for_attack(c, None, KICK), "kicker")
+        self.assertEqual(combat.skill_for_attack(c, None, BITE), "biter")
+
+    def test_a_weapon_still_decides_when_there_is_one(self):
+        from ascii_warriors.data.items import PUNCH
+        from ascii_warriors.game import combat
+        from ascii_warriors.game.entity import make_creature
+        from ascii_warriors.game.item import make_item
+
+        c = make_creature(RNG("c"), "human", equip=False)
+        sword = make_item(RNG("i"), "sword", material="iron")
+        self.assertEqual(combat.skill_for_attack(c, sword, PUNCH), "sword")
+
+    def test_grappling_is_still_wrestling(self):
+        from ascii_warriors.game import combat
+        from ascii_warriors.game.entity import make_creature
+
+        c = make_creature(RNG("c"), "human", equip=False)
+        self.assertEqual(combat.skill_for_attack(c, None, None), "wrestling")
+
+    def test_a_dragon_finally_bites_with_its_biting(self):
+        from ascii_warriors.data.creatures import CREATURES
+        from ascii_warriors.game import combat
+        from ascii_warriors.game.entity import make_creature
+
+        drake = make_creature(RNG("d"), "dragon", equip=False)
+        bite = next(na.attack for na in CREATURES["dragon"].attacks
+                    if na.attack.name == "bite")
+        self.assertGreater(drake.skills.level("biter"), 8)
+        self.assertEqual(combat.skill_for_attack(drake, None, bite), "biter")
+
+    def test_skill_makes_an_unarmed_blow_harder(self):
+        from ascii_warriors.data.items import PUNCH
+        from ascii_warriors.game import combat
+        from ascii_warriors.game.entity import make_creature
+
+        raw = make_creature(RNG("c"), "human", equip=False)
+        able = make_creature(RNG("c"), "human", equip=False)
+        able.skills.set_level("striker", 10)
+        self.assertGreater(combat.compute_momentum(able, None, PUNCH),
+                           combat.compute_momentum(raw, None, PUNCH))
+
+    def test_and_wrestling_no_longer_does(self):
+        """It governs grappling; punching has its own skill now."""
+        from ascii_warriors.data.items import PUNCH
+        from ascii_warriors.game import combat
+        from ascii_warriors.game.entity import make_creature
+
+        raw = make_creature(RNG("c"), "human", equip=False)
+        grappler = make_creature(RNG("c"), "human", equip=False)
+        grappler.skills.set_level("wrestling", 10)
+        self.assertEqual(combat.compute_momentum(grappler, None, PUNCH),
+                         combat.compute_momentum(raw, None, PUNCH))
+
+    def test_the_species_authored_as_body_fighters_kept_their_teeth(self):
+        """Eight creatures had `wrestling` because that is what was read."""
+        from ascii_warriors.data.creatures import CREATURES
+
+        for cid in ("troll", "ogre", "cyclops", "bronze_colossus",
+                    "night_troll", "zombie", "demon", "gorilla"):
+            skills = CREATURES[cid].skills
+            self.assertIn("wrestling", skills, cid)
+            for specific in ("striker", "kicker", "biter"):
+                self.assertIn(specific, skills, "%s lost its %s" % (cid, specific))
+
+    def test_a_wrestler_is_better_at_it_than_a_peasant(self):
+        from ascii_warriors.data.items import PUNCH
+        from ascii_warriors.game import combat
+        from ascii_warriors.game.entity import make_creature
+        from ascii_warriors.ui.charcreate import PROFESSIONS
+
+        peasant = make_creature(RNG("c"), "human", equip=False)
+        wrestler = make_creature(RNG("c"), "human", equip=False)
+        for k, v in PROFESSIONS["wrestler"][1].items():
+            wrestler.skills.set_level(k, v)
+        self.assertGreater(combat.compute_momentum(wrestler, None, PUNCH),
+                           combat.compute_momentum(peasant, None, PUNCH))
+
+    # -- lying --------------------------------------------------------------- #
+
+    def _talker(self, profession="thief"):
+        from ascii_warriors.ui.charcreate import PROFESSIONS
+
+        p = self.game.player
+        for k, v in PROFESSIONS[profession][1].items():
+            p.skills.set_level(k, v)
+        p.kills = []
+        return p
+
+    def _listener(self, seed="l"):
+        from ascii_warriors.game.entity import make_creature
+
+        return make_creature(RNG(seed), "human", equip=False)
+
+    def _brag(self, speaker, listener):
+        from ascii_warriors.game import conversation as conv
+
+        return " ".join(f.text for f in
+                        conv.say(speaker, listener, "brag", self.game))
+
+    def test_someone_with_nothing_and_no_gift_for_it_says_so(self):
+        p = self.game.player
+        p.kills = []
+        for sid, _lv in list(p.skills.known()):
+            p.skills.set_level(sid, 0)
+        self.assertIn("nothing worth the telling",
+                      self._brag(p, self._listener()))
+
+    def test_but_a_liar_tries_anyway(self):
+        p = self._talker("thief")
+        self.assertGreater(p.skills.level("lying"), 0)
+        self.assertIn("story about yourself", self._brag(p, self._listener()))
+
+    def test_the_lie_lands_sometimes_and_not_others(self):
+        from ascii_warriors.game import conversation as conv
+
+        p = self._talker("thief")
+        seen = set()
+        for i in range(120):
+            text = self._brag(p, self._listener("l%d" % i))
+            seen.add("quite a life" in text or "many like you" in text
+                     or "welcome at my table" in text)
+        self.assertEqual(seen, {True, False})
+        self.assertGreater(conv.lie_chance(p, self._listener()), 0.0)
+
+    def test_a_better_liar_is_believed_more_often(self):
+        from ascii_warriors.game import conversation as conv
+
+        p = self._talker("thief")
+        listener = self._listener()
+        p.skills.set_level("lying", 2)
+        poor = conv.lie_chance(p, listener)
+        p.skills.set_level("lying", 12)
+        self.assertGreater(conv.lie_chance(p, listener), poor)
+
+    def test_an_observant_listener_is_harder_to_fool(self):
+        from ascii_warriors.game import conversation as conv
+
+        p = self._talker("thief")
+        dull = self._listener("a")
+        sharp = self._listener("b")
+        dull.skills.set_level("observer", 0)
+        sharp.skills.set_level("observer", 8)
+        self.assertGreater(conv.lie_chance(p, dull), conv.lie_chance(p, sharp))
+
+    def test_real_deeds_are_not_a_lie(self):
+        p = self.game.player
+        p.kills = ["a hydra"]
+        self.assertIn("notable kills", self._brag(p, self._listener()))
+
+    def test_nor_is_a_reputation(self):
+        p = self.game.player
+        p.kills = []
+        p.skills.set_level("sword", 9)
+        text = self._brag(p, self._listener())
+        self.assertIn("reputation as a swordsman", text)
+
+    # -- writing ------------------------------------------------------------- #
+
+    def _scholar(self):
+        from ascii_warriors.ui.charcreate import PROFESSIONS
+
+        p = self.game.player
+        for k, v in PROFESSIONS["scholar"][1].items():
+            p.skills.set_level(k, v)
+        return p
+
+    def test_a_scholar_can_write_and_an_illiterate_cannot(self):
+        from ascii_warriors.game import books
+
+        p = self._scholar()
+        self.assertTrue(books.can_write(p))
+        p.skills.set_level("writing", 0)
+        self.assertFalse(books.can_write(p))
+
+    def test_a_blank_book_is_writable_and_a_full_one_is_not(self):
+        from ascii_warriors.game import books
+        from ascii_warriors.game.item import Item
+
+        blank = Item("book", "leather")
+        self.assertTrue(books.writable(blank))
+        books.bind(self.game.world, self.game.rng, blank)
+        self.assertFalse(books.writable(blank))
+
+    def test_you_can_only_write_what_you_know(self):
+        from ascii_warriors.game import books
+
+        p = self._scholar()
+        kinds = {k for k, _p in books.subjects_for(p)}
+        self.assertIn("history", kinds)
+        self.assertNotIn("swordsmanship", kinds)
+        p.skills.set_level("sword", 8)
+        self.assertIn("swordsmanship", {k for k, _p in books.subjects_for(p)})
+
+    def test_a_better_writer_writes_a_deeper_book(self):
+        from ascii_warriors.game import books
+
+        p = self._scholar()
+        p.skills.set_level("writing", 1)
+        poor = books.write_depth(p, "history")
+        p.skills.set_level("writing", 14)
+        self.assertGreater(books.write_depth(p, "history"), poor)
+        self.assertLessEqual(books.write_depth(p, "history"), books.MAX_DEPTH)
+
+    def test_writing_a_book_fills_it_and_signs_it(self):
+        from ascii_warriors.game import books
+        from ascii_warriors.game.item import Item
+
+        p = self._scholar()
+        blank = Item("book", "leather")
+        book, said = books.write(self.game.world, self.game.rng, p, blank,
+                                 "history")
+        self.assertIsNotNone(book)
+        self.assertEqual(books.of(blank), book)
+        self.assertEqual(book.author, p.display_name())
+        self.assertIn(book.title, said)
+        self.assertFalse(books.writable(blank))
+
+    def test_you_do_not_learn_from_your_own_book(self):
+        from ascii_warriors.game import books
+        from ascii_warriors.game.item import Item
+
+        p = self._scholar()
+        blank = Item("book", "leather")
+        book, _said = books.write(self.game.world, self.game.rng, p, blank,
+                                  "history")
+        self.assertTrue(books.already_read(p, book))
+
+    def test_the_action_takes_real_time(self):
+        from ascii_warriors.game import actions, books
+        from ascii_warriors.game.item import Item
+
+        p = self._scholar()
+        p.inventory.add(Item("book", "leather"))
+        cost = actions.write_book(self.game)
+        self.assertGreater(cost, 100)
+        self.assertTrue(any(books.of(i) is not None for i in p.inventory.items))
+
+    def test_and_refuses_without_a_blank_book(self):
+        from ascii_warriors.game import actions, books
+
+        p = self._scholar()
+        for i in list(p.inventory.items):
+            if books.writable(i):
+                p.inventory.items.remove(i)
+        self.assertEqual(actions.write_book(self.game), 0)
+
+    def test_there_is_something_to_write_in(self):
+        from ascii_warriors.game.crafting import RECIPES
+
+        self.assertIn("book", {r.output for r in RECIPES.values()})
