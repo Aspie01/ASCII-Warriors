@@ -512,6 +512,15 @@ generated history. Ask for work and you get a quest that points at a real
 megabeast in a real lair, or a real artifact in a real ruin. Threaten somebody
 and they will either talk or attack you.
 
+**Personalities that matter.** Every creature has thirty personality facets
+and twenty cultural values, and they decide how the world lands on it. The
+same funeral costs an anxious dwarf considerably more than a stoic one, and
+the anxious one gets over it more slowly. Values decide what somebody cares
+about at all — a dwarf who prizes craftsmanship is lifted by a masterful
+engraving and one who does not walks straight past it, so half your fortress
+is indifferent to any given thing. Perseverance shows up in the work rate;
+vengefulness shows up after a brawl.
+
 **Traps.** Tombs were sealed to keep people out — with dart traps, pits,
 falling rock, snares and alarms — and ruins and lairs have their share. Every
 one starts hidden; searching finds them, your Observer skill decides how well,

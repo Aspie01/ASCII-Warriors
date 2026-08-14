@@ -259,6 +259,25 @@ demands makes the mayor furious, and a furious dwarf in a fortress full of
 unhappy dwarves is how tantrums start: broken furniture, then somebody going
 berserk with an axe.
 
+PERSONALITY
+
+Every dwarf and every person in the world has thirty personality facets and
+twenty values, and they are not decoration. How hard a thing lands on somebody
+depends on who they are: an anxious dwarf takes a death in the fortress much
+harder than a stoic one, and gets over it more slowly.
+
+Values decide what somebody cares about at all. A dwarf who prizes
+craftsmanship is lifted by a masterful engraving; one who does not walks past
+it. A dwarf who values law is cheered when the sheriff does his job and
+angered when a criminal walks free. Half your fortress will be indifferent to
+any given thing, which is what makes the other half worth noticing.
+
+Perseverance and discipline show up in how much work gets done. Vengefulness
+shows up after a brawl: some dwarves forgive a punch and some never do.
+
+Press u and look at a dwarf, or C in adventure mode, to see who you are
+dealing with.
+
 TRAPS AND BAD FOOTING
 
 Tombs were sealed to keep people out, and they were sealed with dart traps,

@@ -300,7 +300,8 @@ def perform(where, rng, performer, form, audience: Sequence[Any],
         # is in the room too and this is the third path that tried to move
         # stress without asking whether it was allowed to.
         needs.add_thought("performed %s" % result.name,
-                          felt(needs.stress, result.band, mood * 0.5))
+                          felt(needs.stress, result.band, mood * 0.5,
+                               needs.feeling()), scaled=False)
 
     text = "heard %s %s of %s" % (result.name,
                                   artforms.WORK_NOUN.get(form.kind, "piece"),
@@ -308,8 +309,17 @@ def perform(where, rng, performer, form, audience: Sequence[Any],
     for listener in listeners:
         lneeds = getattr(listener, "needs", None)
         if lneeds is not None:
-            lneeds.add_thought(text,
-                               felt(lneeds.stress, result.band, mood))
+            lneeds.add_thought(
+                text, felt(lneeds.stress, result.band, mood,
+                           lneeds.feeling()), scaled=False)
+        if result.band >= 3 and lneeds is not None:
+            # Through the window like everything else. A value thought is
+            # still a thought, and this is the fourth path that has tried to
+            # move stress here without asking whether it was allowed to --
+            # v3.8's own test is what caught it.
+            _value_felt(listener, lneeds, "artwork",
+                        -2 * (result.band - 2),
+                        "heard something worth hearing")
         if not knows(listener, form) and rng.chance(LEARN_ODDS[result.band]):
             learn(listener, form)
             result.learners.append(listener)
@@ -322,15 +332,43 @@ def perform(where, rng, performer, form, audience: Sequence[Any],
     return result
 
 
-def felt(stress: int, band: int, mood: float = 1.0) -> int:
+def _value_felt(listener, needs, topic: str, base: int, text: str) -> int:
+    """Add a value-weighted thought, clamped into the same window.
+
+    `Creature.value_thought` is the general form and does not know about this
+    module's floor and ceiling; here the floor is the whole point, so the
+    delta is computed the same way and then bounded.
+    """
+    from . import personality as personality_mod
+
+    delta = personality_mod.feels_about(listener.personality, topic, base)
+    delta = int(round(delta * needs.feeling()))
+    if not delta:
+        return 0
+    if delta < 0:
+        delta = min(0, max(delta, RELIEF_FLOOR - needs.stress))
+    else:
+        delta = max(0, min(delta, ANNOYANCE_CEILING - needs.stress))
+    if delta:
+        needs.add_thought(text, delta, scaled=False)
+    return delta
+
+
+def felt(stress: int, band: int, mood: float = 1.0,
+         feeling: float = 1.0) -> int:
     """What a performance of this band actually does to somebody at *stress*.
 
     Clamped into the window above, so a song can carry you to contentment but
     not past it, and a bad one can annoy you without ever being the reason a
     fortress falls apart.
     """
+    # The personality scale goes in *before* the clamp. Applying it after --
+    # which is what `add_thought` does for everybody else -- takes a number
+    # that has just been clamped to the window and pushes it back out again,
+    # and the fortress tavern test measured the overshoot at two points.
     delta = int(round(
-        AUDIENCE_STRESS[max(0, min(len(AUDIENCE_STRESS) - 1, band))] * mood))
+        AUDIENCE_STRESS[max(0, min(len(AUDIENCE_STRESS) - 1, band))]
+        * mood * feeling))
     if delta < 0:
         return min(0, max(delta, RELIEF_FLOOR - stress))
     if delta > 0:

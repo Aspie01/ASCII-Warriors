@@ -203,6 +203,7 @@ def convict(fort, crime: Crime, culprit, law=None) -> None:
         if other is not culprit:
             # A fortress that punishes its criminals is a calmer fortress.
             other.needs.add_thought("saw justice done", -3)
+            other.value_thought("law", -8, "saw the law upheld")
 
 
 def pardon(fort, crime: Crime) -> bool:
@@ -224,6 +225,8 @@ def pardon(fort, crime: Crime) -> bool:
     for other in fort.dwarves():
         if other is not culprit:
             other.needs.add_thought("saw a criminal walk free", 6)
+            other.value_thought("fairness", 10,
+                                "saw a wrong go unanswered")
     return True
 
 

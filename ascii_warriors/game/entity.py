@@ -82,6 +82,7 @@ class Creature:
         self.personality = roll_personality(rng, defn.civ or "human")
         self.inventory = Inventory(self)
         self.needs = Needs()
+        self.needs.owner = self
 
         if level > 0:
             self._apply_level(rng, level)
@@ -320,6 +321,22 @@ class Creature:
                 break
         return max(1, base)
 
+    def value_thought(self, topic: str, base: int, text: str) -> int:
+        """Feel something about an event, but only if you hold the value.
+
+        Twenty cultural values have been rolled for every creature since
+        personalities existed and nothing but the character sheet ever read
+        one. This is how they get read: a dwarf who prizes craftsmanship is
+        lifted by a masterwork and a dwarf who does not walks past it.
+        Returns the stress delta applied, which is zero for the indifferent.
+        """
+        from . import personality as personality_mod
+
+        delta = personality_mod.feels_about(self.personality, topic, base)
+        if delta:
+            self.needs.add_thought(text, delta)
+        return delta
+
     def can_act(self) -> bool:
         """True if the creature may take a turn."""
         return not self.body.dead and self.body.unconscious <= 0 \
@@ -480,6 +497,10 @@ class Creature:
         c.personality = Personality.from_dict(d.get("personality") or {})
         c.inventory = Inventory.from_dict(d.get("inventory") or {}, c)
         c.needs = Needs.from_dict(d.get("needs") or {})
+        # Deserialising replaces the Needs the constructor made, and with it
+        # the back-reference personality is read through. Without this line a
+        # loaded game quietly ignores every personality in it.
+        c.needs.owner = c
         c.hostile_to = set(int(i) for i in d.get("hostile_to", []))
         c.alive = bool(d.get("alive", True))
         c.profession = str(d.get("profession", ""))

@@ -3175,3 +3175,165 @@ class TestTraps(GameFixture):
         del raw["traps"]
         back = Game.from_dict(raw)
         self.assertEqual(self.traps.layer(back), {})
+
+
+class TestPersonality(GameFixture):
+    """Thirty facets and twenty values, finally read by something."""
+
+    def setUp(self):
+        super().setUp()
+        from ascii_warriors.game import personality
+
+        self.pers = personality
+
+    def _people(self, n=200, race="dwarf"):
+        from ascii_warriors.game.entity import make_creature
+
+        return [make_creature(RNG("p%d" % i), race) for i in range(n)]
+
+    # -- the numbers -------------------------------------------------------- #
+
+    def test_every_accessor_stays_in_a_sane_band(self):
+        for c in self._people(120):
+            self.assertGreater(self.pers.sensitivity(c.personality), 0.2)
+            self.assertLess(self.pers.sensitivity(c.personality), 2.0)
+            self.assertGreater(self.pers.resilience(c.personality), 0.3)
+            self.assertLess(self.pers.diligence(c.personality), 1.6)
+            self.assertGreaterEqual(self.pers.grudge(c.personality), 0.0)
+
+    def test_personalities_actually_differ(self):
+        vals = [self.pers.sensitivity(c.personality) for c in self._people()]
+        self.assertGreater(max(vals) - min(vals), 0.25,
+                           "every dwarf feels things identically")
+
+    def test_an_anxious_creature_feels_more_than_a_confident_one(self):
+        a, b = self._people(2)
+        for f, v in (("anxiety", 95), ("swayed_by_emotions", 95),
+                     ("confidence", 5), ("tolerance", 5)):
+            a.personality.set_facet(f, v)
+        for f, v in (("anxiety", 5), ("swayed_by_emotions", 5),
+                     ("confidence", 95), ("tolerance", 95)):
+            b.personality.set_facet(f, v)
+        self.assertGreater(self.pers.sensitivity(a.personality),
+                           self.pers.sensitivity(b.personality))
+
+    # -- the funnel --------------------------------------------------------- #
+
+    def test_needs_know_whose_they_are(self):
+        c = self._people(1)[0]
+        self.assertIs(c.needs.owner, c)
+
+    def test_the_same_event_lands_differently_on_different_people(self):
+        """Fifty-six places make somebody feel something. One of them knows
+        about personalities, and that is the point."""
+        got = set()
+        for c in self._people():
+            c.needs.stress = 0
+            c.needs.add_thought("a funeral", 20)
+            got.add(c.needs.stress)
+        self.assertGreater(len(got), 3)
+        self.assertGreater(max(got), min(got))
+
+    def test_a_thought_still_moves_stress_the_right_way(self):
+        c = self._people(1)[0]
+        c.needs.stress = 0
+        c.needs.add_thought("something bad", 20)
+        self.assertGreater(c.needs.stress, 0)
+        c.needs.stress = 0
+        c.needs.add_thought("something good", -20)
+        self.assertLess(c.needs.stress, 0)
+
+    def test_needs_without_an_owner_are_unscaled(self):
+        from ascii_warriors.game.needs import Needs
+
+        n = Needs()
+        self.assertEqual(n.feeling(), 1.0)
+        self.assertEqual(n.recovery(), 1.0)
+        n.add_thought("plain", 10)
+        self.assertEqual(n.stress, 10)
+
+    def test_feelings_still_fade(self):
+        c = self._people(1)[0]
+        c.needs.stress = 100
+        for _ in range(60):
+            c.needs.tick(1000, c, self.game)
+        self.assertLess(c.needs.stress, 100)
+
+    def test_the_stress_clamp_still_holds(self):
+        c = self._people(1)[0]
+        for _ in range(200):
+            c.needs.add_thought("relentless", 40)
+        self.assertLessEqual(c.needs.stress, 200)
+        for _ in range(400):
+            c.needs.add_thought("relentless joy", -40)
+        self.assertGreaterEqual(c.needs.stress, -150)
+
+    # -- values ------------------------------------------------------------- #
+
+    def test_holding_a_value_decides_whether_you_care(self):
+        felt = [c.value_thought("artwork", -20, "a statue")
+                for c in self._people()]
+        self.assertTrue(any(f != 0 for f in felt), "nobody cares about anything")
+        self.assertTrue(any(f == 0 for f in felt),
+                        "everybody cares about everything")
+
+    def test_a_value_you_hold_dearly_is_worth_more(self):
+        a, b = self._people(2)
+        a.personality.values["craftsmanship"] = 50
+        b.personality.values["craftsmanship"] = 0
+        self.assertLess(a.value_thought("craftsmanship", -20, "a masterwork"),
+                        b.value_thought("craftsmanship", -20, "a masterwork") + 1)
+
+    def test_despising_a_value_reverses_the_feeling(self):
+        c = self._people(1)[0]
+        c.personality.values["law"] = -50
+        self.assertGreater(c.value_thought("law", -20, "the law upheld"), 0)
+
+    def test_races_hold_their_own_values(self):
+        dwarves = self._people(60, "dwarf")
+        mean = sum(self.pers.values_held(c.personality, "craftsmanship")
+                   for c in dwarves) / 60.0
+        self.assertGreater(mean, 0.1, "dwarves are indifferent to craft")
+
+    # -- work --------------------------------------------------------------- #
+
+    def test_diligence_moves_the_work_rate(self):
+        from ascii_warriors.fortress.jobs import Job, work_rate
+
+        a, b = self._people(2)
+        from ascii_warriors.fortress import dwarf as dwarf_mod
+
+        for c in (a, b):
+            dwarf_mod.attach(c, "miner")
+        for f in ("perseverance", "activity_level", "discipline"):
+            a.personality.set_facet(f, 95)
+            b.personality.set_facet(f, 5)
+        job = Job(1, "dig", 0, 0, 0, skill="mining")
+        self.assertGreater(work_rate(a, job), work_rate(b, job))
+
+    # -- grudges ------------------------------------------------------------- #
+
+    def test_a_vengeful_creature_holds_a_grudge(self):
+        a, b = self._people(2)
+        for f, v in (("vengefulness", 95), ("hate_propensity", 95),
+                     ("tolerance", 5), ("altruism", 5)):
+            a.personality.set_facet(f, v)
+        for f, v in (("vengefulness", 5), ("hate_propensity", 5),
+                     ("tolerance", 95), ("altruism", 95)):
+            b.personality.set_facet(f, v)
+        self.assertGreater(self.pers.grudge(a.personality),
+                           self.pers.grudge(b.personality))
+
+    def test_personality_survives_a_save(self):
+        from ascii_warriors.game import save as save_mod
+
+        p = self.game.player
+        p.personality.set_facet("anxiety", 91)
+        before = self.pers.sensitivity(p.personality)
+        path = save_mod.save_game(self.game, "pers-test")
+        back = save_mod.load_game(path)
+        self.assertEqual(back.player.personality.facet("anxiety"), 91)
+        self.assertAlmostEqual(self.pers.sensitivity(back.player.personality),
+                               before, places=5)
+        self.assertIs(back.player.needs.owner, back.player)
+        path.unlink()

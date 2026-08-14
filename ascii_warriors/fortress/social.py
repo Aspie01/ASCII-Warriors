@@ -408,6 +408,7 @@ def _wed(fort, bd: Bond, a, b) -> None:
     fort.log.good("%s and %s are married!" % (a.name, b.name))
     for d in (a, b):
         d.needs.add_thought("was married", -25)
+        d.value_thought("romance", -20, "married for love")
     for other in fort.dwarves():
         if other is not a and other is not b:
             other.needs.add_thought("attended a wedding", -4)
@@ -482,6 +483,7 @@ def born(fort, a, b):
         fort.bonds[_key(child, parent)] = Bond(
             child.id, parent.id, 60, "child", fort.ticks)
         parent.needs.add_thought("had a child", -20)
+        parent.value_thought("family", -18, "has a child of its own")
     fort.log.good("%s has given birth to %s!" % (mother.name, child.name))
     history_mod.record(
         fort.world, fort.time.year, "birth",

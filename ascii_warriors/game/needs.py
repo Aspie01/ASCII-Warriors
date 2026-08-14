@@ -39,9 +39,15 @@ STRESS_DECAY = 900
 class Needs:
     """A creature's bodily and mental needs."""
 
-    __slots__ = ("hunger", "thirst", "drowsy", "fatigue", "stress", "thoughts")
+    __slots__ = ("hunger", "thirst", "drowsy", "fatigue", "stress", "thoughts",
+                 "owner")
 
     def __init__(self) -> None:
+        #: Whose needs these are, set by `Creature.__init__`. Kept so that
+        #: `add_thought` can ask the personality how hard to land -- there are
+        #: fifty-six places in the game that make somebody feel something and
+        #: exactly one of them is worth teaching about personalities.
+        self.owner = None
         self.hunger = 0
         self.thirst = 0
         self.drowsy = 0
@@ -102,7 +108,7 @@ class Needs:
         # Feelings fade. Without this a creature that had one good week stays
         # ecstatic for ever and nothing you do to it afterwards matters.
         if self.stress:
-            drift = ticks / float(STRESS_DECAY)
+            drift = ticks / float(STRESS_DECAY) * self.recovery()
             if abs(self.stress) <= drift:
                 self.stress = 0
             else:
@@ -185,12 +191,46 @@ class Needs:
         """Spend energy on a strenuous action."""
         self.fatigue = min(FATIGUE_MAX, self.fatigue + amount)
 
-    def add_thought(self, text: str, value: int) -> None:
-        """Record a thought and shift stress by *value* (negative is good)."""
+    def add_thought(self, text: str, value: int, *,
+                    scaled: bool = True) -> None:
+        """Record a thought and shift stress by *value* (negative is good).
+
+        Scaled by whose thought it is. Thirty personality facets have been
+        rolled for every creature since personalities existed and three of
+        them were ever read; an anxious dwarf and a stoic one took the same
+        funeral exactly as hard, which made the whole system decoration.
+
+        `scaled=False` is for callers that have already applied the
+        personality themselves and clamped the result -- scaling a number that
+        has been clamped moves it back outside the clamp, which is exactly
+        what happened the first time.
+        """
+        if scaled:
+            value = int(round(value * self.feeling()))
         self.thoughts.append((text, value))
         if len(self.thoughts) > 40:
             del self.thoughts[:-40]
         self.stress = max(-150, min(200, self.stress + value))
+
+    def feeling(self) -> float:
+        """How hard things land on the owner of these needs."""
+        owner = self.owner
+        pers = getattr(owner, "personality", None) if owner is not None else None
+        if pers is None:
+            return 1.0
+        from . import personality as personality_mod
+
+        return personality_mod.sensitivity(pers)
+
+    def recovery(self) -> float:
+        """How fast the owner's feelings fade."""
+        owner = self.owner
+        pers = getattr(owner, "personality", None) if owner is not None else None
+        if pers is None:
+            return 1.0
+        from . import personality as personality_mod
+
+        return personality_mod.resilience(pers)
 
     # -- presentation ------------------------------------------------------ #
 

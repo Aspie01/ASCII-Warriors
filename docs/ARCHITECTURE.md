@@ -2621,7 +2621,50 @@ Traps are seeded when a local map is generated rather than at worldgen,
 because a trap belongs to a floor plan and floor plans are made on arrival:
 tombs get three to six, ruins one to three, lairs nought to two.
 
-## 75. Style
+## 75. Personality that does something (v3.15)
+
+Thirty personality facets and twenty cultural values have been rolled for
+every creature in the game since personalities existed, written into every
+save, and printed on the character sheet. Three of them were ever read by
+anything: `bravery`, `anger` and `love_propensity`. The module docstring has
+claimed since it was written that facets "drive whether a creature stands and
+fights, runs, bargains or picks a quarrel" and that values "shape what a
+creature thinks of what it sees". Neither was true.
+
+**One funnel, fifty-six call sites.** There are fifty-six places in the game
+that make somebody feel something and every one of them goes through
+`Needs.add_thought`. Rather than teach fifty-six callers about personalities,
+`Needs` gained an `owner` back-reference and `add_thought` scales what it is
+handed by `personality.sensitivity`. An anxious dwarf swayed by its emotions
+and a confident, tolerant one now take the same funeral differently: measured
+over two hundred dwarves, the same 20-point event lands between 16 and 25.
+Stress drift reads `resilience` the same way, so somebody may take a thing
+badly and get over it quickly, or shrug it off and never quite let it go.
+
+**Values decide whether you care at all.** `Creature.value_thought` adds a
+thought weighted by how strongly that creature holds the value, and returns
+zero for the indifferent -- which is the point, because half a fortress should
+walk past the new statue. Wired to engravings and performances (`artwork`),
+convictions and pardons (`law`, `fairness`), weddings and births (`romance`,
+`family`). Races hold their own: dwarves are measurably keen on
+`craftsmanship` because worldgen has always said so.
+
+`work_rate` reads `diligence` -- perseverance, discipline and restlessness,
+worth about a fifth either way, which is nothing in a day and a great deal
+over a season. A brawl now reads `vengefulness` and `hate_propensity`: a
+forgiving dwarf lets a punch go and a vengeful one takes it out of v3.4's
+bond and remembers.
+
+The swings are deliberately narrow. A dwarf is not four times another dwarf
+because it is keen, and a personality system that decides everything is as
+wrong as one that decides nothing.
+
+One defect the save test caught: `Creature.from_dict` replaces the `Needs` the
+constructor made, and with it the back-reference the whole thing reads
+through. Without one line restoring it, a *loaded* game silently ignored every
+personality in it while a fresh one worked perfectly.
+
+## 76. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

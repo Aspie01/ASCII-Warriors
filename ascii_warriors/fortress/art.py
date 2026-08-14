@@ -252,6 +252,10 @@ def admire(fort, dwarf) -> None:
         if art is None or art.quality < ADMIRE_AT:
             continue
         dwarf.needs.add_thought("admired a fine engraving", -2 - art.value // 4)
+        # And more, or nothing at all, depending on whether this particular
+        # dwarf cares about art. Half a fortress should walk past a masterwork.
+        dwarf.value_thought("artwork", -art.value // 2,
+                            "admired the work on the wall")
         return
 
 

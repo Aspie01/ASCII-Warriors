@@ -305,6 +305,7 @@ def work_rate(dwarf, job: Job) -> int:
     An unhurt, unskilled dwarf manages about one point per tick, so a job's
     ``work`` value reads directly as "roughly this many ticks of labour".
     """
+    from ..game import personality as personality_mod
     from ..game.skills import skill_bonus
 
     rate = float(WORK_SCALE)
@@ -312,6 +313,10 @@ def work_rate(dwarf, job: Job) -> int:
         rate *= skill_bonus(dwarf.skills.level(job.skill))
     rate *= 0.6 + 0.4 * dwarf.attributes.factor("strength")
     rate *= 0.7 + 0.3 * dwarf.attributes.factor("endurance")
+    # Perseverance, discipline and sheer restlessness. A keen dwarf is about a
+    # fifth better than a listless one, which is not much in a day and is a
+    # great deal over a season.
+    rate *= personality_mod.diligence(dwarf.personality)
     if dwarf.needs.fatigue > 1200:
         rate *= 0.7
     rate *= max(0.3, 1.0 - dwarf.body.pain_level() * 0.6)

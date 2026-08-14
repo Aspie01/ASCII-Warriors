@@ -1342,10 +1342,30 @@ def _start_brawl(fort, dwarf) -> bool:
     else:
         justice.report(fort, "assault", dwarf, victim.name)
         victim.needs.add_thought("was attacked by a friend", 20)
+        _hold_a_grudge(fort, victim, dwarf)
     for other in fort.dwarves():
         if other is not dwarf and other is not victim:
             other.needs.add_thought("saw a brawl", 6)
     return True
+
+
+def _hold_a_grudge(fort, wronged, wrongdoer) -> None:
+    """Being hit is worse from somebody you were getting on with.
+
+    `vengefulness` and `hate_propensity` have been rolled for every dwarf
+    since personalities existed and neither was ever read. A forgiving dwarf
+    lets a punch go; a vengeful one does not, and v3.4's bond is the number
+    that remembers it.
+    """
+    from ..game import personality as personality_mod
+
+    weight = personality_mod.grudge(wronged.personality)
+    if weight < 0.6:
+        return
+    bd = social.bond(fort, wronged, wrongdoer)
+    if bd is not None:
+        bd.value = max(-100, bd.value - int(round(25 * weight)))
+    wronged.needs.add_thought("will not forget that", int(round(8 * weight)))
 
 
 def _go_berserk(fort, dwarf) -> None:

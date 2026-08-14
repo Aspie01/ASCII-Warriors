@@ -197,3 +197,97 @@ def roll_personality(rng: RNG, race: str) -> Personality:
         for v in VALUES
     }
     return Personality(facets, values)
+
+
+# --------------------------------------------------------------------------- #
+# What a personality actually does
+# --------------------------------------------------------------------------- #
+#
+# Thirty facets and twenty values have been rolled for every creature in the
+# game since personalities existed, written into every save, and printed on the
+# character sheet. Three of them were ever read by anything: `bravery`, `anger`
+# and `love_propensity`. The module docstring above has claimed since it was
+# written that facets "drive whether a creature stands and fights, runs,
+# bargains or picks a quarrel" and that values "shape what a creature thinks of
+# what it sees". Neither was true. These are the functions that make it true.
+
+#: How far a personality is allowed to move any of the numbers it touches.
+#: A dwarf is not four times as productive as another dwarf because it is
+#: keen; it is a fifth better, and that is enough to notice over a season.
+SWING = 0.35
+
+#: And how far it may move stress, which is the one that matters most and so
+#: gets the widest range: the difference between a stoic and a worrier taking
+#: the same news is the whole of what a personality is for.
+FEELING_SWING = 0.6
+
+
+def _unit(value: int) -> float:
+    """A 0..100 facet as -1..1 around the average."""
+    return max(-1.0, min(1.0, (value - 50) / 50.0))
+
+
+def _blend(pers, positives, negatives=()) -> float:
+    """Average several facets into one -1..1 number."""
+    parts = [_unit(pers.facet(f)) for f in positives]
+    parts += [-_unit(pers.facet(f)) for f in negatives]
+    return sum(parts) / float(len(parts)) if parts else 0.0
+
+
+def sensitivity(pers) -> float:
+    """How hard things land on this creature, as a multiplier on a thought.
+
+    An anxious dwarf swayed by its emotions takes the same funeral harder than
+    a confident, tolerant one takes it. This is the single most valuable thing
+    a personality can do, because every system in the game that makes anybody
+    feel anything goes through one function -- and now through this.
+    """
+    tilt = _blend(pers, ("anxiety", "swayed_by_emotions"),
+                  ("confidence", "tolerance"))
+    return max(0.2, 1.0 + tilt * FEELING_SWING)
+
+
+def resilience(pers) -> float:
+    """How fast feelings fade, as a multiplier on the stress drift.
+
+    The other half of sensitivity: somebody may take a thing badly and get
+    over it quickly, or shrug it off and never quite let it go.
+    """
+    tilt = _blend(pers, ("confidence", "cheer"), ("anxiety", "vengefulness"))
+    return max(0.35, 1.0 + tilt * SWING)
+
+
+def diligence(pers) -> float:
+    """How hard this creature works, as a multiplier on its work rate."""
+    tilt = _blend(pers, ("perseverance", "activity_level", "discipline"))
+    return max(0.5, 1.0 + tilt * SWING)
+
+
+def grudge(pers) -> float:
+    """How badly this creature takes being wronged, 0..2."""
+    tilt = _blend(pers, ("vengefulness", "hate_propensity"),
+                  ("tolerance", "altruism"))
+    return max(0.0, 1.0 + tilt)
+
+
+def values_held(pers, topic: str) -> float:
+    """How strongly this creature holds one value, as -1..1.
+
+    Values run -50..50 and have never been read by anything but the character
+    sheet. A dwarf who prizes craftsmanship should be lifted by a masterwork
+    and a dwarf who does not should walk past it.
+    """
+    return max(-1.0, min(1.0, pers.value(topic) / 50.0))
+
+
+def feels_about(pers, topic: str, base: int) -> int:
+    """What an event on *topic* is worth to somebody holding that value.
+
+    Returns a stress delta already signed the way `add_thought` wants it, and
+    zero when the creature simply does not care -- which is the point. Half
+    the fortress should be indifferent to the new statue.
+    """
+    held = values_held(pers, topic)
+    if abs(held) < 0.15:
+        return 0
+    return int(round(base * held))
