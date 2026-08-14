@@ -165,7 +165,7 @@ def pick_mode(creature, game) -> str:
         ai.target_id = targets[0].id
         ai.last_seen = (targets[0].x, targets[0].y, targets[0].z)
         ai.alertness = 12
-        if combat.opportunity_to_flee(creature):
+        if combat.opportunity_to_flee(creature, game):
             return "flee"
         # An ambusher does not cross a field at you. It waits.
         if wild.waiting(game, creature, targets[0]):

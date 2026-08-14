@@ -4839,3 +4839,76 @@ class TestRags(unittest.TestCase):
             if i is not None and wear_mod.is_clothing(i):
                 wear_mod.destroy(dwarf, i)
         self.assertLess(heat.insulation(dwarf), before)
+
+
+class TestNerveInTheFortress(unittest.TestCase):
+    """`war` routed whole armies and gave the people in them no say."""
+
+    def _siege(self, seed="nerve"):
+        from ascii_warriors.fortress import war
+
+        fort = embark(seed)
+        for _ in range(1200):
+            sim.step(fort)
+        plan = war.plan(fort)
+        if plan is None:
+            self.skipTest("nobody in the world wants to attack")
+        war.launch(fort, plan)
+        if not fort.hostiles():
+            self.skipTest("the siege put nobody on the map")
+        return fort
+
+    def test_a_death_shakes_the_side_that_took_it(self):
+        from ascii_warriors.game import morale
+
+        fort = self._siege("nervedeath")
+        foes = fort.hostiles()
+        if len(foes) < 2:
+            self.skipTest("need two invaders to shake one with the other")
+        victim, watcher = foes[0], foes[1]
+        watcher.x, watcher.y, watcher.z = victim.x, victim.y, victim.z
+        watcher.shaken = 0.0
+        fort.kill_creature(victim)
+        self.assertGreater(watcher.shaken, 0.0)
+
+    def _afraid_invader(self, fort):
+        """Put something on the map that can be frightened.
+
+        Not whichever species the world's politics happened to send: goblins
+        carry NO_FEAR, so half the seeds skipped these tests, and a skipped
+        test measures nothing.
+        """
+        from ascii_warriors.game import morale
+        from ascii_warriors.game.entity import make_creature
+
+        foe = make_creature(fort.rng, "kobold", faction="hostile")
+        self.assertFalse(morale.fearless(foe))
+        dwarf = fort.dwarves()[0]
+        foe.x, foe.y, foe.z = dwarf.x + 3, dwarf.y, dwarf.z
+        fort.creatures[foe.id] = foe
+        return foe
+
+    def test_an_invader_that_has_had_enough_leaves(self):
+        from ascii_warriors.game import morale
+
+        fort = self._siege("nerveleave")
+        foe = self._afraid_invader(fort)
+        morale.shake(foe, morale.MAX_SHOCK)
+        self.assertTrue(morale.broke(foe, fort))
+        before = (foe.x, foe.y)
+        for _ in range(400):
+            sim.step(fort)
+            if foe.id not in fort.creatures:
+                return
+        self.assertNotEqual((foe.x, foe.y), before,
+                            "a broken invader stood exactly still")
+
+    def test_the_shock_wears_off_in_the_fortress_too(self):
+        from ascii_warriors.game import morale
+
+        fort = embark("nervecalm")
+        dwarf = fort.dwarves()[0]
+        morale.shake(dwarf, 1.0)
+        for _ in range(400):
+            sim.step(fort)
+        self.assertLess(dwarf.shaken, 1.0)

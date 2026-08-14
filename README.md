@@ -519,6 +519,13 @@ thing you can dig. Standing in a fire hurts and armour helps little; it also
 throws light, so you are extremely visible next to one. In the fortress, magma
 sets light to anything flammable near it.
 
+**Nerve.** Nothing fights to the death just because it is in the room. A
+creature takes courage from whoever stands with it, loses it as they fall, and
+a pack animal takes being the last one alive very badly. Kill two wolves of
+four and the others may not wait for you. Goblins and the undead never run. In
+the fortress a raid that loses its nerve turns round and goes home instead of
+dying in your corridor.
+
 **Hands, lies and books.** Punching, kicking and biting are three different
 skills, and wrestling is for grappling — so the wrestler profession means
 something, and a wolf is good at exactly one thing. Boasting with nothing real

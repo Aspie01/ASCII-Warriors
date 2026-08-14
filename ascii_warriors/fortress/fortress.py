@@ -418,6 +418,11 @@ class Fortress:
             return
         c.alive = False
         c.body.dead = True
+        # The same shock the adventure map takes: everybody on its side who
+        # was near enough to watch it happen.
+        from ..game import morale as morale_mod
+
+        morale_mod.saw_death(self, c)
         state = getattr(c, "fort", None)
         if state is not None:
             self.log.bad("%s has died: %s." % (

@@ -893,8 +893,17 @@ def _emit(log, result: AttackResult) -> None:
         log.combat([frag])
 
 
-def opportunity_to_flee(creature) -> bool:
-    """True if a creature is hurt or frightened enough to break off."""
+def opportunity_to_flee(creature, world=None) -> bool:
+    """True if a creature is hurt or frightened enough to break off.
+
+    Kept as the name the AI has always called, and handed to `morale`, which
+    knows what this one never could: who is standing beside it, and how many
+    of them have already gone down.
+    """
+    if world is not None:
+        from . import morale
+
+        return morale.broke(creature, world)
     if creature.defn.has("NO_FEAR"):
         return False
     health = creature.body.health_fraction()

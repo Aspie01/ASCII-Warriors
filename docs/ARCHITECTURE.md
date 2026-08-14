@@ -2923,7 +2923,47 @@ Left dead and deliberately: `misc_weapon` and `ArmorDef.permit_size`, which no
 row in either table populates, and `surgery`, which exists as a book topic but
 would need an operation to perform rather than a wiring.
 
-## 82. Style
+## 82. Nerve (v3.22)
+
+`combat.opportunity_to_flee` has decided whether a creature breaks off since
+there was combat, out of health, `bravery` and `NO_FEAR` -- and it asks about
+one creature alone in the world. Meanwhile `ai.allies_near` sat in the AI
+module the whole time, complete and correct and **called by nothing**, and
+`PACK` was read once at spawn to decide how many wolves to put on the map and
+never looked at again. Seven wolves arrived together and then fought as seven
+separate animals, not one of which noticed when the other six were dead.
+
+`morale.nerve` is what the company is worth. Numbers steady a creature, up to
+a handful; being the last one standing does not; and something built to hunt
+in a pack takes being alone much harder than something that never had one.
+Watching an ally go down is a shock that wears off, so a hard fight grinds a
+side down rather than flipping it -- the third death breaks a line, not the
+first. `opportunity_to_flee` keeps its name, because that is what the AI has
+always called, and hands the question to `morale` when it is given a world.
+
+**The two modes had opposite halves of this.** Adventure mode had individual
+fear and no idea of a group. The fortress had `war`, which routs a whole army
+on its losses and gives the individuals in it no say at all: an invader fought
+to the death whatever was happening around it. Both ask `broke` now, and a
+broken invader leaves the way a routed army leaves -- through
+`war.retreat_step` -- rather than by a second set of rules.
+
+Measured against v3.21 across six sieges: four ran bit-identically (goblins
+carry `NO_FEAR`, so nothing changed for them), and both that differed
+improved. One ended in 47 steps instead of 395 with the fortress losing nobody
+instead of four dwarves, because the kobolds broke and ran early rather than
+dying in the corridor.
+
+**Two things I built and then took out again.** A bound on how long a broken
+invader may spend retreating, and a rule sending invaders home when no dwarves
+are left -- both aimed at a kobold that seemed to squat on the map for five
+thousand steps. It was not squatting: `sim.step` returns immediately once
+`fort.lost` is set, so a fortress with no dwarves is not simulated at all and
+the scenario cannot happen in play. Unreachable code written to fix an
+unreachable bug is the thing this project keeps finding in itself; the test
+for it went out with it.
+
+## 83. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

@@ -110,6 +110,9 @@ class Creature:
         self.forms: List[int] = []
         #: Venom currently working in this creature.
         self.venom: List[Any] = []
+        #: How badly this creature has been shaken by what it has seen.
+        #: Wears off; see `morale`.
+        self.shaken = 0.0
         #: When this creature's clothes are next looked at. Staggered by
         #: whoever sets it, so a fortress does not check everyone at once.
         self.next_wear_check = 0
@@ -477,6 +480,8 @@ class Creature:
             d["swing_bank"] = round(self.swing_bank, 2)
         if self.next_wear_check:
             d["wear_check"] = self.next_wear_check
+        if self.shaken:
+            d["shaken"] = round(self.shaken, 3)
         if self.tame or self.tame_tries:
             d["tame"] = [self.tame, self.tame_tries]
         if self.mount is not None:
@@ -542,6 +547,7 @@ class Creature:
         c.exposure = float(d.get("exposure", 0.0))
         c.swing_bank = float(d.get("swing_bank", 0.0))
         c.next_wear_check = int(d.get("wear_check", 0))
+        c.shaken = float(d.get("shaken", 0.0))
         tame = d.get("tame")
         if tame:
             c.tame, c.tame_tries = bool(tame[0]), int(tame[1])

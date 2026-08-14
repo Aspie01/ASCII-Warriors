@@ -129,6 +129,7 @@ def step(fort) -> None:
     _burn(fort, ticks)
     _chill(fort, ticks)
     _fray(fort)
+    _nerves(fort, ticks)
     _bodies(fort, ticks)
     _triage(fort)
     for dwarf in list(fort.dwarves()):
@@ -331,11 +332,24 @@ def _hostiles(fort, ticks: int) -> None:
             fort.log.good("The last of them is gone.")
         return
 
+    from ..game import morale as morale_mod
+
     targets = fort.dwarves()
     if not targets:
         return
     for foe in fort.hostiles():
         if foe.body.unconscious > 0 or foe.body.stunned > 0:
+            continue
+        # An individual can have had enough before the army has. `war` routs
+        # a whole siege on its losses and gives the people in it no say; this
+        # asks one of them, and it leaves the way a routed army leaves rather
+        # than by a second set of rules. Nothing bounds how long it spends
+        # retreating, and nothing needs to: an invader boxed in stops moving
+        # and stops fighting, and once the shock wears off it is back in the
+        # siege.
+        if morale_mod.broke(foe, fort):
+            if war.retreat_step(fort, foe):
+                fort.creatures.pop(foe.id, None)
             continue
         prey = min(targets, key=lambda d: (
             geometry.chebyshev(foe.x, foe.y, d.x, d.y) + abs(foe.z - d.z) * 4))
@@ -550,6 +564,15 @@ def _reclothe(fort, dwarf) -> None:
     job = fort.jobs.make("equip", cell[0], cell[1], cell[2], labor="hauling",
                          work=20, target=item.id, priority=6)
     fort.jobs.assign(job, dwarf)
+
+
+def _nerves(fort, ticks: int) -> None:
+    """Whatever they saw, it wears off."""
+    from ..game import morale as morale_mod
+
+    for c in fort.creatures.values():
+        if c.shaken:
+            morale_mod.steady(c, ticks)
 
 
 def _traps(fort) -> None:

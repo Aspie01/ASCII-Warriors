@@ -4860,3 +4860,178 @@ class TestSkillsYouWereSold(GameFixture):
         from ascii_warriors.game.crafting import RECIPES
 
         self.assertIn("book", {r.output for r in RECIPES.values()})
+
+
+class TestNerve(GameFixture):
+    """`allies_near` was complete, correct and called by nothing."""
+
+    def setUp(self):
+        super().setUp()
+        from ascii_warriors.game import morale
+
+        self.morale = morale
+        for c in list(self.game.creatures.values()):
+            if not c.is_player:
+                self.game.creatures.pop(c.id, None)
+
+    def _beast(self, cid="wolf", seed="w", n=0):
+        from ascii_warriors.game.entity import make_creature
+
+        p = self.game.player
+        c = make_creature(RNG(seed), cid, faction="wild")
+        c.x, c.y, c.z = p.x + 1 + (n % 3), p.y + (n // 3), p.z
+        self.game.creatures[c.id] = c
+        return c
+
+    # -- company ------------------------------------------------------------- #
+
+    def test_allies_near_is_finally_called(self):
+        one = self._beast(seed="a", n=0)
+        self.assertEqual(self.morale.company(one, self.game), [])
+        two = self._beast(seed="b", n=1)
+        self.assertIn(two, self.morale.company(one, self.game))
+
+    def test_the_other_side_is_not_company(self):
+        wolf = self._beast(seed="a")
+        self.assertNotIn(self.game.player, self.morale.company(wolf, self.game))
+
+    def test_numbers_steady_a_creature(self):
+        subject = self._beast(seed="fixed", n=0)
+        alone = self.morale.nerve(subject, self.game)
+        for i in range(1, 4):
+            self._beast(seed="f%d" % i, n=i)
+        self.assertGreater(self.morale.nerve(subject, self.game), alone)
+
+    def test_but_only_up_to_a_point(self):
+        subject = self._beast(seed="fixed", n=0)
+        for i in range(1, self.morale.MAX_COMPANY + 1):
+            self._beast(seed="g%d" % i, n=i)
+        capped = self.morale.nerve(subject, self.game)
+        for i in range(20, 26):
+            self._beast(seed="h%d" % i, n=i % 3)
+        self.assertAlmostEqual(self.morale.nerve(subject, self.game), capped,
+                               places=6)
+
+    def test_a_pack_animal_takes_being_alone_hard(self):
+        from ascii_warriors.data.creatures import CREATURES
+
+        self.assertTrue(CREATURES["wolf"].has("PACK"))
+        lone = self._beast(cid="wolf", seed="fixed", n=0)
+        alone = self.morale.nerve(lone, self.game)
+        self._beast(cid="wolf", seed="mate", n=1)
+        together = self.morale.nerve(lone, self.game)
+        self.assertGreater(together - alone,
+                           self.morale.ALLY_NERVE)   # more than one ally's worth
+
+    # -- shock --------------------------------------------------------------- #
+
+    def test_watching_an_ally_fall_shakes_you(self):
+        watcher = self._beast(seed="a", n=0)
+        victim = self._beast(seed="b", n=1)
+        self.assertEqual(watcher.shaken, 0.0)
+        self.morale.saw_death(self.game, victim)
+        self.assertGreater(watcher.shaken, 0.0)
+
+    def test_but_not_from_across_the_map(self):
+        watcher = self._beast(seed="a", n=0)
+        victim = self._beast(seed="b", n=1)
+        victim.x += self.morale.COMPANY_RANGE + 5
+        self.morale.saw_death(self.game, victim)
+        self.assertEqual(watcher.shaken, 0.0)
+
+    def test_nor_when_it_was_on_the_other_side(self):
+        watcher = self._beast(seed="a", n=0)
+        self.morale.saw_death(self.game, self.game.player)
+        self.assertEqual(watcher.shaken, 0.0)
+
+    def test_a_pack_takes_it_harder(self):
+        wolf = self._beast(cid="wolf", seed="a", n=0)
+        boar = self._beast(cid="human", seed="b", n=0)
+        victim = self._beast(seed="v", n=1)
+        wolf.faction = boar.faction = victim.faction = "wild"
+        self.morale.saw_death(self.game, victim)
+        self.assertGreater(wolf.shaken, boar.shaken)
+
+    def test_the_shock_wears_off(self):
+        c = self._beast(seed="a")
+        self.morale.shake(c, 0.6)
+        self.morale.steady(c, self.morale.SHOCK_DECAY_TICKS // 2)
+        self.assertLess(c.shaken, 0.6)
+        self.morale.steady(c, self.morale.SHOCK_DECAY_TICKS * 5)
+        self.assertEqual(c.shaken, 0.0)
+
+    def test_and_it_cannot_pile_up_for_ever(self):
+        c = self._beast(seed="a")
+        for _ in range(50):
+            self.morale.shake(c, 0.5)
+        self.assertLessEqual(c.shaken, self.morale.MAX_SHOCK)
+
+    def test_a_death_reaches_the_shock_through_the_game(self):
+        watcher = self._beast(seed="a", n=0)
+        victim = self._beast(seed="b", n=1)
+        victim.body.dead = True
+        victim.body.death_cause = "slain"
+        self.game.kill_creature(victim)
+        self.assertGreater(watcher.shaken, 0.0)
+
+    # -- breaking ------------------------------------------------------------ #
+
+    def test_the_last_one_standing_breaks(self):
+        pack = [self._beast(cid="wolf", seed="p%d" % i, n=i) for i in range(4)]
+        self.assertFalse(self.morale.broke(pack[0], self.game))
+        for victim in pack[1:]:
+            self.morale.saw_death(self.game, victim)
+            self.game.creatures.pop(victim.id, None)
+        self.assertTrue(self.morale.broke(pack[0], self.game))
+
+    def test_and_the_ai_sends_it_running(self):
+        from ascii_warriors.game import ai
+
+        pack = [self._beast(cid="wolf", seed="q%d" % i, n=i) for i in range(4)]
+        for c in pack:
+            c.hostile_to.add("player")
+            c.ai = ai.AIState("hunt")
+        for victim in pack[1:]:
+            self.morale.saw_death(self.game, victim)
+            self.game.creatures.pop(victim.id, None)
+        self.assertEqual(ai.pick_mode(pack[0], self.game), "flee")
+
+    def test_the_fearless_never_break(self):
+        from ascii_warriors.data.creatures import CREATURES
+
+        self.assertTrue(CREATURES["goblin"].has("NO_FEAR"))
+        gob = self._beast(cid="goblin", seed="g")
+        self.morale.shake(gob, self.morale.MAX_SHOCK)
+        gob.body.apply_damage("upper_body", "edge", 40000, 100, 2000, RNG("h"))
+        self.assertTrue(self.morale.fearless(gob))
+        self.assertFalse(self.morale.broke(gob, self.game))
+        self.assertEqual(self.morale.nerve(gob, self.game), 1.0)
+
+    def test_nor_do_the_dead_or_the_enormous(self):
+        for cid in ("zombie", "dragon"):
+            c = self._beast(cid=cid, seed=cid)
+            self.assertTrue(self.morale.fearless(c), cid)
+
+    def test_the_old_call_still_works_without_a_world(self):
+        """`opportunity_to_flee` is the name the AI has always used."""
+        from ascii_warriors.game import combat
+
+        c = self._beast(cid="wolf", seed="a")
+        self.assertFalse(combat.opportunity_to_flee(c))
+        self.assertIsInstance(combat.opportunity_to_flee(c, self.game), bool)
+
+    def test_nerve_has_a_word_for_itself(self):
+        c = self._beast(cid="wolf", seed="fixed", n=0)
+        for i in range(1, 5):
+            self._beast(cid="wolf", seed="s%d" % i, n=i)
+        self.assertEqual(self.morale.describe(c, self.game), "")
+        self.morale.shake(c, self.morale.MAX_SHOCK)
+        self.assertIn(self.morale.describe(c, self.game),
+                      ("wavering", "breaking"))
+
+    def test_being_shaken_survives_a_save(self):
+        from ascii_warriors.game.state import Game
+
+        self.game.player.shaken = 0.55
+        back = Game.from_dict(self.game.to_dict())
+        self.assertAlmostEqual(back.player.shaken, 0.55, places=3)

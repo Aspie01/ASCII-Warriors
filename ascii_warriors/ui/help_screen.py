@@ -274,6 +274,20 @@ you are extremely visible next to one -- worth remembering if you are sneaking.
 In the fortress, magma sets fire to anything flammable near it. Keep the
 woodpile away from the forge.
 
+NERVE
+
+Nothing fights to the death because it happened to be in the room. A creature
+takes courage from whoever is standing with it, loses it when they start
+falling, and something that hunts in a pack takes being the last one alive
+very badly indeed. Kill two wolves out of four and the rest may not wait
+around for you.
+
+Look at something and you are told when it is wavering or about to break.
+Goblins, the undead and the great beasts do not care and never run.
+
+In the fortress this cuts both ways: a raid whose nerve goes will turn round
+and leave, and the survivors go home rather than dying in your corridor.
+
 FIGHTING WITH YOUR HANDS
 
 Punching, kicking and biting are three different skills — striker, kicker and

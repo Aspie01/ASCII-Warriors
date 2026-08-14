@@ -567,6 +567,14 @@ class Game:
             depth=max(0, self.local.surface_z(x, y) - z), outside=outside)
         return air + heat.source_heat((x, y, z), fire=self.fire)
 
+    def _steady_nerves(self, ticks: int) -> None:
+        """Whatever they saw, it wears off."""
+        from . import morale as morale_mod
+
+        for c in list(self.creatures.values()):
+            if c.shaken:
+                morale_mod.steady(c, ticks)
+
     def _wear_out(self) -> None:
         """Clothes wear through, on everyone near enough to matter."""
         from . import wear as wear_mod
@@ -656,6 +664,7 @@ class Game:
             out.append(Frag("", colors.UI["fg"]))
             out.extend(c.describe())
             out.extend(self._awareness(c))
+            out.extend(self._nerve_of(c))
         pile = self.items_at(x, y, z)
         if pile:
             out.append(Frag("", colors.UI["fg"]))
@@ -682,6 +691,19 @@ class Game:
         for line in tracks_mod.read(self, self.player, (x, y, z), track):
             out.append(Frag(line, colors.UI["accent2"]))
         return out
+
+    def _nerve_of(self, c: Creature) -> List[Frag]:
+        """Whether something is about to run. Worth knowing before it does."""
+        from . import morale as morale_mod
+
+        if c is self.player or c.body.dead:
+            return []
+        word = morale_mod.describe(c, self)
+        if not word:
+            return []
+        return [Frag("It is %s." % word,
+                     colors.UI["good"] if word == "breaking"
+                     else colors.UI["warn"])]
 
     def _awareness(self, c: Creature) -> List[Frag]:
         """Whether this creature has noticed the player, while sneaking.
@@ -807,6 +829,7 @@ class Game:
                             p.inventory.items.remove(it)
 
         self._burn(ticks)
+        self._steady_nerves(ticks)
         self._weather_bite(ticks)
         self._wear_out()
         self._tavern_music(ticks)
@@ -926,6 +949,10 @@ class Game:
         if not c.alive:
             return
         c.on_death(self, c.body.death_cause)
+        # Everyone on its side who was near enough to see it takes it badly.
+        from . import morale as morale_mod
+
+        morale_mod.saw_death(self, c)
         self.scheduler.remove(c.id)
         if c.id in self.companion_ids:
             from . import companions as companion_mod
