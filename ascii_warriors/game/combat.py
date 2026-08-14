@@ -460,6 +460,9 @@ TRAP_STRIKES: Dict[str, Tuple[str, float, int, int, str]] = {
     "collapse": ("blunt", 42000.0, 600, 800, "crushes"),
     "snare": ("blunt", 3000.0, 200, 200, "catches"),
     "alarm": ("blunt", 0.0, 0, 0, "startles"),
+    # Standing in a fire. Armour helps against a dart and helps a great deal
+    # less against burning, which is what the low contact area buys.
+    "fire": ("blunt", 5200.0, 2, 300, "burns"),
 }
 
 

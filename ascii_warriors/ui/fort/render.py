@@ -80,6 +80,7 @@ def draw_map(
 
     _draw_water(scr, fort, ox, oy, w, h, cam_x, cam_y)
     _draw_magma(scr, fort, ox, oy, w, h, cam_x, cam_y)
+    _draw_fire(scr, fort, ox, oy, w, h, cam_x, cam_y)
     _draw_zones(scr, fort, ox, oy, w, h, cam_x, cam_y)
     _draw_designations(scr, fort, ox, oy, w, h, cam_x, cam_y)
     _draw_buildings(scr, fort, ox, oy, w, h, cam_x, cam_y)
@@ -153,6 +154,32 @@ def _draw_magma(scr, fort, ox, oy, w, h, cam_x, cam_y) -> None:
             continue
         scr.put(ox + sx, oy + sy, "~", colors.Color(255, 210, 120),
                 MAGMA_SHADES[min(depth, 7) - 1])
+
+
+#: Flame colours, hottest first. A fire that has nearly burnt out is embers.
+FIRE_SHADES = (
+    colors.Color(255, 232, 150), colors.Color(255, 176, 48),
+    colors.Color(214, 96, 24), colors.Color(150, 54, 20),
+)
+
+
+def _draw_fire(scr, fort, ox, oy, w, h, cam_x, cam_y) -> None:
+    """Whatever is alight, over everything else on the level."""
+    from ...world import fire as fire_mod
+
+    blaze = getattr(fort, "fire", None)
+    if blaze is None or not blaze.anything_burning:
+        return
+    for (wx, wy, wz), left in blaze.fuel.items():
+        if wz != fort.z or left <= 0:
+            continue
+        sx, sy = wx - cam_x, wy - cam_y
+        if not (0 <= sx < w and 0 <= sy < h):
+            continue
+        band = min(len(FIRE_SHADES) - 1,
+                   max(0, (fire_mod.TILE_FUEL["tree"] - left) // 24))
+        scr.put(ox + sx, oy + sy, "^", FIRE_SHADES[band],
+                colors.Color(60, 20, 8))
 
 
 def _draw_zones(scr, fort, ox, oy, w, h, cam_x, cam_y) -> None:

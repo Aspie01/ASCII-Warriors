@@ -3501,3 +3501,205 @@ class TestKin(GameFixture):
         standing.on_kill(self.game, victim)
         for c in folk[1:]:
             self.assertEqual(c.hostile_to, before[c.id])
+
+
+class TestFire(GameFixture):
+    """FLAMMABLE, on tiles and materials and items, finally read."""
+
+    def setUp(self):
+        super().setUp()
+        from ascii_warriors.world import fire
+
+        self.fire = fire
+        self.game.fire = fire.Fire()
+
+    def _forest(self, size=6):
+        """Plant a block of trees near the player and return the cells."""
+        lm = self.game.local
+        p = self.game.player
+        cells = []
+        for dy in range(-size // 2, size // 2):
+            for dx in range(-size // 2, size // 2):
+                c = (p.x + dx, p.y + dy, p.z)
+                if lm.in_bounds(*c) and lm.walkable(*c):
+                    lm.set_tile(c[0], c[1], c[2], "tree")
+                    cells.append(c)
+        if not cells:
+            self.skipTest("nowhere to plant a forest")
+        return cells
+
+    # -- what burns ---------------------------------------------------------- #
+
+    def test_a_tree_is_fuel_and_stone_is_not(self):
+        lm = self.game.local
+        p = self.game.player
+        cell = (p.x, p.y, p.z)
+        lm.set_tile(cell[0], cell[1], cell[2], "tree")
+        self.assertGreater(self.fire.fuel_at(lm, cell), 0)
+        lm.set_tile(cell[0], cell[1], cell[2], "rock_wall")
+        self.assertEqual(self.fire.fuel_at(lm, cell), 0)
+
+    def test_a_tree_burns_longer_than_a_shrub(self):
+        self.assertGreater(self.fire.TILE_FUEL["tree"],
+                           self.fire.TILE_FUEL["shrub"])
+
+    def test_wood_burns_by_its_material(self):
+        from ascii_warriors.game.item import Item
+
+        self.assertTrue(self.fire.is_flammable_item(Item("bed", "oak")))
+        self.assertFalse(self.fire.is_flammable_item(Item("sword", "iron")))
+
+    def test_items_add_to_the_fire(self):
+        from ascii_warriors.game.item import Item
+
+        pile = [Item("log", "oak"), Item("sword", "iron")]
+        self.assertEqual(self.fire.item_fuel(pile), self.fire.ITEM_FUEL)
+
+    # -- lighting it ---------------------------------------------------------- #
+
+    def test_nothing_catches_on_bare_stone(self):
+        lm = self.game.local
+        p = self.game.player
+        cell = (p.x, p.y, p.z)
+        lm.set_tile(cell[0], cell[1], cell[2], "rock_wall")
+        self.assertFalse(self.game.fire.ignite(lm, cell))
+
+    def test_a_tree_catches(self):
+        cells = self._forest()
+        self.assertTrue(self.game.fire.ignite(self.game.local, cells[0]))
+        self.assertGreater(self.game.fire.burning(*cells[0]), 0)
+
+    def test_a_cell_cannot_catch_twice(self):
+        cells = self._forest()
+        self.game.fire.ignite(self.game.local, cells[0])
+        self.assertFalse(self.game.fire.ignite(self.game.local, cells[0]))
+
+    # -- burning --------------------------------------------------------------- #
+
+    def test_fire_burns_down_and_goes_out(self):
+        cells = self._forest()
+        self.game.fire.ignite(self.game.local, cells[0])
+        for _ in range(2000):
+            self.game.fire.step(self.game.local, self.game.rng)
+            if not self.game.fire.anything_burning:
+                break
+        self.assertFalse(self.game.fire.anything_burning)
+
+    def test_what_burned_becomes_ash(self):
+        cells = self._forest()
+        self.game.fire.ignite(self.game.local, cells[0])
+        for _ in range(2000):
+            self.game.fire.step(self.game.local, self.game.rng)
+            if not self.game.fire.anything_burning:
+                break
+        burnt = [c for c in cells if self.game.local.tile(*c) == "ash"]
+        self.assertTrue(burnt)
+
+    def test_fire_spreads_through_a_forest(self):
+        cells = self._forest(8)
+        self.game.fire.ignite(self.game.local, cells[len(cells) // 2])
+        burnt = 0
+        for _ in range(3000):
+            burnt += len(self.game.fire.step(self.game.local, self.game.rng))
+            if not self.game.fire.anything_burning:
+                break
+        self.assertGreater(burnt, 1, "a fire in a forest burned one tree")
+
+    def test_fire_does_not_cross_bare_ground(self):
+        lm = self.game.local
+        p = self.game.player
+        here = (p.x, p.y, p.z)
+        far = (p.x + 6, p.y, p.z)
+        for c in (here, far):
+            if not lm.in_bounds(*c) or not lm.walkable(*c):
+                self.skipTest("no room to lay this out")
+            lm.set_tile(c[0], c[1], c[2], "tree")
+        self.game.fire.ignite(lm, here)
+        for _ in range(2000):
+            self.game.fire.step(lm, self.game.rng)
+            if not self.game.fire.anything_burning:
+                break
+        self.assertEqual(lm.tile(*far), "tree", "fire jumped six tiles of rock")
+
+    def test_the_burning_cap_holds(self):
+        cells = self._forest(20)
+        for c in cells[:400]:
+            self.game.fire.ignite(self.game.local, c)
+        self.assertLessEqual(len(self.game.fire.fuel), self.fire.MAX_BURNING)
+
+    def test_an_unlit_map_costs_nothing_to_step(self):
+        self.assertEqual(
+            self.game.fire.step(self.game.local, self.game.rng), [])
+
+    # -- what it does ---------------------------------------------------------- #
+
+    def test_fire_is_light(self):
+        cells = self._forest()
+        self.game.fire.ignite(self.game.local, cells[0])
+        self.assertGreater(self.game.fire.light_at(*cells[0]), 0.5)
+        far = (cells[0][0] + 20, cells[0][1], cells[0][2])
+        self.assertEqual(self.game.fire.light_at(*far), 0.0)
+
+    def test_the_map_reports_the_light(self):
+        cells = self._forest()
+        self.game.fire.ignite(self.game.local, cells[0])
+        self.assertGreater(self.game.light_at(*cells[0]), 0.5)
+
+    def test_standing_in_a_fire_hurts(self):
+        p = self.game.player
+        before = p.body.health_fraction()
+        for _ in range(12):
+            self.fire.burn(p, self.game.rng)
+        self.assertLess(p.body.health_fraction(), before)
+
+    def test_the_fire_strike_is_in_the_shared_table(self):
+        from ascii_warriors.game import combat
+
+        self.assertIn("fire", combat.TRAP_STRIKES)
+
+    def test_a_torch_is_needed_to_start_one(self):
+        from ascii_warriors.game import actions
+
+        self._forest()
+        p = self.game.player
+        for it in list(p.inventory.items):
+            if it.is_light:
+                it.flags["lit"] = False
+        self.assertEqual(actions.set_fire(self.game), actions.FREE)
+        self.assertFalse(self.game.fire.anything_burning)
+
+    def test_a_lit_torch_starts_one(self):
+        from ascii_warriors.data import items as item_data
+        from ascii_warriors.game import actions
+        from ascii_warriors.game.item import Item
+
+        self._forest()
+        p = self.game.player
+        torch = Item("torch", "oak")
+        torch.flags["lit"] = True
+        torch.charges = 5000
+        p.inventory.add(torch)
+        self.assertTrue(self.fire.carrying_flame(p))
+        actions.set_fire(self.game)
+        self.assertTrue(self.game.fire.anything_burning)
+
+    # -- persistence ------------------------------------------------------------ #
+
+    def test_fire_survives_a_save(self):
+        from ascii_warriors.game import save as save_mod
+
+        cells = self._forest()
+        self.game.fire.ignite(self.game.local, cells[0])
+        left = self.game.fire.burning(*cells[0])
+        path = save_mod.save_game(self.game, "fire-test")
+        back = save_mod.load_game(path)
+        self.assertEqual(back.fire.burning(*cells[0]), left)
+        path.unlink()
+
+    def test_a_save_without_fire_still_loads(self):
+        from ascii_warriors.game.state import Game
+
+        raw = self.game.to_dict()
+        del raw["fire"]
+        back = Game.from_dict(raw)
+        self.assertFalse(back.fire.anything_burning)

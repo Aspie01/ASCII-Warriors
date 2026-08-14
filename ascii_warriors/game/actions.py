@@ -127,6 +127,32 @@ def _pay(game, coins: int) -> None:
     game.player.inventory.add(item)
 
 
+def set_fire(game) -> int:
+    """Put the torch you are carrying to whatever is next to you.
+
+    The torch has been burning since v1 and the tile table has had FLAMMABLE
+    on the tree, the sapling and the shrub for just as long. This is the line
+    that joins them.
+    """
+    from ..engine.geometry import DIRS8
+    from ..world import fire as fire_mod
+
+    p = game.player
+    if not fire_mod.carrying_flame(p):
+        game.log.info("You have nothing burning to do it with.")
+        return FREE
+    for dx, dy in ((0, 0),) + tuple(DIRS8):
+        cell = (p.x + dx, p.y + dy, p.z)
+        if fire_mod.fuel_at(game.local, cell) <= 0:
+            continue
+        extra = fire_mod.item_fuel(game.items_at(*cell))
+        if game.fire.ignite(game.local, cell, extra=extra):
+            game.log.warn("It catches, and begins to burn.")
+            return NORMAL
+    game.log.info("There is nothing here that will take a flame.")
+    return FREE
+
+
 def disarm_trap(game) -> int:
     """Take apart a trap you have found, next to you or under you."""
     from ..engine.geometry import DIRS8

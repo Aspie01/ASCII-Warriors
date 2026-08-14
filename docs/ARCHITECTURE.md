@@ -2698,7 +2698,42 @@ figures had relationships, and now they are not.
 
 The legends screen lists a figure's relations by name, marking the dead.
 
-## 77. Style
+## 77. Fire (v3.17)
+
+`FLAMMABLE` is on the tree, the sapling and the shrub in the tile table; on
+oak, willow, pine, cedar, birch, coal and charcoal in the material table; and
+on the torch and the log in the item table. Magma has been flowing in
+fortresses since v2.5 and adventurers have carried burning torches since v1.
+Nothing in the game had ever caught alight.
+
+**`world/fire.py` is v2.5's fluid layer with the water taken out.** A dict of
+burning cells, an active set so a map that is not on fire costs nothing to
+step, and a hard cap on how much may burn at once -- `MAX_BURNING`, which is
+`MAX_ACTIVE` under another name and for the same reason. Measured: a dense
+forest burns 732 cells over 153 steps at 0.221 ms a step, peaking at 518 alight
+at once, and an unlit map steps in 0.0003 ms.
+
+What burns is what the data says burns. The tile decides most of it -- a tree
+is thirty steps of fire and a shrub is six -- and flammable items on the cell
+add to it, which is why a woodpile next to the forge is a decision. Spent
+cells become **ash**, a tile added for this and which v3.9's track layer had
+already been listing as soft ground it could hold a footprint in.
+
+Both modes step the same layer. The fortress does it beside `_flow`, because
+the fluid layer and the fire layer are the same shape of problem, and magma
+lights flammable neighbours at low odds -- a fortress that ignites the moment
+it strikes the magma sea is one nobody digs deep in twice. Adventure mode
+lights fires with the torch it has been carrying since v1.
+
+Damage goes through `combat.trap_strike`, the same path v3.14's traps use, so
+there is one table of things that hit you and cannot be parried rather than
+three sets of numbers drifting apart.
+
+**Fire is light**, and both modes' `light_at` max it in, which means v3.6's
+stealth charges for standing next to a burning tree without knowing that fire
+exists.
+
+## 78. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

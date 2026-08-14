@@ -1,3 +1,3 @@
 """ASCII Warriors - a Dwarf-Fortress-inspired ASCII adventure RPG."""
 
-__version__ = "3.16.0"
+__version__ = "3.17.0"

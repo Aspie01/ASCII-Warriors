@@ -20,6 +20,7 @@ from .entity import Creature, make_creature
 from .item import Item, corpse_of, starting_kit
 from .log import MessageLog
 from .quests import QuestLog
+from ..world.fire import Fire as FireLayer
 from . import standing as standing_mod
 from . import traps as traps_mod
 from . import venom as venom_mod
@@ -64,6 +65,8 @@ class Game:
         self.death_message = ""
         self.travel_target: Optional[Tuple[int, int]] = None
         self.weather = Weather()
+        #: Everything currently alight on this map.
+        self.fire = FireLayer()
         #: Ids of the companions following the player.
         self.companion_ids: List[int] = []
         #: Companions in transit between local maps.
@@ -188,6 +191,7 @@ class Game:
             self.items_on_ground = {}
             self.traps = {}
             self.webs = {}
+            self.fire = FireLayer()
             self._populate(population, lm_rng, site)
             # Traps belong to a floor plan, and floor plans are made here
             # rather than at worldgen, so this is where they go in.
@@ -495,12 +499,17 @@ class Game:
         """Ambient light at a cell, 0..1."""
         if self.local is None:
             return 1.0
+        # A fire lights the ground around it, which means v3.6's stealth
+        # charges for standing next to a burning tree without ever needing to
+        # know that fire exists.
+        flame = self.fire.light_at(x, y, z)
         if self.local.is_outside(x, y, z):
-            return self.time.light_level() * self.weather.light_modifier()
+            return max(flame,
+                       self.time.light_level() * self.weather.light_modifier())
         # Underground: only whatever the player is actually holding alight.
         if self.player_light() > 0:
-            return 0.8
-        return 0.05
+            return max(flame, 0.8)
+        return max(flame, 0.05)
 
     def player_light(self) -> int:
         """Burn time remaining on the player's lit light sources."""
@@ -697,10 +706,34 @@ class Game:
                         if it in p.inventory.items:
                             p.inventory.items.remove(it)
 
+        self._burn(ticks)
         self._tavern_music(ticks)
 
         if p.body.dead and not self.game_over:
             self.end_game(p.body.death_cause or "died")
+
+    def _burn(self, ticks: int) -> None:
+        """Fires spread, burn down and go out.
+
+        Stepped once per world tick rather than per turn, so a fire runs at
+        the same speed whether you are standing still or walking.
+        """
+        from ..world import fire as fire_mod
+
+        blaze = self.fire
+        if not blaze.anything_burning or self.local is None:
+            return
+        blaze.step(self.local, self.rng, items_at=self.items_at,
+                   on_burn_out=lambda item, cell: self.take_item(item, *cell))
+        for c in list(self.creatures.values()):
+            if not blaze.burning(c.x, c.y, c.z) or not c.alive:
+                continue
+            fire_mod.burn(c, self.rng,
+                          log=self.log if (c.is_player
+                                           or self.can_see_creature(c))
+                          else None)
+            if c.body.dead:
+                self.kill_creature(c)
 
     def _tavern_music(self, ticks: int) -> None:
         """Somebody in the tavern performs, and you are in the room for it.
@@ -903,6 +936,7 @@ class Game:
             "standing": standing_mod.book(self).to_dict(),
             "webs": webs_mod.to_list(self),
             "traps": traps_mod.to_list(self),
+            "fire": self.fire.to_list(),
             "companion_ids": list(self.companion_ids),
             "companions": [c.to_dict() for c in self.travelling_companions],
             "cache": {
@@ -934,6 +968,7 @@ class Game:
             d.get("standing") or {})
         webs_mod.from_list(game, d.get("webs") or [])
         traps_mod.from_list(game, d.get("traps") or [])
+        game.fire = FireLayer.from_list(d.get("fire") or [])
         game.companion_ids = [int(i) for i in d.get("companion_ids", [])]
         game._season_mark = int(d.get("season_mark", 0))
         game.travelling_companions = [

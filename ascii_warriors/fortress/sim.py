@@ -126,6 +126,7 @@ def step(fort) -> None:
         scan_jobs(fort)
         fort.wealth = appraise(fort)
     _flow(fort, ticks)
+    _burn(fort, ticks)
     _bodies(fort, ticks)
     _triage(fort)
     for dwarf in list(fort.dwarves()):
@@ -371,6 +372,72 @@ def _hostile_step(fort, foe, goal: Cell) -> None:
         state["path"] = []
         return
     foe.x, foe.y, foe.z = nxt
+
+
+#: Odds per checked cell that magma sets a flammable neighbour alight. Low:
+#: magma is usually somewhere sealed, and a fortress that catches fire the
+#: instant it strikes the magma sea is one nobody digs deep in twice.
+MAGMA_IGNITES = 0.05
+
+#: Ticks between looking at the magma at all, and how many of its cells get
+#: looked at when we do.
+#:
+#: The first cut walked every magma cell every step and copied the layer into
+#: a list to do it. A mature fortress has nearly ten thousand magma cells, and
+#: the measured cost was 1.43 ms a step becoming 5.78 -- a four-fold slowdown
+#: bought entirely for an event that fires a handful of times a season. Magma
+#: does not move much between one step and the next; there is no reason to
+#: ask it anything at that rate.
+MAGMA_CHECK_TICKS = 200
+MAGMA_SAMPLE = 24
+
+
+def _magma_sparks(fort, blaze) -> None:
+    """Magma sets light to what is next to it, occasionally and cheaply."""
+    magma = getattr(fort, "magma", None)
+    if magma is None or not magma.depth:
+        return
+    if fort.ticks < getattr(fort, "_next_spark", 0):
+        return
+    fort._next_spark = fort.ticks + MAGMA_CHECK_TICKS
+    cells = list(magma.depth)
+    for _ in range(min(MAGMA_SAMPLE, len(cells))):
+        x, y, z = cells[fort.rng.randint(0, len(cells) - 1)]
+        if magma.depth.get((x, y, z), 0) <= 0:
+            continue
+        if not fort.rng.chance(MAGMA_IGNITES):
+            continue
+        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            blaze.ignite(fort.local, (x + dx, y + dy, z))
+
+
+def _burn(fort, ticks: int) -> None:
+    """Fires spread, burn down and go out, and magma starts them.
+
+    Mirrors `_flow`: the fluid layer and the fire layer are the same shape of
+    problem and are stepped the same way, so a fortress with nothing alight
+    pays nothing for having the system.
+    """
+    from ..world import fire as fire_mod
+
+    blaze = getattr(fort, "fire", None)
+    if blaze is None:
+        blaze = fort.fire = fire_mod.Fire()
+
+    _magma_sparks(fort, blaze)
+
+    if not blaze.anything_burning:
+        return
+    done = blaze.step(fort.local, fort.rng, items_at=fort.items_at,
+                      on_burn_out=lambda item, cell: fort.take_item(item))
+    if done:
+        fort._water_cache = None
+    for c in list(fort.creatures.values()):
+        if blaze.burning(c.x, c.y, c.z) and c.alive:
+            fire_mod.burn(c, fort.rng,
+                          log=fort.log if c in fort.dwarves() else None)
+            if c.body.dead:
+                fort.kill_creature(c)
 
 
 def _traps(fort) -> None:

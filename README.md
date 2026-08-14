@@ -206,7 +206,7 @@ python -m ascii_warriors --dump-world - --size small --history 200 | less
 | `C` `z` `Q` `G` | character / skills / tasks / legends |
 | `p` `P` | your party / perform a song, poem or dance |
 | `m` `E` | mount or dismount / tame the animal beside you |
-| `U` | disarm a trap you have found |
+| `U` `B` | disarm a trap you have found / set a fire |
 | `T` `M` | travel / view the world map |
 | `?` | help |
 | `Ctrl-S` | save |
@@ -511,6 +511,13 @@ beasts in the region, or for directions, and you get real answers from the
 generated history. Ask for work and you get a quest that points at a real
 megabeast in a real lair, or a real artifact in a real ruin. Threaten somebody
 and they will either talk or attack you.
+
+**Fire.** Trees, saplings, shrubs and anything wooden on the ground will burn.
+Set one with a lit torch, and it spreads to what is beside it, burns down over
+time and leaves ash — but it will not cross bare rock, so a firebreak is a real
+thing you can dig. Standing in a fire hurts and armour helps little; it also
+throws light, so you are extremely visible next to one. In the fortress, magma
+sets light to anything flammable near it.
 
 **A history of people, not just deeds.** The figures in the world's history
 are related to each other: they marry, have children who carry the family

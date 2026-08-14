@@ -35,6 +35,7 @@ CONTROLS: List[Tuple[str, str]] = [
     ("s", "search, and read the tracks on the ground"),
     ("m", "mount or dismount"),
     ("U", "disarm a trap you have found"),
+    ("B", "set fire to what is beside you"),
     ("E", "tame the animal beside you"),
     ("s", "search the area carefully"),
     ("S", "sleep for eight hours"),
@@ -258,6 +259,20 @@ a sheriff and eventually a mayor. The mayor will demand things. Ignoring the
 demands makes the mayor furious, and a furious dwarf in a fortress full of
 unhappy dwarves is how tantrums start: broken furniture, then somebody going
 berserk with an axe.
+
+FIRE
+
+Trees, saplings and shrubs burn, and so does anything wooden lying on the
+ground. Press B with a lit torch in hand to set fire to whatever is next to
+you.
+
+Fire spreads to what is beside it, burns down over time and leaves ash. It
+will not cross bare rock, so a firebreak is a real thing you can dig. Standing
+in one hurts and armour does not help much. It also throws light, which means
+you are extremely visible next to one -- worth remembering if you are sneaking.
+
+In the fortress, magma sets fire to anything flammable near it. Keep the
+woodpile away from the forge.
 
 KIN
 

@@ -103,6 +103,18 @@ class PlayScene(Scene):
                                                               MEMORY_FADE)
             scr.put(ox + sx, oy + sy, item.glyph, colour)
 
+        # Fire, over the ground and under whatever is standing in it.
+        blaze = getattr(game, "fire", None)
+        if blaze is not None and blaze.anything_burning:
+            for (fx, fy, fz), left in blaze.fuel.items():
+                if fz != z or left <= 0 or (fx, fy, fz) not in game.visible:
+                    continue
+                sx, sy = fx - self.cam_x, fy - self.cam_y
+                if not (0 <= sx < w and 0 <= sy < h):
+                    continue
+                scr.put(ox + sx, oy + sy, "^", colors.Color(255, 176, 48),
+                        colors.Color(60, 20, 8))
+
         for c in game.creatures.values():
             if c.z != z or c.body.dead:
                 continue
@@ -255,6 +267,8 @@ class PlayScene(Scene):
             cost = actions.tame_animal(game)
         elif key == "U":
             cost = actions.disarm_trap(game)
+        elif key == "B":
+            cost = actions.set_fire(game)
         elif key == "s":
             cost = actions.search(game)
         elif key == "S":
