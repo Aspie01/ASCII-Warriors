@@ -109,6 +109,12 @@ class Creature:
         self.forms: List[int] = []
         #: Venom currently working in this creature.
         self.venom: List[Any] = []
+        #: The mount this creature is riding, held off the map while ridden.
+        self.mount: Optional["Creature"] = None
+        #: Whether this animal has been won over, and how often somebody has
+        #: tried. A refusal is one attempt that did not work, not a verdict.
+        self.tame = False
+        self.tame_tries = 0
         #: Set while this creature is deliberately trying not to be seen,
         #: and what it last did loudly enough for anybody to hear.
         self.sneaking = False
@@ -255,13 +261,26 @@ class Creature:
     def encumbrance(self) -> float:
         """How overloaded the creature is, 0 = free, 1 = at capacity."""
         cap = self.carry_capacity()
+        if self.mount is not None:
+            from . import mounts
+
+            cap *= mounts.CARRY_SHARE
         if cap <= 0:
             return 0.0
         return max(0.0, self.inventory.total_weight() / cap)
 
     def effective_speed(self) -> int:
-        """Movement speed after wounds, load and exhaustion."""
-        speed = float(self.defn.speed)
+        """Movement speed after wounds, load and exhaustion.
+
+        A mounted rider moves at the animal's pace, not their own: the whole
+        point of a horse is that your legs stop being the limit.
+        """
+        if self.mount is not None:
+            from . import mounts
+
+            speed = float(self.mount.defn.speed) * mounts.SPEED_SHARE
+        else:
+            speed = float(self.defn.speed)
         if not self.body.can_stand():
             speed *= 0.35
         stance = [p for p in self.body.parts.values() if p.defn.has("STANCE")]
@@ -416,6 +435,10 @@ class Creature:
             from . import venom as venom_mod
 
             d["venom"] = venom_mod.to_list(self)
+        if self.tame or self.tame_tries:
+            d["tame"] = [self.tame, self.tame_tries]
+        if self.mount is not None:
+            d["mount"] = self.mount.to_dict()
         if self.curse or self.changed or self.raised_by is not None:
             d["night"] = {"curse": self.curse, "changed": self.changed,
                           "was": self.shape_was, "faction_was": self.faction_was,
@@ -470,6 +493,11 @@ class Creature:
             from . import venom as venom_mod
 
             venom_mod.from_list(c, d["venom"])
+        tame = d.get("tame")
+        if tame:
+            c.tame, c.tame_tries = bool(tame[0]), int(tame[1])
+        if d.get("mount"):
+            c.mount = Creature.from_dict(d["mount"])
 
         night = d.get("night")
         if night:

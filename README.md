@@ -205,6 +205,7 @@ python -m ascii_warriors --dump-world - --size small --history 200 | less
 | `f` `F` | fire a readied bow / throw something |
 | `C` `z` `Q` `G` | character / skills / tasks / legends |
 | `p` `P` | your party / perform a song, poem or dance |
+| `m` `E` | mount or dismount / tame the animal beside you |
 | `T` `M` | travel / view the world map |
 | `?` | help |
 | `Ctrl-S` | save |
@@ -509,6 +510,13 @@ beasts in the region, or for directions, and you get real answers from the
 generated history. Ask for work and you get a quest that points at a real
 megabeast in a real lair, or a real artifact in a real ruin. Threaten somebody
 and they will either talk or attack you.
+
+**Mounts.** Horses, donkeys, mules and camels can be tamed and ridden, and a
+good many other animals can be tamed. Taming takes time and every refusal
+makes the next try harder; a wild animal minds far more than a village one.
+Mounted you move at the animal's pace rather than your own, carry half again
+as much, and cross the world in two thirds of the time — but every solid hit
+is a roll to stay on, and untrained you come off most of the time.
 
 **Venom and webs.** Venomous things do nothing at the moment they bite you —
 that is what separates venom from a wound. Then it starts: slower, in pain,

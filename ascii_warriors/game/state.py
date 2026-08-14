@@ -854,8 +854,10 @@ class Game:
         if tile.is_ocean:
             self.log.warn("You cannot cross open water.")
             return False
+        from . import mounts as mounts_mod
+
         cost = self.world.travel_cost(nx, ny)
-        ticks = int(TICKS_PER_DAY * 0.22 * cost)
+        ticks = int(TICKS_PER_DAY * 0.22 * cost * mounts_mod.travel_factor(self))
         entry = {
             (1, 0): "west", (-1, 0): "east", (0, 1): "north", (0, -1): "south",
         }.get((dx, dy), "edge")

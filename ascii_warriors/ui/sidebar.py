@@ -158,6 +158,11 @@ def draw_status_line(scr: Screen, x: int, y: int, w: int, game) -> None:
 
     if stealth_mod.is_sneaking(p):
         parts.append(Frag("SNEAKING ", colors.UI["accent2"]))
+    from ..game import mounts as mounts_mod
+
+    if mounts_mod.mounted(game):
+        parts.append(Frag("%s " % mounts_mod.status(game).upper(),
+                          colors.UI["accent"]))
         if stealth_mod._carrying_light(p):
             parts.append(Frag("(lit!) ", colors.UI["danger"]))
         parts.append(Frag("| ", colors.UI["frame"]))

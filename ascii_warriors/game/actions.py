@@ -127,6 +127,54 @@ def _pay(game, coins: int) -> None:
     game.player.inventory.add(item)
 
 
+def ride_or_dismount(game) -> int:
+    """Get on whatever is next to you, or get off what you are on."""
+    from . import mounts
+
+    p = game.player
+    if mounts.mounted(game):
+        _ok, said = mounts.dismount(game)
+        game.log.info(said)
+        return NORMAL
+    animal = _adjacent_animal(game, mounts.is_mount)
+    if animal is None:
+        game.log.info("There is nothing here to ride.")
+        return FREE
+    ok, said = mounts.ride(game, animal)
+    game.log.good(said) if ok else game.log.warn(said)
+    return NORMAL if ok else FREE
+
+
+def tame_animal(game) -> int:
+    """Try to win over an animal standing next to you.
+
+    It takes a real turn whether or not it works, because an animal that shies
+    away from you has still taken your afternoon.
+    """
+    from . import mounts
+
+    animal = _adjacent_animal(game, mounts.is_trainable)
+    if animal is None:
+        game.log.info("There is no animal here to tame.")
+        return FREE
+    ok, said = mounts.tame(game, animal, game.rng)
+    game.log.good(said) if ok else game.log.info(said)
+    game.player.needs.exert(20)
+    return SLOW
+
+
+def _adjacent_animal(game, pred):
+    """The nearest animal beside the player that passes *pred*."""
+    from ..engine.geometry import DIRS8
+
+    p = game.player
+    for dx, dy in DIRS8:
+        c = game.creature_at(p.x + dx, p.y + dy, p.z)
+        if c is not None and c.alive and pred(c):
+            return c
+    return None
+
+
 def raise_dead(game) -> int:
     """Use the secret, if you have it and there is anything to use it on.
 

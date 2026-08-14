@@ -2502,7 +2502,41 @@ A spinner aims *ahead* of its prey rather than at it. A web laid where
 somebody already stands is one they walk out of next turn; a web laid in their
 path is a trap.
 
-## 72. Style
+## 72. Mounts and taming (v3.12)
+
+The last of the four skills the audit started with. `rider` has been in the
+skill table since the skill table was written and no line of code ever read
+it. `MOUNT` has been on the horse, the donkey, the mule and the camel since
+the creature data was written, `TRAINABLE` on ten creatures besides, and a
+horse was a thing you could kill.
+
+**A ridden mount comes off the map.** While you are on it, it is held on
+`player.mount` rather than standing in `game.creatures` -- the same shape as
+`travelling_companions` holding a follower between world tiles. The
+alternative, two creatures on two cells that must move as one, is a whole
+class of bugs about which of them is where, who gets attacked, what happens
+in a one-tile corridor and what the scheduler thinks it is doing. It costs
+one thing: the mount cannot be attacked out from under you. Being unseated by
+a solid hit is what replaces that, and it is the better mechanic.
+
+**Riding is a skill and falling off is how you learn it.** Every hit above
+`UNSEAT_THRESHOLD` momentum is a `rider` roll, made at the point in
+`melee_attack` that already knows how hard the blow landed, because nothing
+else does. Untrained you stay on 30% of the time, at skill 10 it is 85%, and
+a legendary rider is at the 97% ceiling. Failing puts you on the ground,
+winded, beside something still swinging.
+
+Taming is the same skill and takes real time whether or not it works. A
+refusal is one attempt that did not work rather than a verdict, but each one
+makes the animal warier, which is what stops it being a button held down until
+the horse is yours. A wild animal minds considerably more than one that grew
+up around people.
+
+What a mount is actually for is the numbers: 85% of the animal's speed rather
+than your own (93 to 155 for a human on a horse), 1.6x carrying capacity, and
+overland tiles that cost 62% of the time they did on foot.
+
+## 73. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

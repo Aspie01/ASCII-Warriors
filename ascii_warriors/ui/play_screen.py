@@ -249,6 +249,10 @@ class PlayScene(Scene):
             cost = actions.raise_dead(game)
         elif key == "P":
             cost = self._perform()
+        elif key == "m":
+            cost = actions.ride_or_dismount(game)
+        elif key == "E":
+            cost = actions.tame_animal(game)
         elif key == "s":
             cost = actions.search(game)
         elif key == "S":

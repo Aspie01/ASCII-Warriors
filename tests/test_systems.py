@@ -2466,3 +2466,223 @@ class TestWebs(GameFixture):
         back = save_mod.load_game(path)
         self.assertEqual(self.webs.strength_at(back, self.here), 42)
         path.unlink()
+
+
+class TestMounts(GameFixture):
+    """The last dead skill in the table, and the flags that go with it."""
+
+    def setUp(self):
+        super().setUp()
+        from ascii_warriors.game import mounts
+
+        self.mounts = mounts
+        self.horse = self._spawn("horse")
+
+    def _spawn(self, def_id, faction="wild"):
+        from ascii_warriors.game.entity import make_creature
+
+        c = make_creature(self.game.rng, def_id, faction=faction)
+        p = self.game.player
+        c.x, c.y, c.z = p.x + 1, p.y, p.z
+        self.game.add_creature(c)
+        return c
+
+    def _tamed(self):
+        self.horse.tame = True
+        self.horse.faction = "player"
+        return self.horse
+
+    # -- the flags --------------------------------------------------------- #
+
+    def test_a_horse_is_a_mount(self):
+        self.assertTrue(self.mounts.is_mount(self.horse))
+        self.assertTrue(self.mounts.is_trainable(self.horse))
+
+    def test_a_person_is_not_tameable(self):
+        self.assertFalse(self.mounts.is_trainable(self.game.player))
+
+    def test_every_mount_in_the_data_is_trainable(self):
+        from ascii_warriors.data import creatures as creature_data
+
+        found = 0
+        for _cid, defn in creature_data.CREATURES.items():
+            if not defn.has("MOUNT"):
+                continue
+            found += 1
+            self.assertTrue(defn.has("TRAINABLE"),
+                            "%s can be ridden but never tamed" % defn.name)
+        self.assertGreater(found, 0, "nothing in the data is rideable")
+
+    # -- taming ------------------------------------------------------------ #
+
+    def test_a_wild_animal_is_harder_to_tame(self):
+        p = self.game.player
+        p.skills.set_level("rider", 8)
+        self.horse.faction = "wild"
+        wild = self.mounts.tame_chance(p, self.horse)
+        self.horse.faction = "town"
+        self.assertGreater(self.mounts.tame_chance(p, self.horse), wild)
+
+    def test_skill_makes_taming_likelier(self):
+        p = self.game.player
+        p.skills.set_level("rider", 0)
+        poor = self.mounts.tame_chance(p, self.horse)
+        p.skills.set_level("rider", 15)
+        self.assertGreater(self.mounts.tame_chance(p, self.horse), poor)
+
+    def test_taming_works_eventually(self):
+        p = self.game.player
+        p.skills.set_level("rider", 12)
+        for _ in range(40):
+            ok, _said = self.mounts.tame(self.game, self.horse, self.game.rng)
+            if ok:
+                break
+        self.assertTrue(self.horse.tame)
+        self.assertEqual(self.horse.faction, "player")
+
+    def test_a_refusal_makes_the_next_try_harder(self):
+        p = self.game.player
+        p.skills.set_level("rider", 0)
+        for _ in range(4):
+            self.mounts.tame(self.game, self.horse, self.game.rng)
+        self.assertGreater(self.horse.tame_tries, 0)
+
+    def test_you_cannot_tame_what_is_already_yours(self):
+        self._tamed()
+        ok, _said = self.mounts.tame(self.game, self.horse, self.game.rng)
+        self.assertFalse(ok)
+
+    # -- riding ------------------------------------------------------------ #
+
+    def test_you_cannot_ride_an_untamed_animal(self):
+        ok, why = self.mounts.can_ride(self.game, self.horse)
+        self.assertFalse(ok)
+        self.assertIn("Tame", why)
+
+    def test_you_cannot_ride_something_that_is_not_a_mount(self):
+        dog = self._spawn("dog")
+        dog.tame = True
+        ok, _why = self.mounts.can_ride(self.game, dog)
+        self.assertFalse(ok)
+
+    def test_riding_takes_the_mount_off_the_map(self):
+        horse = self._tamed()
+        ok, _said = self.mounts.ride(self.game, horse)
+        self.assertTrue(ok)
+        self.assertNotIn(horse.id, self.game.creatures)
+        self.assertIs(self.game.player.mount, horse)
+
+    def test_dismounting_puts_it_back(self):
+        horse = self._tamed()
+        self.mounts.ride(self.game, horse)
+        ok, _said = self.mounts.dismount(self.game)
+        self.assertTrue(ok)
+        self.assertIn(horse.id, self.game.creatures)
+        self.assertIsNone(self.game.player.mount)
+
+    def test_you_cannot_ride_two_things(self):
+        horse = self._tamed()
+        self.mounts.ride(self.game, horse)
+        other = self._spawn("horse")
+        other.tame = True
+        ok, _why = self.mounts.can_ride(self.game, other)
+        self.assertFalse(ok)
+
+    def test_a_mount_is_faster_than_your_legs(self):
+        p = self.game.player
+        on_foot = p.effective_speed()
+        self.mounts.ride(self.game, self._tamed())
+        self.assertGreater(p.effective_speed(), on_foot)
+
+    def test_a_mount_carries_for_you(self):
+        p = self.game.player
+        self.mounts.ride(self.game, self._tamed())
+        self.assertGreater(self.mounts.carry_bonus(self.game), 1.0)
+
+    def test_a_mount_makes_the_world_smaller(self):
+        self.assertEqual(self.mounts.travel_factor(self.game), 1.0)
+        self.mounts.ride(self.game, self._tamed())
+        self.assertLess(self.mounts.travel_factor(self.game), 1.0)
+
+    # -- staying on -------------------------------------------------------- #
+
+    def test_skill_keeps_you_on(self):
+        p = self.game.player
+        p.skills.set_level("rider", 0)
+        poor = self.mounts.seat_chance(p)
+        p.skills.set_level("rider", 18)
+        best = self.mounts.seat_chance(p)
+        self.assertGreater(best, poor)
+        self.assertLessEqual(best, self.mounts.SEAT_MAX)
+
+    def test_a_scratch_does_not_unseat_anybody(self):
+        self.mounts.ride(self.game, self._tamed())
+        self.assertIsNone(self.mounts.on_hit(
+            self.game, self.mounts.UNSEAT_THRESHOLD - 1, self.game.rng))
+        self.assertTrue(self.mounts.mounted(self.game))
+
+    def test_a_solid_hit_eventually_unseats_the_untrained(self):
+        p = self.game.player
+        p.skills.set_level("rider", 0)
+        self.mounts.ride(self.game, self._tamed())
+        for _ in range(40):
+            said = self.mounts.on_hit(self.game, 60000, self.game.rng)
+            if said:
+                break
+        self.assertFalse(self.mounts.mounted(self.game))
+        self.assertIn(self.horse.id, self.game.creatures)
+
+    def test_falling_off_is_never_asked_of_somebody_on_foot(self):
+        self.assertIsNone(self.mounts.on_hit(self.game, 999999, self.game.rng))
+
+    def test_the_status_line_says_so(self):
+        self.assertEqual(self.mounts.status(self.game), "")
+        self.mounts.ride(self.game, self._tamed())
+        self.assertIn("riding", self.mounts.status(self.game))
+
+    # -- the player's side and persistence --------------------------------- #
+
+    def test_the_ride_key_mounts_and_dismounts(self):
+        from ascii_warriors.game import actions
+
+        self._tamed()
+        actions.ride_or_dismount(self.game)
+        self.assertTrue(self.mounts.mounted(self.game))
+        actions.ride_or_dismount(self.game)
+        self.assertFalse(self.mounts.mounted(self.game))
+
+    def test_taming_by_key_finds_the_animal_beside_you(self):
+        from ascii_warriors.game import actions
+
+        self.game.player.skills.set_level("rider", 14)
+        for _ in range(40):
+            actions.tame_animal(self.game)
+            if self.horse.tame:
+                break
+        self.assertTrue(self.horse.tame)
+
+    def test_a_mount_survives_a_save(self):
+        from ascii_warriors.game import save as save_mod
+
+        horse = self._tamed()
+        self.mounts.ride(self.game, horse)
+        path = save_mod.save_game(self.game, "mount-test")
+        back = save_mod.load_game(path)
+        self.assertIsNotNone(back.player.mount)
+        self.assertEqual(back.player.mount.def_id, "horse")
+        self.assertTrue(back.player.mount.tame)
+        path.unlink()
+
+    def test_a_tamed_animal_survives_a_save(self):
+        from ascii_warriors.game import save as save_mod
+
+        self._tamed()
+        self.horse.tame_tries = 3
+        path = save_mod.save_game(self.game, "tame-test")
+        back = save_mod.load_game(path)
+        theirs = [c for c in back.creatures.values()
+                  if c.def_id == "horse"]
+        self.assertTrue(theirs)
+        self.assertTrue(theirs[0].tame)
+        self.assertEqual(theirs[0].tame_tries, 3)
+        path.unlink()

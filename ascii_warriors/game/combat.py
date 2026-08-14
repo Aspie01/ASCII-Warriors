@@ -423,6 +423,13 @@ def melee_attack(
                           else "%s has" % _subject(defender)),
                        colors.UI["danger"])
 
+    if defender.is_player and world is not None and not defender.body.dead:
+        from . import mounts
+
+        thrown = mounts.on_hit(world, int(delivered), rng)
+        if thrown:
+            result.add(thrown, colors.UI["danger"])
+
     if defender.body.dead:
         result.killed = True
         result.add(_slain_line(defender), colors.UI["danger"])

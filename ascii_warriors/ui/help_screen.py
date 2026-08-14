@@ -33,6 +33,8 @@ CONTROLS: List[Tuple[str, str]] = [
     ("Z", "raise the dead, if you have learned how"),
     ("P", "perform a song, poem or dance you know"),
     ("s", "search, and read the tracks on the ground"),
+    ("m", "mount or dismount"),
+    ("E", "tame the animal beside you"),
     ("s", "search the area carefully"),
     ("S", "sleep for eight hours"),
     ("R", "rest a while"),
@@ -255,6 +257,22 @@ a sheriff and eventually a mayor. The mayor will demand things. Ignoring the
 demands makes the mayor furious, and a furious dwarf in a fortress full of
 unhappy dwarves is how tantrums start: broken furniture, then somebody going
 berserk with an axe.
+
+RIDING
+
+Horses, donkeys, mules and camels can be ridden; those and a good many other
+animals can be tamed. Stand next to one and press E to try to win it over --
+it takes a while, a wild animal minds a great deal more than a village one,
+and every refusal makes the next attempt a little harder.
+
+Once an animal is yours, press m to get on and m again to get off. Mounted you
+move at the animal's pace rather than your own, carry half again as much, and
+cross the world map in about two thirds of the time.
+
+Every solid hit you take while mounted is a roll to stay on. Untrained you
+come off most of the time; a good rider almost never does. Being thrown leaves
+you on the ground and winded next to whatever hit you, which is the risk that
+pays for the speed.
 
 VENOM AND WEBS
 
