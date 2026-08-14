@@ -76,7 +76,7 @@ class Track:
     """The last thing to cross one cell."""
 
     __slots__ = ("def_id", "name", "size", "dx", "dy", "tick", "blood",
-                 "count", "player")
+                 "count", "player", "printed")
 
     def __init__(self, def_id: str = "", name: str = "", size: int = 0,
                  dx: int = 0, dy: int = 0, tick: int = 0) -> None:
@@ -89,6 +89,10 @@ class Track:
         self.tick = tick
         #: Whether it was losing blood at the time.
         self.blood = False
+        #: Whether the ground actually took a print. Blood falls on anything;
+        #: rock records nothing else, and a mark that claims a heading and a
+        #: species off bare stone is lying about where it came from.
+        self.printed = True
         #: How many of the same thing have crossed this cell.
         self.count = 1
         #: Whether this is the player's own trail, which matters because
@@ -105,7 +109,8 @@ class Track:
         """Serialise the track."""
         return {"d": self.def_id, "n": self.name, "s": self.size,
                 "dx": self.dx, "dy": self.dy, "t": self.tick,
-                "b": self.blood, "c": self.count, "p": self.player}
+                "b": self.blood, "c": self.count, "p": self.player,
+                "pr": self.printed}
 
     @classmethod
     def from_dict(cls, d: Mapping[str, Any]) -> "Track":
@@ -113,6 +118,7 @@ class Track:
         t = cls(str(d.get("d", "")), str(d.get("n", "")), int(d.get("s", 0)),
                 int(d.get("dx", 0)), int(d.get("dy", 0)), int(d.get("t", 0)))
         t.blood = bool(d.get("b", False))
+        t.printed = bool(d.get("pr", True))
         t.count = int(d.get("c", 1))
         t.player = bool(d.get("p", False))
         return t
@@ -150,8 +156,15 @@ def leave(game, creature, frm: Optional[Cell] = None) -> Optional[Track]:
     kind of movement does not leave.
     """
     cell = (creature.x, creature.y, creature.z)
-    if not takes_print(game, cell):
+    printed = takes_print(game, cell)
+    bleeding = _is_bleeding(creature)
+    if not printed and not bleeding:
         return None
+    # Blood falls on anything. `BLOOD_FADE` has said so since v3.9 -- "does
+    # not care what it fell on" -- and the help screen promises it, and the
+    # early return above threw it away on every hard floor in the game. A
+    # wounded thing running into a cave is exactly when a trail matters and
+    # exactly where there was none.
     dx, dy = 0, 0
     if frm is not None:
         dx, dy = _sign(cell[0] - frm[0]), _sign(cell[1] - frm[1])
@@ -162,7 +175,8 @@ def leave(game, creature, frm: Optional[Cell] = None) -> Optional[Track]:
                   int(getattr(creature.defn, "size", 0) or 0),
                   dx, dy, game.scheduler.ticks)
     track.player = bool(creature.is_player)
-    track.blood = _is_bleeding(creature)
+    track.blood = bleeding
+    track.printed = printed
     if old is not None and old.def_id == track.def_id:
         # The same kind again: a herd reads as a herd rather than as one deer
         # that keeps coming back.
@@ -278,6 +292,18 @@ def read(game, reader, cell: Cell, track: Track) -> List[str]:
     age = age_of(game, track)
     fade = fade_ticks(game, cell, track)
     faint = age > fade // 2
+
+    if not track.printed:
+        # Bare ground took no print; what is here is blood and nothing else.
+        # Reading a heading off it would be inventing the part that is
+        # missing.
+        out = ["Blood on the stone." if level >= 1 else "There is blood here."]
+        if level >= AGE_AT:
+            out.append("Spilled %s." % _ago(age))
+        if level >= SPECIES_AT:
+            out.append("Something %s left it." % _bulk(track.size)
+                       if track.size else "Something left it.")
+        return out
 
     what = track.name if level >= SPECIES_AT else "something"
     lead = "%s tracks%s." % (

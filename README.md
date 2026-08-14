@@ -519,6 +519,11 @@ thing you can dig. Standing in a fire hurts and armour helps little; it also
 throws light, so you are extremely visible next to one. In the fortress, magma
 sets light to anything flammable near it.
 
+**What a fight leaves behind.** Cut hard enough and limbs come off, land where
+they were taken and say whose they were. Blood falls on anything — including
+the bare rock a footprint will not hold — and outlasts the prints, so a wounded
+thing running into a cave can still be followed.
+
 **Living off the land.** Pick what is growing — a shrub gives a handful, grass
 mostly gives nothing, and herbalism decides which. Fish, with a rod and open
 water, for a couple of hours at a time and often for nothing. In the fortress

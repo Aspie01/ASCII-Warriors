@@ -407,7 +407,7 @@ def _handle_danger(fort, dwarf) -> bool:
 
     if dist <= 1 and foe.z == dwarf.z:
         release_job(fort, dwarf)
-        combat.timed_strike(dwarf, foe, rng=fort.rng, log=fort.log)
+        combat.timed_strike(dwarf, foe, rng=fort.rng, log=fort.log, ground=fort)
         if foe.body.dead:
             fort.kill_creature(foe)
         return True

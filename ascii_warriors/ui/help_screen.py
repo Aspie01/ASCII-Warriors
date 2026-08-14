@@ -274,6 +274,12 @@ you are extremely visible next to one -- worth remembering if you are sneaking.
 In the fortress, magma sets fire to anything flammable near it. Keep the
 woodpile away from the forge.
 
+WHAT A FIGHT LEAVES
+
+Cut hard enough and things come off. A severed arm lands where it was taken
+and says whose it was; so does everything else a heavy weapon can remove.
+Corpses, limbs and blood are all still there when you come back.
+
 LIVING OFF THE LAND
 
 Press N to pick what is growing under or beside you. A shrub is worth picking
@@ -516,7 +522,11 @@ that something passed and nothing else. Trained, in order: which way it went,
 what it was, how long ago, how many, and whether it was hurt. A trail of blood
 outlasts the footprints and does not care what it fell on.
 
-Rock takes no print, so a trail stops at the cave mouth. Snow holds one for
+Blood is the exception: it falls on anything, including bare rock, and lasts
+longer than a footprint. On stone it is only blood — there is no print to read
+a heading or a species from, and it will not pretend otherwise.
+
+Rock takes no print, so a trail of footprints stops at the cave mouth. Snow holds one for
 days and sand loses it by evening. Rain washes the lot away -- go after the
 storm, not during it.
 

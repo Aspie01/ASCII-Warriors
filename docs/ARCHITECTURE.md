@@ -3038,7 +3038,34 @@ seven had been picked. They return `(id, count)` pairs now and name the catch
 before it goes in the pack. The test that caught it was comparing a skilled
 herbalist against an unskilled one and getting zero from the better of them.
 
-## 85. Style
+## 85. What a fight leaves behind (v3.25)
+
+**Severed limbs did not exist.** `combat.severed_items` builds them, checking
+the body model's `severed` flag and the wound's age so the same arm is not
+dropped twice, and `item.severed_part` names them -- "a goblin left lower leg",
+with the species recorded on the item. Both were complete. **Neither had ever
+been called.** You could take a goblin's arm off with an axe and the arm was
+nowhere. They drop now, in both modes: `melee_attack` gained a `ground`
+parameter separate from `world`, because `world` is what turns on v3.6's
+ambush rules and the fortress deliberately passes none -- it wants the limbs
+without the stealth. Measured: 200 axe duels against goblins leave 386 pieces
+on the floor.
+
+**Blood did not fall on stone.** `tracks.leave` returned early unless the
+ground took a print, so a bleeding creature crossing rock recorded nothing --
+while `BLOOD_FADE`'s own comment said "blood outlasts a footprint and does not
+care what it fell on", the fade logic already gave it its own longer life, and
+the help screen promised the player a trail that "does not care what it fell
+on". Three places describing behaviour the one function that mattered did not
+have. A wounded thing running into a cave is exactly when a trail is worth
+following and exactly where there was none.
+
+Blood marks any ground now. A mark on bare rock carries `printed = False`, and
+`read` reports it as blood and nothing else: no heading, no species from the
+depth of a print that is not there. Inventing the missing half would be worse
+than the bug.
+
+## 86. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

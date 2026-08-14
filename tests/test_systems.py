@@ -5403,3 +5403,164 @@ class TestLivingOffTheLand(GameFixture):
         self.assertIn("fish_food", ITEMS)
         self.assertIn("carp", CREATURES)
         self.assertIn("cook_fish", RECIPES)
+
+
+class TestAftermath(GameFixture):
+    """What a fight leaves on the floor."""
+
+    def setUp(self):
+        super().setUp()
+        from ascii_warriors.game import tracks
+
+        self.tracks = tracks
+        self.p = self.game.player
+
+    def _butcher(self, seed="a"):
+        """Somebody who can take a limb off in one swing."""
+        from ascii_warriors.game.entity import make_creature
+        from ascii_warriors.game.item import make_item
+
+        c = make_creature(RNG(seed), "human", equip=False)
+        c.inventory.equip(make_item(RNG("i"), "great_axe", material="steel"))
+        c.skills.set_level("axe", 14)
+        c.attributes.set("strength", 2400)
+        return c
+
+    # -- severed limbs ------------------------------------------------------- #
+
+    def test_a_limb_that_comes_off_lands_on_the_floor(self):
+        from ascii_warriors.game import combat
+        from ascii_warriors.game.entity import make_creature
+
+        found = 0
+        for i in range(40):
+            a = self._butcher("a%d" % i)
+            d = make_creature(RNG("d%d" % i), "goblin", equip=False)
+            d.x, d.y, d.z = self.p.x, self.p.y, self.p.z
+            for _ in range(20):
+                combat.melee_attack(a, d, rng=RNG("f%d" % i), ground=self.game)
+                if d.body.dead:
+                    break
+            found = sum(1 for pile in self.game.items_on_ground.values()
+                        for it in pile if it.def_id == "severed_part")
+            if found:
+                break
+        self.assertGreater(found, 0, "nothing was ever cut off")
+
+    def test_and_it_says_whose_it_was(self):
+        from ascii_warriors.game.item import severed_part
+        from ascii_warriors.game.entity import make_creature
+
+        gob = make_creature(RNG("g"), "goblin", equip=False)
+        item = severed_part(gob, "left hand")
+        self.assertIn("goblin", item.name())
+        self.assertIn("left hand", item.name())
+        self.assertEqual(item.flags.get("creature"), "goblin")
+
+    def test_the_same_limb_is_not_dropped_twice(self):
+        from ascii_warriors.game import combat
+        from ascii_warriors.game.entity import make_creature
+
+        d = make_creature(RNG("d"), "goblin", equip=False)
+        d.x, d.y, d.z = self.p.x, self.p.y, self.p.z
+        # A blow big enough to take the arm off outright, then ask twice.
+        # A hand needs more than a hand's worth of momentum; the forearm goes.
+        part = d.body.parts["left_arm_lower"]
+        d.body.apply_damage("left_arm_lower", "edge", 900000, 60, 9000, RNG("x"))
+        self.assertTrue(part.severed, "that blow did not take the arm off")
+        first = combat.severed_items(d, RNG("s"))
+        second = combat.severed_items(d, RNG("s"))
+        self.assertTrue(first)
+        self.assertEqual(second, [])
+
+    def test_the_fortress_gets_them_too(self):
+        """`timed_strike` is the fortress's melee path; the limb has to land
+        there as well, without turning on the ambush rules it deliberately
+        leaves off."""
+        from ascii_warriors.game import combat
+        from ascii_warriors.game.entity import make_creature
+
+        d = make_creature(RNG("d"), "goblin", equip=False)
+        d.x, d.y, d.z = self.p.x, self.p.y, self.p.z
+        d.body.apply_damage("left_arm_lower", "edge", 900000, 60, 9000, RNG("x"))
+        self.assertTrue(d.body.parts["left_arm_lower"].severed)
+        a = self._butcher()
+        a.swing_bank = 10000        # do not wait on the swing clock
+        combat.timed_strike(a, d, rng=RNG("t"), ground=self.game)
+        dropped = [it for pile in self.game.items_on_ground.values()
+                   for it in pile if it.def_id == "severed_part"]
+        self.assertTrue(dropped)
+
+    # -- blood --------------------------------------------------------------- #
+
+    def _bleed(self):
+        self.p.body.apply_damage("upper_body", "edge", 60000, 30, 4000,
+                                 RNG("cut"))
+        if self.p.body.bleeding_rate() <= 0:
+            self.skipTest("that wound did not bleed")
+
+    def test_blood_falls_on_ground_that_takes_no_print(self):
+        """`BLOOD_FADE` has said so since v3.9 and the help screen promises it."""
+        lm = self.game.local
+        cell = (self.p.x, self.p.y, self.p.z)
+        lm.set_tile(cell[0], cell[1], cell[2], "stone_floor")
+        self.assertFalse(self.tracks.takes_print(self.game, cell))
+        self._bleed()
+        track = self.tracks.leave(self.game, self.p, (cell[0] - 1, cell[1], cell[2]))
+        self.assertIsNotNone(track)
+        self.assertTrue(track.blood)
+        self.assertFalse(track.printed)
+
+    def test_but_an_unhurt_walker_leaves_nothing_on_stone(self):
+        lm = self.game.local
+        cell = (self.p.x, self.p.y, self.p.z)
+        lm.set_tile(cell[0], cell[1], cell[2], "stone_floor")
+        for part in self.p.body.parts.values():
+            part.wounds.clear()
+        self.assertIsNone(
+            self.tracks.leave(self.game, self.p, (cell[0] - 1, cell[1], cell[2])))
+
+    def test_blood_on_stone_does_not_pretend_to_be_a_footprint(self):
+        lm = self.game.local
+        cell = (self.p.x, self.p.y, self.p.z)
+        lm.set_tile(cell[0], cell[1], cell[2], "stone_floor")
+        self._bleed()
+        track = self.tracks.leave(self.game, self.p, (cell[0] - 1, cell[1], cell[2]))
+        self.p.skills.set_level("tracker", 12)
+        lines = " ".join(self.tracks.read(self.game, self.p, cell, track))
+        self.assertIn("lood", lines)
+        self.assertNotIn("head", lines)      # no heading off bare stone
+        self.assertNotIn("tracks", lines)
+
+    def test_a_print_still_reads_as_a_print(self):
+        lm = self.game.local
+        cell = (self.p.x, self.p.y, self.p.z)
+        lm.set_tile(cell[0], cell[1], cell[2], "mud")
+        track = self.tracks.leave(self.game, self.p, (cell[0] - 1, cell[1], cell[2]))
+        self.assertTrue(track.printed)
+        self.p.skills.set_level("tracker", 12)
+        lines = " ".join(self.tracks.read(self.game, self.p, cell, track))
+        self.assertIn("head", lines)
+
+    def test_blood_outlasts_a_footprint(self):
+        bloody = self.tracks.Track("wolf", "wolf", 40000, 1, 0, 0)
+        bloody.blood = True
+        plain = self.tracks.Track("wolf", "wolf", 40000, 1, 0, 0)
+        cell = (self.p.x, self.p.y, self.p.z)
+        self.game.local.set_tile(cell[0], cell[1], cell[2], "grass")
+        self.assertGreater(self.tracks.fade_ticks(self.game, cell, bloody),
+                           self.tracks.fade_ticks(self.game, cell, plain))
+
+    def test_the_mark_survives_a_save(self):
+        from ascii_warriors.game.state import Game
+
+        lm = self.game.local
+        cell = (self.p.x, self.p.y, self.p.z)
+        lm.set_tile(cell[0], cell[1], cell[2], "stone_floor")
+        self._bleed()
+        self.tracks.leave(self.game, self.p, (cell[0] - 1, cell[1], cell[2]))
+        back = Game.from_dict(self.game.to_dict())
+        mark = self.tracks.layer(back).get(cell)
+        self.assertIsNotNone(mark)
+        self.assertTrue(mark.blood)
+        self.assertFalse(mark.printed)

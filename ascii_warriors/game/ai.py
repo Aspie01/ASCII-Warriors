@@ -278,7 +278,8 @@ def _move_to(creature, game, cell: Tuple[int, int, int]) -> bool:
             result = combat.melee_attack(
                 creature, occupant, rng=game.rng,
                 log=game.log if game.can_see_creature(creature)
-                or occupant.is_player else None)
+                or occupant.is_player else None,
+                ground=game)
             creature.ai.last_cost = result.cost
             if result.killed:
                 from . import feeding
@@ -354,7 +355,8 @@ def take_turn(creature, game) -> int:
         if dist <= 1 and creature.z == target.z:
             visible = game.can_see_creature(creature) or target.is_player
             result = combat.melee_attack(creature, target, rng=game.rng,
-                                         log=game.log if visible else None)
+                                         log=game.log if visible else None,
+                                         ground=game)
             return result.cost
         # Shoot if we can.
         weapon = creature.inventory.weapon()

@@ -355,7 +355,7 @@ def _hostiles(fort, ticks: int) -> None:
             geometry.chebyshev(foe.x, foe.y, d.x, d.y) + abs(foe.z - d.z) * 4))
         dist = geometry.chebyshev(foe.x, foe.y, prey.x, prey.y)
         if dist <= 1 and foe.z == prey.z:
-            combat.timed_strike(foe, prey, rng=fort.rng, log=fort.log)
+            combat.timed_strike(foe, prey, rng=fort.rng, log=fort.log, ground=fort)
             if prey.body.dead:
                 fort.kill_creature(prey)
             continue

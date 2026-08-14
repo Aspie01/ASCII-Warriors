@@ -237,7 +237,8 @@ def attack_cost(attacker, weapon: Optional[Item], attack_def: AttackDef) -> int:
 
 
 def timed_strike(attacker, defender, *, rng: RNG, log=None,
-                 weapon: Optional[Item] = None) -> Optional[AttackResult]:
+                 weapon: Optional[Item] = None,
+                 ground=None) -> Optional[AttackResult]:
     """One step of a melee in a mode with no energy scheduler.
 
     A fortress steps every creature once per tick regardless of what it is
@@ -265,7 +266,26 @@ def timed_strike(attacker, defender, *, rng: RNG, log=None,
         return None
     attacker.swing_bank = bank - cost
     return melee_attack(attacker, defender, weapon=weapon,
-                        attack_def=attack_def, rng=rng, log=log)
+                        attack_def=attack_def, rng=rng, log=log,
+                        ground=ground)
+
+
+def _drop_severed(defender, rng: RNG, where, result) -> None:
+    """Put whatever was just cut off on the floor.
+
+    `severed_items` has built these since limbs could come off and **nothing
+    had ever called it**: the body model tracked the severed part, the item
+    factory named it ("a goblin left hand"), and the arm itself did not exist.
+    """
+    if where is None:
+        return
+    drop = getattr(where, "drop_item", None)
+    if drop is None:
+        return
+    for item in severed_items(defender, rng):
+        drop(item, defender.x, defender.y, defender.z)
+        result.add("%s falls to the ground." % item.name(article=True).capitalize(),
+                   colors.UI["danger"])
 
 
 def _wear_gear(attacker, weapon, defender, piece, rng: RNG, log) -> None:
@@ -425,12 +445,16 @@ def melee_attack(
     rng: RNG,
     log=None,
     world=None,
+    ground=None,
 ) -> AttackResult:
     """Resolve one melee strike.
 
     Pass *world* to let the strike know whether the defender had noticed the
     attacker. Without it every attack is a fair fight, which is what the two
     fortress loops want and is why it is optional.
+
+    *ground* is where anything cut off lands, and is separate for exactly that
+    reason: the fortress wants the limbs without wanting the ambush rules.
     """
     result = AttackResult()
     if attacker.body.dead or defender.body.dead:
@@ -563,6 +587,8 @@ def melee_attack(
     attacker.add_exp("fighter", 10)
     _wear_gear(attacker, weapon, defender, outer if absorbed > 0 else None,
                rng, log)
+    _drop_severed(defender, rng, ground if ground is not None else world,
+                  result)
     if ambush:
         stealth.on_ambush(world, attacker, defender)
 
