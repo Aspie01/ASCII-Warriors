@@ -1073,6 +1073,17 @@ class Fortress:
         self.drop_item(Item("log", self.rng.choice(["oak", "pine", "willow"])),
                        *cell)
 
+    def _finish_fish(self, dwarf, job: Job) -> None:
+        """A dwarf comes back from the water, with or without anything."""
+        from ..game import foraging
+
+        if not self.rng.chance(foraging.fish_chance(dwarf)):
+            dwarf.add_exp("fishing", 10)
+            return
+        count = self.rng.randint(*foraging.FISH_YIELD)
+        self.drop_item(Item("fish_food", "meat", count=count), *job.cell)
+        dwarf.add_exp("fishing", 25)
+
     def _finish_gather(self, dwarf, job: Job) -> None:
         cell = job.cell
         self.dig_out(cell, "grass")

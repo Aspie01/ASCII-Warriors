@@ -3007,7 +3007,38 @@ One crash went in and out with it: the new prey branch wrote to `creature.ai`,
 which `pick_mode` may be asked about before `take_turn` has built one. It was
 the first branch there ever to write to that state.
 
-## 84. Style
+## 84. Living off the land (v3.24)
+
+Two whole chains, each missing one link.
+
+**Fishing.** The `fishing` skill is in the skill table. The `fishing` labor is
+in the fortress labor list and the hunter profession carries it. `fishing_rod`
+is in the item table. `fish_food` is in the item table, in the fortress larder,
+in the stockpile categories and on the sidebar's food list. `cook_fish` is in
+the crafting table. Carp and pike swim in the bestiary on a `fish` body plan
+written for them. **Nobody, in either mode, had ever caught a fish.** Both can
+now: an adventurer with a rod beside open water, and a fortress that posts
+`fish` work when the larder is short of it.
+
+**Gathering.** The fortress has had herbalism wired end to end since it had
+farms -- a dwarf gathers plants, sows them, harvests them and gets better at
+it. An adventurer standing on the same shrub could do nothing at all. v3.23
+gave the wilderness animals that eat; this is the half where you can too.
+
+Both are slow on purpose. An afternoon at the water is an afternoon not
+walking, which is what makes a survival mechanic a decision. And both are
+capped where they need to be: `FISH_STOCK` stops a fortress fishing once the
+larder is full, and `MAX_ANGLERS` stops it putting everybody on the bank.
+
+**A bug in my own return value.** `gather` and `fish` first returned the
+`Item` they had made -- and `Inventory.add` merges a stack into one already
+carried, leaving the passed item holding nothing. A yield of seven berries
+read back as zero, and the message built from it said "a plump helmet" when
+seven had been picked. They return `(id, count)` pairs now and name the catch
+before it goes in the pack. The test that caught it was comparing a skilled
+herbalist against an unskilled one and getting zero from the better of them.
+
+## 85. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

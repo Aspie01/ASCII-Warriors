@@ -629,7 +629,7 @@ def scan_jobs(fort) -> int:
     _prune(fort)
     budget = MAX_NEW_JOBS
     for scanner in (_scan_hospital, _scan_levers, _scan_military,
-                    _scan_designations, _scan_animals,
+                    _scan_designations, _scan_animals, _scan_fishing,
                     _scan_buildings, _scan_farms, _scan_workshops,
                     _scan_stockpiles):
         if budget <= 0:
@@ -900,6 +900,50 @@ def _scan_animals(fort, budget: int) -> int:
                        work=40, target=beast.id, priority=4)
         posted += 1
     return posted
+
+
+#: How much fish a fortress keeps on hand before it stops sending anybody
+#: out to stand by the water. A larder, not a fishery.
+FISH_STOCK = 30
+
+#: How long one catch takes, and how many rods may be out at once. Fishing is
+#: an afternoon; a fortress that put everybody on the bank would starve.
+FISH_WORK = 300
+MAX_ANGLERS = 2
+
+
+def _scan_fishing(fort, budget: int) -> int:
+    """Post work for the `fishing` labor.
+
+    The labor has been in the list since there was a list, the hunter carries
+    it, and `fish_food` is stocked, cooked and eaten -- and no dwarf had ever
+    been given anything to do with any of it.
+    """
+    if budget <= 0 or fort.stock_count("fish_food") >= FISH_STOCK:
+        return 0
+    live = sum(1 for j in fort.jobs.jobs.values() if j.kind == "fish")
+    if live >= MAX_ANGLERS:
+        return 0
+    spot = _fishing_spot(fort)
+    if spot is None:
+        return 0
+    fort.jobs.make("fish", *spot, labor="fishing", skill="fishing",
+                   work=FISH_WORK, priority=3)
+    return 1
+
+
+def _fishing_spot(fort):
+    """Somewhere a dwarf can stand and reach open water."""
+    lm = fort.local
+    for cell in fort.water_sources():
+        for dx, dy in geometry.DIRS8:
+            stand = (cell[0] + dx, cell[1] + dy, cell[2])
+            if not lm.walkable(*stand):
+                continue
+            if fort.jobs.has_job_at("fish", stand):
+                continue
+            return stand
+    return None
 
 
 def _scan_designations(fort, budget: int) -> int:

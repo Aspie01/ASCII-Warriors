@@ -5241,3 +5241,165 @@ class TestFoodChain(GameFixture):
             if deer.needs.hunger < before:
                 return
         self.fail("it never reached the grass")
+
+
+class TestLivingOffTheLand(GameFixture):
+    """Whole chains missing one link: nobody could fish, and only dwarves
+    could pick anything."""
+
+    def setUp(self):
+        super().setUp()
+        from ascii_warriors.game import foraging
+
+        self.foraging = foraging
+        self.p = self.game.player
+
+    def _here(self):
+        return (self.p.x, self.p.y, self.p.z)
+
+    # -- gathering ----------------------------------------------------------- #
+
+    def test_a_shrub_is_worth_picking(self):
+        cell = self._here()
+        self.game.local.set_tile(cell[0], cell[1], cell[2], "shrub")
+        self.assertEqual(self.foraging.gatherable(self.game, cell), "shrub")
+
+    def test_and_bare_rock_is_not(self):
+        cell = self._here()
+        self.game.local.set_tile(cell[0], cell[1], cell[2], "rock_wall")
+        self.assertEqual(self.foraging.gatherable(self.game, cell), "")
+
+    def test_picking_a_shrub_gives_you_something_and_leaves_grass(self):
+        cell = self._here()
+        self.game.local.set_tile(cell[0], cell[1], cell[2], "shrub")
+        items, said = self.foraging.gather(self.game, self.p, RNG("g"))
+        self.assertTrue(items, said)
+        what, count = items[0]
+        self.assertGreater(count, 0)
+        self.assertTrue(self.p.inventory.by_def(what))
+        self.assertEqual(self.game.local.tile(*cell), "grass")
+
+    def test_a_better_herbalist_gets_more(self):
+        lm = self.game.local
+        cell = self._here()
+        best = {}
+        for level in (0, 12):
+            self.p.skills.set_level("herbalism", level)
+            total = 0
+            for i in range(8):
+                lm.set_tile(cell[0], cell[1], cell[2], "shrub")
+                items, _ = self.foraging.gather(self.game, self.p, RNG("g%d" % i))
+                total += sum(n for _what, n in items)
+            best[level] = total
+        self.assertGreater(best[12], best[0])
+
+    def test_gathering_trains_the_skill_the_fortress_has_always_used(self):
+        cell = self._here()
+        self.game.local.set_tile(cell[0], cell[1], cell[2], "shrub")
+        before = self.p.skills.experience("herbalism") \
+            if hasattr(self.p.skills, "experience") else None
+        self.foraging.gather(self.game, self.p, RNG("g"))
+        self.assertGreaterEqual(self.p.skills.level("herbalism"), 0)
+        if before is not None:
+            self.assertGreater(self.p.skills.experience("herbalism"), before)
+
+    def test_nothing_growing_means_nothing_picked(self):
+        lm = self.game.local
+        p = self.p
+        for dx in range(-1, 2):
+            for dy in range(-1, 2):
+                cell = (p.x + dx, p.y + dy, p.z)
+                if lm.in_bounds(*cell):
+                    lm.set_tile(cell[0], cell[1], cell[2], "dirt")
+        items, said = self.foraging.gather(self.game, p, RNG("g"))
+        self.assertEqual(items, [])
+        self.assertIn("nothing growing", said)
+
+    def test_the_action_costs_time(self):
+        from ascii_warriors.game import actions
+
+        cell = self._here()
+        self.game.local.set_tile(cell[0], cell[1], cell[2], "shrub")
+        self.assertGreater(actions.gather_here(self.game), 0)
+
+    # -- fishing ------------------------------------------------------------- #
+
+    def test_you_need_the_rod_the_item_table_has_always_had(self):
+        from ascii_warriors.data.items import ITEMS
+
+        self.assertIn("fishing_rod", ITEMS)
+        self.assertFalse(self.foraging.has_rod(self.p))
+        items, said = self.foraging.fish(self.game, self.p, RNG("f"))
+        self.assertEqual(items, [])
+        self.assertIn("no fishing rod", said)
+
+    def test_and_water_to_put_it_in(self):
+        from ascii_warriors.game.item import Item
+
+        self.p.inventory.add(Item("fishing_rod", "oak"))
+        lm = self.game.local
+        for dx in range(-1, 2):
+            for dy in range(-1, 2):
+                cell = (self.p.x + dx, self.p.y + dy, self.p.z)
+                if lm.in_bounds(*cell):
+                    lm.set_tile(cell[0], cell[1], cell[2], "dirt")
+        items, said = self.foraging.fish(self.game, self.p, RNG("f"))
+        self.assertEqual(items, [])
+        self.assertIn("no water", said)
+
+    def test_with_both_you_catch_fish(self):
+        from ascii_warriors.game.item import Item
+
+        self.p.inventory.add(Item("fishing_rod", "oak"))
+        self.p.skills.set_level("fishing", 8)
+        lm = self.game.local
+        lm.set_tile(self.p.x + 1, self.p.y, self.p.z, "water")
+        caught = 0
+        for i in range(20):
+            items, _said = self.foraging.fish(self.game, self.p, RNG("f%d" % i))
+            caught += sum(n for _what, n in items)
+        self.assertGreater(caught, 0)
+        self.assertTrue(any(i.def_id == "fish_food" for i in self.p.inventory.items))
+
+    def test_a_better_angler_catches_more_often(self):
+        self.p.skills.set_level("fishing", 0)
+        poor = self.foraging.fish_chance(self.p)
+        self.p.skills.set_level("fishing", 14)
+        self.assertGreater(self.foraging.fish_chance(self.p), poor)
+        self.assertLessEqual(self.foraging.fish_chance(self.p),
+                             self.foraging.FISH_MAX)
+
+    def test_fishing_takes_most_of_an_afternoon(self):
+        from ascii_warriors.game import actions
+        from ascii_warriors.game.item import Item
+
+        self.p.inventory.add(Item("fishing_rod", "oak"))
+        self.game.local.set_tile(self.p.x + 1, self.p.y, self.p.z, "water")
+        self.assertGreater(actions.fish_here(self.game),
+                           self.foraging.GATHER_TURNS)
+
+    def test_and_not_with_something_watching(self):
+        from ascii_warriors.game import actions
+        from ascii_warriors.game.entity import make_creature
+        from ascii_warriors.game.item import Item
+
+        self.p.inventory.add(Item("fishing_rod", "oak"))
+        self.game.local.set_tile(self.p.x + 1, self.p.y, self.p.z, "water")
+        foe = make_creature(RNG("g"), "goblin", faction="hostile")
+        foe.x, foe.y, foe.z = self.p.x + 2, self.p.y, self.p.z
+        self.game.creatures[foe.id] = foe
+        self.game.update_fov() if hasattr(self.game, "update_fov") else None
+        if not self.game.hostiles_in_sight():
+            self.skipTest("the goblin is not actually in sight")
+        self.assertEqual(actions.fish_here(self.game), 0)
+
+    def test_the_whole_chain_the_fish_was_missing_from(self):
+        from ascii_warriors.data.creatures import CREATURES
+        from ascii_warriors.data.items import ITEMS
+        from ascii_warriors.game.crafting import RECIPES
+        from ascii_warriors.game.skills import SKILLS
+
+        self.assertIn("fishing", SKILLS)
+        self.assertIn("fish_food", ITEMS)
+        self.assertIn("carp", CREATURES)
+        self.assertIn("cook_fish", RECIPES)

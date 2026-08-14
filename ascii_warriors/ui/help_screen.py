@@ -274,6 +274,19 @@ you are extremely visible next to one -- worth remembering if you are sneaking.
 In the fortress, magma sets fire to anything flammable near it. Keep the
 woodpile away from the forge.
 
+LIVING OFF THE LAND
+
+Press N to pick what is growing under or beside you. A shrub is worth picking
+and gives you a proper handful; grass is worth searching and usually is not.
+Herbalism decides how much you get.
+
+Press Y to fish, with a fishing rod in your pack and open water beside you. It
+takes a couple of hours and often catches nothing, and fishing skill decides
+how often it does. Not with company.
+
+In the fortress, dwarves with the fishing labor go and stand by the water when
+the larder is short of fish, and stop when it is not.
+
 THE FOOD CHAIN
 
 The wilderness feeds itself. Grazers eat grass, predators hunt and scavenge,

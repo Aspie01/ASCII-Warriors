@@ -845,6 +845,40 @@ def write_book(game, item: Optional[Item] = None, kind: str = "") -> int:
     return turns
 
 
+def gather_here(game) -> int:
+    """Pick what is growing under or beside you.
+
+    The fortress has had herbalism wired end to end since it had farms; an
+    adventurer standing on the same shrub could do nothing at all.
+    """
+    from . import foraging
+
+    items, said = foraging.gather(game, game.player, game.rng)
+    game.log.good(said) if items else game.log.info(said)
+    game.player.needs.exert(6)
+    return foraging.GATHER_TURNS if items or "search" in said else FREE
+
+
+def fish_here(game) -> int:
+    """Spend a while at the water's edge.
+
+    `fishing` is a skill, a fortress labor and the hunter's trade, `fish_food`
+    is stocked, cooked and eaten, carp and pike swim in the bestiary -- and
+    until now nobody in either mode had ever caught one.
+    """
+    from . import foraging
+
+    if game.hostiles_in_sight():
+        game.log.warn("Not with company.")
+        return FREE
+    items, said = foraging.fish(game, game.player, game.rng)
+    if not items and ("no fishing rod" in said or "no water" in said):
+        game.log.warn(said)
+        return FREE
+    game.log.good(said) if items else game.log.info(said)
+    return foraging.FISH_TURNS
+
+
 def craft_recipe(game, recipe) -> int:
     """Make something."""
     ok, msg = crafting.craft(game.player, recipe, game)

@@ -273,6 +273,10 @@ class PlayScene(Scene):
             cost = actions.sharpen(game)
         elif key == "V":
             cost = actions.write_book(game)
+        elif key == "N":
+            cost = actions.gather_here(game)
+        elif key == "Y":
+            cost = actions.fish_here(game)
         elif key == "s":
             cost = actions.search(game)
         elif key == "S":

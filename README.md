@@ -519,6 +519,11 @@ thing you can dig. Standing in a fire hurts and armour helps little; it also
 throws light, so you are extremely visible next to one. In the fortress, magma
 sets light to anything flammable near it.
 
+**Living off the land.** Pick what is growing — a shrub gives a handful, grass
+mostly gives nothing, and herbalism decides which. Fish, with a rod and open
+water, for a couple of hours at a time and often for nothing. In the fortress
+dwarves with the fishing labor go to the water when the larder is short.
+
 **A wilderness that feeds itself.** Grazers eat, predators hunt and scavenge,
 and size decides what counts as prey — a wolf takes a deer but not a bear, and
 a pack takes an elk one wolf would leave alone. Prey runs from predators, not

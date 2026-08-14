@@ -4912,3 +4912,65 @@ class TestNerveInTheFortress(unittest.TestCase):
         for _ in range(400):
             sim.step(fort)
         self.assertLess(dwarf.shaken, 1.0)
+
+
+class TestFishing(unittest.TestCase):
+    """The `fishing` labor has been in the list since there was a list."""
+
+    def test_the_labor_exists_and_the_hunter_carries_it(self):
+        from ascii_warriors.fortress.labors import LABORS, PROFESSION_LABORS
+
+        self.assertIn("fishing", LABORS)
+        self.assertIn("fishing", PROFESSION_LABORS.get("hunter", ()))
+
+    def test_a_fortress_by_water_posts_fishing_work(self):
+        fort = embark("fishjob")
+        if not fort.water_sources():
+            self.skipTest("this embark has no open water")
+        for d in fort.dwarves():
+            d.fort.labors.enable("fishing")
+        for _ in range(400):
+            sim.step(fort)
+            if any(j.kind == "fish" for j in fort.jobs.jobs.values()):
+                return
+        self.fail("nobody was ever sent to the water")
+
+    def test_and_the_fish_arrive(self):
+        fort = embark("fishcatch")
+        if not fort.water_sources():
+            self.skipTest("this embark has no open water")
+        for d in fort.dwarves():
+            d.fort.labors.enable("fishing")
+        before = fort.stock_count("fish_food")
+        for _ in range(3000):
+            sim.step(fort)
+            if fort.stock_count("fish_food") > before:
+                return
+        self.fail("nothing was ever caught")
+
+    def test_a_full_larder_stops_the_fishing(self):
+        from ascii_warriors.fortress import sim as sim_mod
+        from ascii_warriors.game.item import Item
+
+        fort = embark("fishenough")
+        for d in fort.dwarves():
+            d.fort.labors.enable("fishing")
+        spot = fort.dwarves()[0]
+        fort.drop_item(Item("fish_food", "meat", count=sim_mod.FISH_STOCK + 5),
+                       spot.x, spot.y, spot.z)
+        self.assertEqual(sim_mod._scan_fishing(fort, 4), 0)
+
+    def test_never_more_than_a_couple_of_anglers(self):
+        from ascii_warriors.fortress import sim as sim_mod
+
+        fort = embark("fishcrowd")
+        if not fort.water_sources():
+            self.skipTest("this embark has no open water")
+        for d in fort.dwarves():
+            d.fort.labors.enable("fishing")
+        live = 0
+        for _ in range(600):
+            sim.step(fort)
+            live = max(live, sum(1 for j in fort.jobs.jobs.values()
+                                 if j.kind == "fish"))
+        self.assertLessEqual(live, sim_mod.MAX_ANGLERS)
