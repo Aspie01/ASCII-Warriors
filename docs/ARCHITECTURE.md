@@ -2789,7 +2789,52 @@ fire with you, still alight, at the same coordinates, over water or inside a
 wall. Four layers made the same mistake four times. They go through
 `_store_layers`/`_restore_layers` now, and the map cache carries them.
 
-## 79. Style
+## 79. The weight of a blow (v3.19)
+
+`prepare` and `recover` -- the wind-up and the follow-through -- have been on
+every attack in the item table and every natural attack in the creature table
+since both were written, and nothing had ever read either of them. A dagger
+flick and a maul swing each cost one action, so the only question a weapon
+ever asked was how hard it hit. The energy scheduler to express the answer has
+been there since v1.
+
+`combat.attack_cost` prices one strike against `ACTION_COST`, out of three
+things: the attack's own `prepare + recover`; how heavy the weapon is for
+*this* creature, measured against `carry_capacity`, which already knows size
+and strength; and skill, which shaves up to a third off. `AttackResult.cost`
+carries it out, and every melee path spends it -- bump-attack included, which
+is the one the player actually uses and the one a "second path" would have
+quietly left at a flat cost.
+
+**What the table actually says**, read rather than assumed: thrusting is quick
+(4), blades and spears are ordinary (5-6), and everything that chops or bashes
+is slow (8). A dagger and a sword have *identical* swing times; what separates
+them is weight, and weight only bites a creature not big enough for the
+weapon. So a dwarf swings a sword and a dagger at the same rate, a kobold does
+not, and a maul is 0.58 blows a turn for a dwarf against 0.75 for a stronger
+human. `speed_word` has three words because the data has three clusters;
+finer words would be inventing resolution.
+
+Both ends of the band are reached, by the right things: a bare fist sits on
+the floor because a bare fist is the fastest attack there is, and a kobold
+that has picked up a maul sits on the ceiling. What stops speed from beating
+weight is not the floor -- it is armour. Measured over four hundred duels
+against an armoured human, a dagger swinging half again as often kills 3 times
+in 400 where a great axe kills 342: momentum has to clear the tissue's yield
+before it does anything at all.
+
+**The fortress has no energy scheduler** -- it steps every creature once per
+tick whatever it is holding -- so `combat.timed_strike` banks a standard
+action each step and swings only when it has saved enough, carrying the
+change. A hammerer really does land fewer blows than a swordsman over a siege,
+without the fortress needing a second time model. A tantrum still goes through
+`melee_attack` directly: it is one outburst, not an exchange.
+
+`ArmorDef.permit_size` is also unread, and was left that way. It is `0` for
+every piece in the table, so making it real means authoring a column rather
+than reading one -- a different kind of change from this.
+
+## 80. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

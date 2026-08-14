@@ -285,12 +285,12 @@ def move_or_attack(game, dx: int, dy: int) -> int:
     target = game.creature_at(nx, ny, nz)
     if target is not None:
         if p.is_hostile_to(target) or target.is_hostile_to(p):
-            combat.melee_attack(p, target, rng=game.rng, log=game.log,
-                                world=game)
+            result = combat.melee_attack(p, target, rng=game.rng,
+                                         log=game.log, world=game)
             if target.body.dead:
                 game.kill_creature(target)
             p.needs.exert(8)
-            return NORMAL
+            return result.cost
         game.log.info("%s is in your way." % target.display_name())
         return FREE
 
@@ -580,12 +580,12 @@ def attack_dir(game, dx: int, dy: int, *, part: Optional[str] = None) -> int:
     if target is None:
         game.log.info("There is nothing there to attack.")
         return FREE
-    combat.melee_attack(p, target, target_part=part, rng=game.rng,
-                        log=game.log, world=game)
+    result = combat.melee_attack(p, target, target_part=part, rng=game.rng,
+                                 log=game.log, world=game)
     if target.body.dead:
         game.kill_creature(target)
     p.needs.exert(10)
-    return NORMAL
+    return result.cost
 
 
 def wrestle(game, dx: int, dy: int, move: str) -> int:

@@ -15,6 +15,7 @@ from ..data import materials as mat_data
 from ..data.items import AttackDef, PUNCH
 from ..engine import colors
 from ..engine.rng import RNG
+from ..engine.scheduler import ACTION_COST
 from ..engine.screen import Frag
 from .item import Item, severed_part
 from .skills import skill_bonus
@@ -46,6 +47,9 @@ class AttackResult:
     parried: bool = False
     #: Set when the defender had not noticed the attacker.
     ambush: bool = False
+    #: Energy the strike took, against `ACTION_COST` for a standard action.
+    #: A maul is worth nearly two sword-blows of somebody else's time.
+    cost: int = ACTION_COST
 
     def add(self, text: str, color=None) -> None:
         """Append a message fragment."""
@@ -123,6 +127,112 @@ def compute_momentum(attacker, weapon: Optional[Item], attack_def: AttackDef) ->
         momentum *= 0.75
     momentum *= max(0.5, 1.0 - attacker.body.pain_level() * 0.4)
     return max(1.0, momentum)
+
+
+# --------------------------------------------------------------------------- #
+# How long a blow takes
+# --------------------------------------------------------------------------- #
+#
+# `prepare` and `recover` -- the wind-up and the follow-through -- have been on
+# every attack in the item table and every natural attack in the creature table
+# since both were written, and nothing had ever read either of them. A dagger
+# flick and a maul swing cost one action each, so the only question a weapon
+# ever asked was how hard it hit.
+
+#: The swing the table is calibrated around: a sword, `prepare` 3 and
+#: `recover` 3. Everything else is time relative to that.
+BASELINE_SWING = 6
+
+#: What a creature swings freely, as a share of what it can carry. Under this
+#: the weapon costs nothing extra; over it, the swing starts to drag -- which
+#: is how the same maul is a slow weapon for a dwarf and an ordinary one for a
+#: strong human.
+EASY_SWING = 0.15
+
+#: What each unit of weight over that costs.
+HEFT_PENALTY = 0.55
+
+#: What each level of skill shaves off. A legendary weapon-user has cut a
+#: third from the time, which is worth about one extra blow in three.
+SKILL_RELIEF = 0.022
+
+#: The band an attack can occupy. Both ends are reached, and by the right
+#: things: a bare fist is the fastest attack there is and sits on the floor,
+#: and a kobold that has picked up a maul sits on the ceiling. What stops the
+#: floor from making volume beat weight is not this number, it is armour --
+#: a dagger swings half again as often as a sword and still cannot get
+#: through a breastplate, because momentum has to clear the tissue's yield
+#: before it does anything at all.
+FASTEST = 0.55
+SLOWEST = 2.20
+
+
+def swing_time(attack_def: AttackDef) -> int:
+    """The wind-up and follow-through of one attack, in the table's units."""
+    return (attack_def.prepare + attack_def.recover) or BASELINE_SWING
+
+
+def heft(attacker, weapon: Optional[Item]) -> float:
+    """How heavy a weapon is for whoever is holding it. 1.0 is the easy limit.
+
+    Measured against `carry_capacity`, which already knows the creature's size
+    and strength, so a kobold and a dragon get the same question asked in
+    their own terms.
+    """
+    if weapon is None:
+        return 0.0
+    easy = attacker.carry_capacity() * EASY_SWING
+    if easy <= 0:
+        return 0.0
+    return weapon.unit_weight / easy
+
+
+def attack_cost(attacker, weapon: Optional[Item], attack_def: AttackDef) -> int:
+    """Energy one strike costs, against `ACTION_COST` for a standard action.
+
+    A dagger is most of two blows to a sword's one and a maul is most of two
+    sword-blows' worth of time, so a weapon is finally a trade rather than a
+    damage figure. Wounds are deliberately not in here: `effective_speed`
+    already charges for pain and a mangled arm, and charging twice for the
+    same injury is how a hurt creature stops being able to act at all.
+    """
+    factor = swing_time(attack_def) / float(BASELINE_SWING)
+    factor *= 1.0 + HEFT_PENALTY * max(0.0, heft(attacker, weapon) - 1.0)
+    skill = attacker.skills.level(_skill_for_weapon(attacker, weapon))
+    factor *= max(0.5, 1.0 - SKILL_RELIEF * skill)
+    return int(ACTION_COST * max(FASTEST, min(SLOWEST, factor)))
+
+
+def timed_strike(attacker, defender, *, rng: RNG, log=None,
+                 weapon: Optional[Item] = None) -> Optional[AttackResult]:
+    """One step of a melee in a mode with no energy scheduler.
+
+    A fortress steps every creature once per tick regardless of what it is
+    holding, so `attack_cost` has nowhere to be spent there. This banks a
+    standard action's worth of time each step and swings only once it has
+    saved up enough, carrying the change -- so a hammerer really does land
+    fewer blows than a swordsman over the same siege, without the fortress
+    needing an energy model of its own.
+
+    Returns ``None`` on the steps spent winding up.
+    """
+    if weapon is None:
+        weapon = attacker.inventory.weapon()
+        if weapon is not None and weapon.is_ranged:
+            weapon = None
+    # Chosen once and handed on: pricing one attack and then swinging
+    # whichever the next roll picks would charge for a swing nobody made,
+    # and would spend a draw doing it.
+    attack_def = choose_attack(attacker, weapon, rng)
+
+    bank = getattr(attacker, "swing_bank", 0.0) + ACTION_COST
+    cost = attack_cost(attacker, weapon, attack_def)
+    if bank < cost:
+        attacker.swing_bank = bank
+        return None
+    attacker.swing_bank = bank - cost
+    return melee_attack(attacker, defender, weapon=weapon,
+                        attack_def=attack_def, rng=rng, log=log)
 
 
 def attack_material(weapon: Optional[Item], attack_def: AttackDef):
@@ -291,6 +401,7 @@ def melee_attack(
             weapon = None
     if attack_def is None:
         attack_def = choose_attack(attacker, weapon, rng)
+    result.cost = attack_cost(attacker, weapon, attack_def)
 
     skill_id = _skill_for_weapon(attacker, weapon)
     chance = to_hit_chance(attacker, defender, skill_id)

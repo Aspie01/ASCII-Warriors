@@ -14,6 +14,7 @@ from ascii_warriors.game.entity import make_creature
 from ascii_warriors.game.item import Item, starting_kit
 from ascii_warriors.game.state import Game
 from ascii_warriors.game.weather import KINDS, Weather, starting_weather
+from ascii_warriors.engine.scheduler import ACTION_COST
 from ascii_warriors.world.worldgen import generate_world
 
 
@@ -4148,3 +4149,188 @@ class TestMapLayersStayOnTheirMap(GameFixture):
         self.assertFalse(self.game.frost.any_ice)
         self.assertEqual(self.game.traps, {})
         self.assertEqual(self.game.webs, {})
+
+
+class TestSwingTime(unittest.TestCase):
+    """`prepare` and `recover`, on every attack since the table was written,
+    finally costing somebody time."""
+
+    def _who(self, race="dwarf"):
+        from ascii_warriors.game.entity import make_creature
+
+        return make_creature(RNG("swing"), race, equip=False)
+
+    def _armed(self, wid, race="dwarf", material="iron", skill=0):
+        from ascii_warriors.game.item import make_item
+
+        c = self._who(race)
+        it = make_item(RNG("i"), wid, material=material)
+        c.inventory.equip(it)
+        if skill:
+            c.skills.set_level(it.defn.weapon.skill, skill)
+        return c, it
+
+    def _blows(self, c, it):
+        from ascii_warriors.data.items import PUNCH
+        from ascii_warriors.game import combat
+
+        attacks = it.defn.weapon.attacks if it is not None else (PUNCH,)
+        costs = [combat.attack_cost(c, it, a) for a in attacks]
+        return ACTION_COST * len(costs) / float(sum(costs))
+
+    # -- the dead fields ----------------------------------------------------- #
+
+    def test_swing_time_is_prepare_plus_recover(self):
+        from ascii_warriors.data.items import ITEMS
+        from ascii_warriors.game import combat
+
+        a = ITEMS["maul"].weapon.attacks[0]
+        self.assertEqual(combat.swing_time(a), a.prepare + a.recover)
+        self.assertGreater(a.prepare, 0)
+
+    def test_chopping_is_slower_than_thrusting(self):
+        from ascii_warriors.data.items import ITEMS
+        from ascii_warriors.game import combat
+
+        hack = next(a for a in ITEMS["battle_axe"].weapon.attacks
+                    if a.name == "hack")
+        stab = next(a for a in ITEMS["spear"].weapon.attacks if a.name == "stab")
+        self.assertGreater(combat.swing_time(hack), combat.swing_time(stab))
+
+    def test_an_axe_lands_fewer_blows_than_a_sword(self):
+        sword, si = self._armed("sword")
+        axe, ai = self._armed("battle_axe")
+        self.assertGreater(self._blows(sword, si), self._blows(axe, ai))
+
+    def test_a_bare_fist_is_the_quickest_thing_there_is(self):
+        c = self._who()
+        fastest = self._blows(c, None)
+        for wid in ("dagger", "sword", "spear", "maul"):
+            armed, it = self._armed(wid)
+            self.assertGreater(fastest, self._blows(armed, it), wid)
+
+    # -- weight -------------------------------------------------------------- #
+
+    def test_a_weapon_you_can_barely_lift_is_slow(self):
+        from ascii_warriors.game import combat
+
+        small, it = self._armed("maul", race="kobold")
+        big, it2 = self._armed("maul", race="human")
+        self.assertGreater(combat.heft(small, it), 1.0)
+        self.assertLess(self._blows(small, it), self._blows(big, it2))
+
+    def test_the_same_maul_is_quicker_in_stronger_hands(self):
+        dwarf, di = self._armed("maul", race="dwarf")
+        human, hi = self._armed("maul", race="human")
+        self.assertGreater(self._blows(human, hi), self._blows(dwarf, di))
+
+    def test_a_light_weapon_costs_nothing_extra_to_anybody(self):
+        from ascii_warriors.game import combat
+
+        for race in ("dwarf", "human", "kobold"):
+            c, it = self._armed("dagger", race=race)
+            self.assertLessEqual(combat.heft(c, it), 1.0, race)
+
+    def test_bare_hands_have_no_heft(self):
+        from ascii_warriors.game import combat
+
+        self.assertEqual(combat.heft(self._who(), None), 0.0)
+
+    # -- skill --------------------------------------------------------------- #
+
+    def test_skill_buys_you_time(self):
+        raw, ri = self._armed("maul", skill=0)
+        able, ai = self._armed("maul", skill=15)
+        self.assertGreater(self._blows(able, ai), self._blows(raw, ri))
+
+    def test_but_never_without_limit(self):
+        from ascii_warriors.game import combat
+
+        c, it = self._armed("maul", skill=20)
+        a = it.defn.weapon.attacks[0]
+        self.assertGreaterEqual(combat.attack_cost(c, it, a),
+                                int(ACTION_COST * combat.FASTEST))
+
+    def test_the_band_holds_at_both_ends(self):
+        from ascii_warriors.data.items import PUNCH
+        from ascii_warriors.game import combat
+
+        floor = int(ACTION_COST * combat.FASTEST)
+        ceiling = int(ACTION_COST * combat.SLOWEST)
+        self.assertEqual(combat.attack_cost(self._who(), None, PUNCH), floor)
+        small, it = self._armed("maul", race="kobold")
+        self.assertLessEqual(
+            combat.attack_cost(small, it, it.defn.weapon.attacks[0]), ceiling)
+
+    # -- it reaches the scheduler -------------------------------------------- #
+
+    def test_a_strike_reports_what_it_cost(self):
+        from ascii_warriors.game import combat
+
+        a, it = self._armed("maul")
+        d = self._who("human")
+        r = combat.melee_attack(a, d, rng=RNG("hit"))
+        self.assertGreater(r.cost, ACTION_COST)
+
+    def test_and_a_quick_one_reports_less(self):
+        from ascii_warriors.game import combat
+
+        a = self._who()
+        d = self._who("human")
+        r = combat.melee_attack(a, d, rng=RNG("hit"))
+        self.assertLess(r.cost, ACTION_COST)
+
+    def test_the_fortress_banks_time_instead_of_spending_it(self):
+        """A fortress steps everyone once a step, so a slow weapon has to
+        wait rather than cost."""
+        from ascii_warriors.game import combat
+
+        a, it = self._armed("maul")
+        cost = combat.attack_cost(a, it, it.defn.weapon.attacks[0])
+        swings = 0
+        for _ in range(20):
+            d = self._who("human")      # a fresh target, so nobody dies early
+            if combat.timed_strike(a, d, rng=RNG("bank")) is not None:
+                swings += 1
+        self.assertEqual(swings, 20 * ACTION_COST // cost)
+        self.assertLess(swings, 20)
+
+    def test_a_quick_fighter_never_waits(self):
+        from ascii_warriors.game import combat
+
+        a = self._who()          # bare hands: cheaper than a standard action
+        d = self._who("human")
+        for _ in range(6):
+            self.assertIsNotNone(combat.timed_strike(a, d, rng=RNG("q")))
+
+    def test_the_bank_survives_a_save(self):
+        from ascii_warriors.game.entity import Creature
+
+        c = self._who()
+        c.swing_bank = 37.0
+        self.assertAlmostEqual(
+            Creature.from_dict(c.to_dict()).swing_bank, 37.0, places=2)
+
+    # -- what the player is told --------------------------------------------- #
+
+    def test_a_weapon_says_how_quick_it_is(self):
+        from ascii_warriors.game.item import speed_word
+
+        c, maul = self._armed("maul")
+        text = " ".join(maul.full_description(c))
+        self.assertIn("Speed: slow", text)
+        self.assertIn("blows per turn", text)
+        self.assertIn("heavy for you", text)
+        self.assertEqual(speed_word(4.0), "fast")
+
+    def test_and_a_quick_one_says_so(self):
+        c, pike = self._armed("pike")
+        self.assertIn("Speed: fast", " ".join(pike.full_description(c)))
+
+    def test_a_description_still_works_with_nobody_holding_it(self):
+        from ascii_warriors.game.item import make_item
+
+        text = " ".join(make_item(RNG("i"), "maul", material="iron")
+                        .full_description())
+        self.assertIn("Speed: slow", text)
+        self.assertNotIn("blows per turn", text)

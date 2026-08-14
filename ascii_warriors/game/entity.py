@@ -110,6 +110,9 @@ class Creature:
         self.forms: List[int] = []
         #: Venom currently working in this creature.
         self.venom: List[Any] = []
+        #: Time saved up toward the next swing, for the fortress, which
+        #: steps everybody once regardless of what they are holding.
+        self.swing_bank = 0.0
         #: How the weather is going, -1.0 freezing to death through 0.0
         #: comfortable to +1.0 collapsing in the heat. A number that moves
         #: rather than a threshold that trips, so there is time to turn back.
@@ -467,6 +470,8 @@ class Creature:
             d["venom"] = venom_mod.to_list(self)
         if self.exposure:
             d["exposure"] = round(self.exposure, 4)
+        if self.swing_bank:
+            d["swing_bank"] = round(self.swing_bank, 2)
         if self.tame or self.tame_tries:
             d["tame"] = [self.tame, self.tame_tries]
         if self.mount is not None:
@@ -530,6 +535,7 @@ class Creature:
 
             venom_mod.from_list(c, d["venom"])
         c.exposure = float(d.get("exposure", 0.0))
+        c.swing_bank = float(d.get("swing_bank", 0.0))
         tame = d.get("tame")
         if tame:
             c.tame, c.tame_tries = bool(tame[0]), int(tame[1])

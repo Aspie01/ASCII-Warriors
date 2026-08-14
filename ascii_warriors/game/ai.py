@@ -26,7 +26,7 @@ class AIState:
 
     __slots__ = (
         "mode", "target_id", "home", "path", "alertness", "last_seen",
-        "leader_id", "role", "patience", "site_id",
+        "leader_id", "role", "patience", "site_id", "last_cost",
     )
 
     def __init__(self, mode: str = "idle", role: str = "") -> None:
@@ -40,6 +40,12 @@ class AIState:
         self.role = role
         self.patience = 0
         self.site_id: Optional[int] = None
+        #: What the last action actually cost. The stepping helpers return
+        #: whether they did something, not how long it took, and only
+        #: `_move_to` knows it ended in a swing rather than a step -- so it
+        #: leaves the figure here for `take_turn` to charge. Not saved: it is
+        #: spent the moment it is read.
+        self.last_cost = 0
 
     def to_dict(self) -> Dict[str, Any]:
         """Serialise the AI state."""
@@ -246,15 +252,24 @@ def _move_to(creature, game, cell: Tuple[int, int, int]) -> bool:
     occupant = game.creature_at(x, y, z)
     if occupant is not None and occupant is not creature:
         if creature.is_hostile_to(occupant):
-            combat.melee_attack(creature, occupant, rng=game.rng,
-                                log=game.log if game.can_see_creature(creature)
-                                or occupant.is_player else None)
+            result = combat.melee_attack(
+                creature, occupant, rng=game.rng,
+                log=game.log if game.can_see_creature(creature)
+                or occupant.is_player else None)
+            creature.ai.last_cost = result.cost
             return True
         return False
     if not game.is_passable(x, y, z, creature):
         return False
     game.move_creature(creature, x, y, z)
     return True
+
+
+def _spent(creature) -> int:
+    """What the action just taken cost, defaulting to a standard action."""
+    cost = creature.ai.last_cost or ACTION_COST
+    creature.ai.last_cost = 0
+    return cost
 
 
 def take_turn(creature, game) -> int:
@@ -264,7 +279,7 @@ def take_turn(creature, game) -> int:
     ai = creature.ai
 
     if not creature.can_act():
-        return ACTION_COST
+        return _spent(creature)
 
     # Before anything else: a necromancer with a corpse in front of it does
     # not chase you, it makes the corpse chase you.
@@ -272,7 +287,7 @@ def take_turn(creature, game) -> int:
 
     if night.necromancy_turn(game, creature):
         ai.mode = "raise"
-        return ACTION_COST
+        return _spent(creature)
 
     # Nor does a creature in a web go anywhere until it is out of it.
     from . import webs
@@ -282,7 +297,7 @@ def take_turn(creature, game) -> int:
         if said and game.can_see_creature(creature):
             game.log.info(said)
         ai.mode = "stuck"
-        return ACTION_COST
+        return _spent(creature)
 
     # A spinner throws one at what it is hunting, ahead of where that is now.
     if webs.spins(creature):
@@ -291,7 +306,7 @@ def take_turn(creature, game) -> int:
             ai.mode = "spin"
             if prey is not None and prey.is_player:
                 game.log.warn("%s throws a web!" % creature.short_name().capitalize())
-            return ACTION_COST
+            return _spent(creature)
 
     mode = pick_mode(creature, game)
     ai.mode = mode
@@ -299,7 +314,7 @@ def take_turn(creature, game) -> int:
     if mode == "sleep":
         creature.needs.sleep(ACTION_COST)
         creature.body.rest_heal(ACTION_COST, creature.attributes.factor("recuperation"))
-        return ACTION_COST
+        return _spent(creature)
 
     if mode == "hunt":
         target = game.creatures.get(ai.target_id) if ai.target_id else None
@@ -307,13 +322,13 @@ def take_turn(creature, game) -> int:
             ai.target_id = None
             ai.last_seen = None
             _wander_step(creature, game)
-            return ACTION_COST
+            return _spent(creature)
         dist = creature.distance_to(target)
         if dist <= 1 and creature.z == target.z:
             visible = game.can_see_creature(creature) or target.is_player
-            combat.melee_attack(creature, target, rng=game.rng,
-                                log=game.log if visible else None)
-            return ACTION_COST
+            result = combat.melee_attack(creature, target, rng=game.rng,
+                                         log=game.log if visible else None)
+            return result.cost
         # Shoot if we can.
         weapon = creature.inventory.weapon()
         ammo = creature.inventory.ammo()
@@ -324,15 +339,15 @@ def take_turn(creature, game) -> int:
             visible = game.can_see_creature(creature) or target.is_player
             combat.ranged_attack(creature, target, weapon, ammo, rng=game.rng,
                                  log=game.log if visible else None)
-            return ACTION_COST
+            return _spent(creature)
         _step_toward(creature, game, target.x, target.y, target.z)
-        return ACTION_COST
+        return _spent(creature)
 
     if mode == "lurk":
         # Hold absolutely still. Moving is what gives a hidden thing away --
         # v3.6 charges ten points of stealth for a step -- so an ambusher
         # waiting in cover is an ambusher that stays in cover.
-        return ACTION_COST
+        return _spent(creature)
 
     if mode == "flee":
         from . import wild
@@ -347,7 +362,7 @@ def take_turn(creature, game) -> int:
             _step_away(creature, game, target.x, target.y)
         else:
             _wander_step(creature, game)
-        return ACTION_COST
+        return _spent(creature)
 
     if mode == "guard":
         if ai.home is not None:
@@ -357,7 +372,7 @@ def take_turn(creature, game) -> int:
                 _step_toward(creature, game, hx, hy, hz)
             elif game.rng.chance(0.4):
                 _wander_step(creature, game)
-        return ACTION_COST
+        return _spent(creature)
 
     if mode == "follow":
         leader = game.creatures.get(ai.leader_id) if ai.leader_id else None
@@ -365,14 +380,14 @@ def take_turn(creature, game) -> int:
             _step_toward(creature, game, leader.x, leader.y, leader.z)
         elif game.rng.chance(0.3):
             _wander_step(creature, game)
-        return ACTION_COST
+        return _spent(creature)
 
     if mode in ("wander", "graze"):
         if game.rng.chance(0.75):
             _wander_step(creature, game)
-        return ACTION_COST
+        return _spent(creature)
 
-    return ACTION_COST
+    return _spent(creature)
 
 
 def _web_prey(creature, game):

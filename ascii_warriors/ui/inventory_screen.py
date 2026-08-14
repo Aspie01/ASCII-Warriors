@@ -103,7 +103,7 @@ class InventoryScene(Scene):
         if item is not None and detail_w > 12:
             scr.vline(detail_x - 2, 3, scr.height - 6, "|", colors.UI["frame"])
             row = 3
-            for line in item.full_description():
+            for line in item.full_description(self.game.player):
                 if row >= scr.height - 4:
                     break
                 colour = colors.UI["title"] if row == 3 else colors.UI["fg"]

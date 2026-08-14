@@ -519,6 +519,14 @@ thing you can dig. Standing in a fire hurts and armour helps little; it also
 throws light, so you are extremely visible next to one. In the fortress, magma
 sets light to anything flammable near it.
 
+**The weight of a blow.** A weapon takes as long to swing as it deserves.
+Thrusting is quick, chopping and bashing are slow, and anything too heavy for
+you is slower still — the same maul plods for a dwarf and swings normally for
+someone strong enough to carry it. Skill buys the time back. Winding up is time
+everything else gets to move, so a great axe means taking more hits between
+your own — and none of that makes a dagger good, because a blow still has to be
+hard enough to get through armour before its speed counts for anything.
+
 **Cold and heat.** The temperature follows the region, the season, the hour and
 the weather, and what you are wearing is what keeps it off you — a cloak, a
 hood and boots beat a suit of iron plate, which insulates almost nothing and is

@@ -13,6 +13,7 @@ from ..data.items import AttackDef, ItemDef
 from ..data.materials import Material
 from ..engine import colors
 from ..engine.rng import RNG
+from ..engine.scheduler import ACTION_COST
 from ..engine.screen import Frag
 
 QUALITY_NAMES = (
@@ -24,6 +25,23 @@ QUALITY_NAMES = (
 QUALITY_VALUE = (1.0, 1.5, 2.0, 3.0, 4.0, 5.0, 10.0)
 #: Quality level -> combat effectiveness multiplier.
 QUALITY_BONUS = (1.0, 1.05, 1.10, 1.15, 1.20, 1.30, 1.50)
+
+
+#: What to call a swing, by how long it takes. Three words because the table
+#: has three clusters and not one more: everything that thrusts is 4, blades
+#: and spears are 5 to 6, and everything that chops or bashes is 8. Finer
+#: words would be inventing detail the data does not have.
+SWING_WORDS: Sequence[tuple] = (
+    (4.0, "fast"), (6.0, "average"), (99.0, "slow"),
+)
+
+
+def speed_word(swing: float) -> str:
+    """A word for how long an attack takes."""
+    for edge, word in SWING_WORDS:
+        if swing <= edge:
+            return word
+    return SWING_WORDS[-1][1]
 
 
 class Item:
@@ -173,8 +191,13 @@ class Item:
             col = colors.MAGIC
         return [Frag(text, col)]
 
-    def full_description(self) -> List[str]:
-        """Multi-line description for the examine screen."""
+    def full_description(self, owner=None) -> List[str]:
+        """Multi-line description for the examine screen.
+
+        Pass *owner* to price the swing for whoever is holding it: the same
+        maul is a slow weapon for a dwarf and an ordinary one for somebody
+        strong enough to carry it comfortably.
+        """
         d = self.defn
         lines: List[str] = [self.name(article=True)]
         if d.description:
@@ -198,6 +221,7 @@ class Item:
                     "  %s (%s), contact %d, penetration %d"
                     % (a.name, a.kind, a.contact, a.penetration)
                 )
+            lines.extend(self._swing_lines(owner))
             if d.weapon.two_handed_size:
                 lines.append(
                     "Needs two hands for creatures under %d cm3."
@@ -215,6 +239,26 @@ class Item:
         if d.hydration:
             lines.append("Hydration: %d" % d.hydration)
         return lines
+
+    def _swing_lines(self, owner) -> List[str]:
+        """How quick this weapon is, and how quick it is in these hands."""
+        from . import combat
+
+        d = self.defn
+        if d.weapon is None or not d.weapon.attacks:
+            return []
+        out = ["Speed: %s" % speed_word(
+            sum(combat.swing_time(a) for a in d.weapon.attacks)
+            / float(len(d.weapon.attacks)))]
+        if owner is None:
+            return out
+        costs = [combat.attack_cost(owner, self, a) for a in d.weapon.attacks]
+        blows = ACTION_COST * len(costs) / float(sum(costs))
+        out.append("  %.2f blows per turn in your hands." % blows)
+        load = combat.heft(owner, self)
+        if load > 1.0:
+            out.append("  It is heavy for you, and slow because of it.")
+        return out
 
     # -- predicates -------------------------------------------------------- #
 

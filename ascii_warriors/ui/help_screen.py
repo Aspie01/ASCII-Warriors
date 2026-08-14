@@ -274,6 +274,23 @@ you are extremely visible next to one -- worth remembering if you are sneaking.
 In the fortress, magma sets fire to anything flammable near it. Keep the
 woodpile away from the forge.
 
+WEAPON SPEED
+
+A blow takes as long as the weapon makes it take. Thrusting is quick, chopping
+and bashing are slow, and a weapon too heavy for you is slower still -- so the
+same maul is a plodding weapon for a dwarf and an ordinary one for somebody
+strong enough to carry it easily. Skill buys time back: a legendary hammerer
+swings about as often as an untrained swordsman.
+
+The examine screen tells you how many blows a weapon is worth per turn in your
+hands, and warns you when it is too heavy for you. Time you spend winding up
+is time everything else gets to move, so a great axe means taking more hits
+between your own.
+
+None of which makes a light weapon better. A dagger swings half again as often
+as an axe and still cannot get through a breastplate: a blow has to be hard
+enough to matter before speed matters at all.
+
 COLD AND HEAT
 
 The sidebar shows the temperature where you are standing. It follows the
