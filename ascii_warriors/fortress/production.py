@@ -88,6 +88,23 @@ _r("cloth_bandage", "Bandages", "craftsdwarf", "leatherwork", (("CLOTH", 1),),
 _r("spin_wool", "Spin wool", "craftsdwarf", "leatherwork", (("wool", 2),),
    "cloth", 1, 180, "Two fleeces make a bolt.", out_material="wool_cloth")
 _r("rope", "Rope", "craftsdwarf", "crafting", (("hide", 2),), "rope", 1, 180)
+
+# -- the clothier ------------------------------------------------------------ #
+# v3.18 dressed every dwarf and v3.20 wears those clothes out, so a fortress
+# needs to be able to make more. Without these a long game ends with dwarves
+# in rags, and since v3.18 rags are how a dwarf freezes.
+_r("sew_tunic", "Tunic", "craftsdwarf", "leatherwork", (("CLOTH", 1),),
+   "tunic", 1, 160, "Somebody has to keep making these.",
+   out_material="wool_cloth")
+_r("sew_trousers", "Trousers", "craftsdwarf", "leatherwork", (("CLOTH", 1),),
+   "trousers", 1, 160, out_material="wool_cloth")
+_r("sew_cloak", "Cloak", "craftsdwarf", "leatherwork", (("CLOTH", 2),),
+   "cloak", 1, 220, "For whoever works above ground.",
+   out_material="wool_cloth")
+_r("sew_hood", "Hood", "craftsdwarf", "leatherwork", (("CLOTH", 1),),
+   "hood", 1, 140, out_material="wool_cloth")
+_r("make_shoes", "Shoes", "craftsdwarf", "leatherwork", (("hide", 1),),
+   "shoes", 1, 180)
 _r("hide_drum", "Drum", "craftsdwarf", "leatherwork", (("hide", 1), ("WOOD", 1)),
    "drum", 1, 240)
 _r("bone_flute", "Bone flute", "craftsdwarf", "crafting",

@@ -269,6 +269,8 @@ class PlayScene(Scene):
             cost = actions.disarm_trap(game)
         elif key == "B":
             cost = actions.set_fire(game)
+        elif key == "X":
+            cost = actions.sharpen(game)
         elif key == "s":
             cost = actions.search(game)
         elif key == "S":

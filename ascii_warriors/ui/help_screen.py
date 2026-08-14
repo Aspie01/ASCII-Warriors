@@ -274,6 +274,25 @@ you are extremely visible next to one -- worth remembering if you are sneaking.
 In the fortress, magma sets fire to anything flammable near it. Keep the
 woodpile away from the forge.
 
+WEAR AND REPAIR
+
+Things wear out. A weapon wears from landing blows, armour from stopping them,
+and clothes simply from being worn — metal lasts far longer than cloth, and an
+artifact never wears at all. A worn weapon hits softer and a worn shirt is
+worth less, and when something reaches the end of the scale it falls apart and
+is gone.
+
+Carry a whetstone and press X to put an edge back on a blade. It works on
+things with an edge — a maul is not blunt, it is a maul — and it takes the
+damage back a step rather than making the weapon new.
+
+In the fortress this is why you need a clothier. Dwarves arrive dressed, those
+clothes wear through in about a year, and a dwarf in rags is a dwarf with
+nothing between it and the winter. The craftsdwarf's workshop sews tunics,
+trousers, cloaks and hoods, and makes shoes from hide.
+
+Flint and steel will start a fire without a torch already burning.
+
 WEAPON SPEED
 
 A blow takes as long as the weapon makes it take. Thrusting is quick, chopping

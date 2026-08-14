@@ -357,17 +357,29 @@ class Item:
         self.count -= n
         return clone
 
+    #: The end of the condition scale. `wear_factor` is ``1 - 0.15 * wear``,
+    #: so past 6 it is negative and a weapon starts *subtracting* momentum.
+    #: Nothing used to stop the counter there, because nothing acted on the
+    #: `True` this returns.
+    MAX_WEAR = 3
+
     def wear_tick(self, rng: RNG) -> bool:
-        """Advance wear with a small chance; True if the item is destroyed."""
+        """Advance wear with a small chance; True if the item is finished.
+
+        The caller is expected to act on that `True` -- see
+        :func:`ascii_warriors.game.wear.destroy`. Wear stops at `MAX_WEAR`
+        either way, so an item whose destruction is ignored is merely ruined
+        rather than arithmetically impossible.
+        """
         if self.artifact_id is not None:
             return False
         chance = 0.004 if self.mat.is_metal else 0.012
         if not rng.chance(chance):
             return False
-        self.wear += 1
-        if self.wear > 3:
+        if self.wear >= self.MAX_WEAR:
             return True
-        return False
+        self.wear += 1
+        return self.wear > self.MAX_WEAR
 
     # -- serialisation ----------------------------------------------------- #
 

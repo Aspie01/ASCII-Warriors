@@ -138,8 +138,11 @@ def set_fire(game) -> int:
     from ..world import fire as fire_mod
 
     p = game.player
-    if not fire_mod.carrying_flame(p):
-        game.log.info("You have nothing burning to do it with.")
+    # A lit torch, or the tool that exists to start one. `flint_and_steel`
+    # has been tradeable and lootable since the item table was written and
+    # had never once been asked for.
+    if not fire_mod.carrying_flame(p) and not p.inventory.by_def("flint_and_steel"):
+        game.log.info("You have nothing to strike a light with.")
         return FREE
     for dx, dy in ((0, 0),) + tuple(DIRS8):
         cell = (p.x + dx, p.y + dy, p.z)
@@ -767,6 +770,11 @@ def build_fire(game) -> int:
     if not here.walk or here.has("WATER"):
         game.log.warn("You cannot build a fire here.")
         return FREE
+    from ..world import fire as fire_mod
+
+    if not fire_mod.carrying_flame(p) and not p.inventory.by_def("flint_and_steel"):
+        game.log.warn("You have nothing to strike a light with.")
+        return FREE
     fuel = p.inventory.by_def("log") or p.inventory.by_def("torch")
     if not fuel:
         game.log.warn("You have no fuel.")
@@ -780,6 +788,25 @@ def build_fire(game) -> int:
     game.log.good("You build a campfire.")
     p.needs.add_thought("sat by a warm fire", -4)
     return SLOW
+
+
+def sharpen(game, item: Optional[Item] = None) -> int:
+    """Work a whetstone over a blade.
+
+    The `sharpen_weapon` recipe has been in the crafting table since it was
+    written, taking a whetstone and handing back a whetstone, because until
+    weapons could go blunt there was nothing for it to do.
+    """
+    from . import wear as wear_mod
+
+    p = game.player
+    weapon = item if item is not None else p.inventory.weapon()
+    msg = wear_mod.sharpen(p, weapon, game.rng)
+    if msg.startswith("You put"):
+        game.log.good(msg)
+        return SLOW
+    game.log.info(msg)
+    return FREE
 
 
 def craft_recipe(game, recipe) -> int:

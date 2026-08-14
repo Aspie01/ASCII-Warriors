@@ -110,6 +110,9 @@ class Creature:
         self.forms: List[int] = []
         #: Venom currently working in this creature.
         self.venom: List[Any] = []
+        #: When this creature's clothes are next looked at. Staggered by
+        #: whoever sets it, so a fortress does not check everyone at once.
+        self.next_wear_check = 0
         #: Time saved up toward the next swing, for the fortress, which
         #: steps everybody once regardless of what they are holding.
         self.swing_bank = 0.0
@@ -472,6 +475,8 @@ class Creature:
             d["exposure"] = round(self.exposure, 4)
         if self.swing_bank:
             d["swing_bank"] = round(self.swing_bank, 2)
+        if self.next_wear_check:
+            d["wear_check"] = self.next_wear_check
         if self.tame or self.tame_tries:
             d["tame"] = [self.tame, self.tame_tries]
         if self.mount is not None:
@@ -536,6 +541,7 @@ class Creature:
             venom_mod.from_list(c, d["venom"])
         c.exposure = float(d.get("exposure", 0.0))
         c.swing_bank = float(d.get("swing_bank", 0.0))
+        c.next_wear_check = int(d.get("wear_check", 0))
         tame = d.get("tame")
         if tame:
             c.tame, c.tame_tries = bool(tame[0]), int(tame[1])

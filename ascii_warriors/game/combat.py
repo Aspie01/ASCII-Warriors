@@ -235,6 +235,21 @@ def timed_strike(attacker, defender, *, rng: RNG, log=None,
                         attack_def=attack_def, rng=rng, log=log)
 
 
+def _wear_gear(attacker, weapon, defender, piece, rng: RNG, log) -> None:
+    """Charge a weapon and a piece of armour for the work they just did.
+
+    `wear_tick` was already being called on the weapon and its answer thrown
+    away, so a weapon could be used past the end of the condition scale and
+    nothing was ever destroyed. Armour was never asked at all.
+    """
+    from . import wear as wear_mod
+
+    if weapon is not None:
+        wear_mod.strike(attacker, weapon, rng, log=log)
+    if piece is not None:
+        wear_mod.absorb(defender, piece, rng, log=log)
+
+
 def attack_material(weapon: Optional[Item], attack_def: AttackDef):
     """The material doing the cutting or bashing."""
     if weapon is not None:
@@ -487,6 +502,7 @@ def melee_attack(
             result.add("%s, but the attack glances away." % head, colors.UI["dim"])
         attacker.add_exp(skill_id, 6)
         defender.add_exp("armor_use", 10)
+        _wear_gear(attacker, weapon, defender, outer, rng, log)
         _emit(log, result)
         return result
 
@@ -512,8 +528,8 @@ def melee_attack(
 
     attacker.add_exp(skill_id, 20)
     attacker.add_exp("fighter", 10)
-    if weapon is not None:
-        weapon.wear_tick(rng)
+    _wear_gear(attacker, weapon, defender, outer if absorbed > 0 else None,
+               rng, log)
     if ambush:
         stealth.on_ambush(world, attacker, defender)
 

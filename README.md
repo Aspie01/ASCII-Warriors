@@ -519,6 +519,13 @@ thing you can dig. Standing in a fire hurts and armour helps little; it also
 throws light, so you are extremely visible next to one. In the fortress, magma
 sets light to anything flammable near it.
 
+**Things wear out.** A weapon wears from landing blows, armour from stopping
+them, clothes from being worn — metal far slower than cloth, artifacts never.
+Worn gear hits softer and is worth less, and at the end of the scale it falls
+apart. Carry a whetstone to put an edge back on a blade. In the fortress this
+is why you need a clothier: dwarves arrive dressed, those clothes last about a
+year, and a dwarf in rags has nothing between it and the winter.
+
 **The weight of a blow.** A weapon takes as long to swing as it deserves.
 Thrusting is quick, chopping and bashing are slow, and anything too heavy for
 you is slower still — the same maul plods for a dwarf and swings normally for

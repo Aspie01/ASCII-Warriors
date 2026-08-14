@@ -567,6 +567,21 @@ class Game:
             depth=max(0, self.local.surface_z(x, y) - z), outside=outside)
         return air + heat.source_heat((x, y, z), fire=self.fire)
 
+    def _wear_out(self) -> None:
+        """Clothes wear through, on everyone near enough to matter."""
+        from . import wear as wear_mod
+
+        now = self.time.ticks
+        for c in [self.player] + [
+                c for c in self.creatures.values()
+                if c is not self.player and not c.body.dead
+                and self.can_see_creature(c)]:
+            if not wear_mod.due(c, now):
+                continue
+            wear_mod.mark(c, now)
+            wear_mod.wearing(c, self.rng,
+                             log=self.log if c.is_player else None)
+
     def _weather_bite(self, ticks: int) -> None:
         """What the temperature does to everyone standing in it.
 
@@ -793,6 +808,7 @@ class Game:
 
         self._burn(ticks)
         self._weather_bite(ticks)
+        self._wear_out()
         self._tavern_music(ticks)
 
         if p.body.dead and not self.game_over:

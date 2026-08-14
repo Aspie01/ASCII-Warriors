@@ -128,6 +128,7 @@ def step(fort) -> None:
     _flow(fort, ticks)
     _burn(fort, ticks)
     _chill(fort, ticks)
+    _fray(fort)
     _bodies(fort, ticks)
     _triage(fort)
     for dwarf in list(fort.dwarves()):
@@ -486,6 +487,69 @@ def _chill(fort, ticks: int) -> None:
         if thawed:
             fort.warn_once("thawed", "The ice is breaking up.")
             fort.clear_warning("frozen")
+
+
+def _fray(fort) -> None:
+    """Clothes wear through, and somebody has to make more.
+
+    v3.18 dressed every dwarf and the clothes it gave them would have
+    outlasted the mountain. The point of wearing out is the industry it
+    creates: a fortress with no clothier ends up with cold dwarves in rags,
+    which is the loop this is for and not an accident.
+    """
+    from ..game import wear as wear_mod
+
+    for dwarf in list(fort.dwarves()):
+        if not wear_mod.due(dwarf, fort.ticks):
+            continue
+        wear_mod.mark(dwarf, fort.ticks)
+        for name in wear_mod.wearing(dwarf, fort.rng):
+            fort.log.warn("%s's %s has fallen apart."
+                          % (dwarf.fort.nickname or dwarf.name, name))
+        _reclothe(fort, dwarf)
+
+
+#: What a dwarf will go and put on if it can find one lying about. Exactly
+#: what `make_dwarf` hands out and no more: wanting a cloak it never owned
+#: means every dwarf is permanently under-dressed, and searches every item
+#: pile in the fortress for one, every day, for ever. The same `equip` job a
+#: soldier uses to fetch its uniform -- a second way to pick something up and
+#: put it on is a second way for it to go wrong.
+WARDROBE: Tuple[str, ...] = ("tunic", "trousers", "shoes")
+
+
+def _reclothe(fort, dwarf) -> None:
+    """Send a dwarf to fetch clothes it is missing, if any are made."""
+    from ..game import wear as wear_mod
+
+    worn = {i.def_id for i in dwarf.inventory.equipped.values() if i is not None}
+    wanted = [w for w in WARDROBE if w not in worn]
+    if not wanted:
+        return
+    # Nothing is worth dying of thirst over. A dwarf that needs a drink more
+    # than it needs a shirt gets to have the drink.
+    needs = dwarf.needs
+    if (needs.thirst > dwarf_mod.THIRST_URGENT
+            or needs.hunger > dwarf_mod.HUNGER_URGENT
+            or needs.drowsy > dwarf_mod.SLEEP_URGENT):
+        return
+    if any(j.kind == "equip" and j.assigned == dwarf.id
+           for j in fort.jobs.jobs.values()):
+        return
+    item = _find_kit(fort, wanted)
+    if item is None:
+        if not wear_mod.dressed(dwarf):
+            fort.warn_once("rags",
+                           "Somebody has nothing left to wear. "
+                           "The fortress needs a clothier.")
+        return
+    fort.clear_warning("rags")
+    cell = fort.item_cell(item)
+    if cell is None:
+        return
+    job = fort.jobs.make("equip", cell[0], cell[1], cell[2], labor="hauling",
+                         work=20, target=item.id, priority=6)
+    fort.jobs.assign(job, dwarf)
 
 
 def _traps(fort) -> None:

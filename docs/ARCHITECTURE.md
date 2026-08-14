@@ -2834,7 +2834,48 @@ without the fortress needing a second time model. A tantrum still goes through
 every piece in the table, so making it real means authoring a column rather
 than reading one -- a different kind of change from this.
 
-## 80. Style
+## 80. Wear (v3.20)
+
+`Item.wear_tick` has been on the item class since there were items: a per-call
+chance, a lower one for metal, an exemption for artifacts, and a `True` return
+meaning the thing has finally come apart. It was called from exactly one place
+-- a weapon that lands a blow -- and **its return value was thrown away**.
+
+Because nothing was ever destroyed by use, `wear` had no ceiling. It is
+clamped to 0..3 in the constructor and was incremented without one, so a
+weapon that landed enough blows walked off the end of the scale: `wear_factor`
+is `1 - 0.15 * wear`, which hits zero at 6 and goes **negative** at 7, and
+`compute_momentum` multiplies by it. A well-used sword quietly became worse
+than a bare fist, and the examine screen could not say so because the
+condition names stop at "XX". `wear_tick` clamps at `MAX_WEAR` now and keeps
+returning `True` once there.
+
+**Wear is what use costs**: a weapon wears from landing a blow, armour from
+stopping one, clothing from being worn. The odds live on the item; `wear.py`
+decides how often to ask. Measured at 26 wear points over 6,748 landed blows
+against a predicted 27 -- a sword outlasts a war, and a shirt does not outlast
+a year. Everything that removes a worn-out item goes through `wear.destroy`,
+because an item gone from the hands but still in the pack -- or still on the
+body, or still counted by a stockpile -- is the shape of bug this project
+keeps finding, and four call sites is how it keeps happening.
+
+**The loop this exists for.** v3.18 dressed every dwarf and made rags a way to
+freeze; v3.20 wears those clothes out. So the fortress needed to be able to
+make more, and could not: it had recipes for cloth and none for clothing. It
+has them now, at the craftsdwarf's, and a dwarf missing a garment posts the
+same `equip` job a soldier uses to fetch its uniform -- a second way to pick
+something up and put it on is a second way for it to go wrong. A fortress with
+no clothier ends up with cold dwarves in rags, which is the mechanic and not
+an accident.
+
+Two more dead tools were wired while they were in reach. The `sharpen_weapon`
+recipe took a whetstone and handed back a whetstone, because there was never
+anything blunt; a whetstone now takes an edge back a step, on things that have
+an edge, which a maul does not. And `flint_and_steel` -- tradeable and
+lootable since the item table was written, never once asked for -- now lights
+what v3.17 needed a burning torch for.
+
+## 81. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

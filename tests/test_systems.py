@@ -4334,3 +4334,264 @@ class TestSwingTime(unittest.TestCase):
                         .full_description())
         self.assertIn("Speed: slow", text)
         self.assertNotIn("blows per turn", text)
+
+
+class TestWear(GameFixture):
+    """`wear_tick` was called from one place and its answer thrown away."""
+
+    def setUp(self):
+        super().setUp()
+        from ascii_warriors.game import wear
+
+        self.wear = wear
+
+    def _item(self, wid, material="iron"):
+        from ascii_warriors.game.item import make_item
+
+        return make_item(RNG("i"), wid, material=material)
+
+    # -- the scale ----------------------------------------------------------- #
+
+    def test_wear_stops_at_the_end_of_the_scale(self):
+        it = self._item("sword")
+        rng = RNG("w")
+        for _ in range(5000):
+            it.wear_tick(rng)
+        self.assertEqual(it.wear, it.MAX_WEAR)
+
+    def test_and_so_the_factor_never_goes_negative(self):
+        # 1 - 0.15 * wear is negative from 7 up, and momentum multiplies by it.
+        it = self._item("sword")
+        rng = RNG("w")
+        for _ in range(5000):
+            it.wear_tick(rng)
+        self.assertGreater(it.wear_factor(), 0.0)
+
+    def test_a_ruined_item_keeps_saying_it_is_finished(self):
+        it = self._item("tunic", material="wool_cloth")
+        it.wear = it.MAX_WEAR
+        rng = RNG("w")
+        self.assertTrue(any(it.wear_tick(rng) for _ in range(2000)))
+
+    def test_an_artifact_never_wears(self):
+        it = self._item("sword")
+        it.artifact_id = 1
+        rng = RNG("w")
+        for _ in range(3000):
+            self.assertFalse(it.wear_tick(rng))
+        self.assertEqual(it.wear, 0)
+
+    def test_metal_outlasts_cloth(self):
+        # Over many items, not one: at 0.4% against 1.2% a single pair is
+        # mostly noise, and a test that only passes on a lucky seed is not
+        # measuring anything.
+        rng = RNG("w")
+        metal = [self._item("sword", "iron") for _ in range(40)]
+        cloth = [self._item("tunic", "wool_cloth") for _ in range(40)]
+        for _ in range(120):
+            for it in metal:
+                it.wear_tick(rng)
+            for it in cloth:
+                it.wear_tick(rng)
+        self.assertLess(sum(i.wear for i in metal), sum(i.wear for i in cloth))
+
+    # -- destruction --------------------------------------------------------- #
+
+    def test_destroy_takes_an_item_off_the_body_and_out_of_the_pack(self):
+        p = self.game.player
+        it = self._item("tunic", "wool_cloth")
+        p.inventory.equip(it)
+        self.assertIn(it, p.inventory.items)
+        self.wear.destroy(p, it, log=self.game.log)
+        self.assertNotIn(it, p.inventory.items)
+        self.assertNotIn(it, list(p.inventory.equipped.values()))
+
+    def test_and_off_the_floor_too(self):
+        p = self.game.player
+        it = self._item("tunic", "wool_cloth")
+        cell = (p.x, p.y, p.z)
+        self.game.items_on_ground.setdefault(cell, []).append(it)
+        self.wear.destroy(p, it, world=self.game)
+        self.assertNotIn(it, self.game.items_at(*cell))
+
+    def test_losing_your_clothes_is_worth_a_thought(self):
+        p = self.game.player
+        p.needs.thoughts.clear()
+        it = self._item("tunic", "wool_cloth")
+        p.inventory.equip(it)
+        self.wear.destroy(p, it)
+        self.assertTrue(any("rags" in t[0] for t in p.needs.thoughts))
+
+    def test_losing_a_sword_is_not(self):
+        p = self.game.player
+        p.needs.thoughts.clear()
+        it = self._item("sword")
+        p.inventory.equip(it)
+        self.wear.destroy(p, it)
+        self.assertFalse(any("rags" in t[0] for t in p.needs.thoughts))
+
+    # -- what wears ---------------------------------------------------------- #
+
+    def test_a_weapon_wears_from_landing_blows(self):
+        from ascii_warriors.game import combat
+        from ascii_warriors.game.entity import make_creature
+
+        # 0.4% a landed blow, so one weapon over a few hundred swings is a
+        # coin-flip; ten of them is not.
+        rng = RNG("fight")
+        total = 0
+        for _ in range(10):
+            a = make_creature(rng, "dwarf", equip=False)
+            it = self._item("sword")
+            a.inventory.equip(it)
+            a.skills.set_level("swordsmanship", 12)
+            for _ in range(300):
+                d = make_creature(rng, "human", equip=False)
+                combat.melee_attack(a, d, rng=rng)
+                if it not in a.inventory.items:
+                    break
+            total += it.wear
+        self.assertGreater(total, 0)
+
+    def test_armour_wears_from_stopping_them(self):
+        from ascii_warriors.game import combat
+        from ascii_warriors.game.entity import make_creature
+
+        rng = RNG("fight2")
+        worn = 0
+        for _ in range(40):
+            a = make_creature(rng, "dwarf", equip=False)
+            d = make_creature(rng, "human", equip=False)
+            plate = self._item("breastplate")
+            d.inventory.equip(plate)
+            for _ in range(60):
+                combat.melee_attack(a, d, rng=rng)
+                if d.body.dead:
+                    break
+            worn += plate.wear
+        self.assertGreater(worn, 0)
+
+    def test_clothing_wears_from_being_worn(self):
+        p = self.game.player
+        shirt = self._item("tunic", "wool_cloth")
+        p.inventory.equip(shirt)
+        rng = RNG("time")
+        for _ in range(400):
+            self.wear.wearing(p, rng)
+            if shirt not in p.inventory.items:
+                return
+        self.assertGreater(shirt.wear, 0)
+
+    def test_armour_is_not_worn_out_by_the_clock(self):
+        """It wears from being hit, which is a different clock."""
+        p = self.game.player
+        plate = self._item("breastplate")
+        p.inventory.equip(plate)
+        rng = RNG("time")
+        for _ in range(600):
+            self.wear.wearing(p, rng)
+        self.assertEqual(plate.wear, 0)
+
+    def test_the_check_runs_on_a_cadence(self):
+        p = self.game.player
+        p.next_wear_check = 0
+        self.assertTrue(self.wear.due(p, 0))
+        self.wear.mark(p, 0)
+        self.assertFalse(self.wear.due(p, self.wear.CLOTH_TICKS - 1))
+        self.assertTrue(self.wear.due(p, self.wear.CLOTH_TICKS))
+
+    def test_the_cadence_survives_a_save(self):
+        from ascii_warriors.game.state import Game
+
+        self.game.player.next_wear_check = 4242
+        back = Game.from_dict(self.game.to_dict())
+        self.assertEqual(back.player.next_wear_check, 4242)
+
+    def test_dressed_knows_the_difference(self):
+        from ascii_warriors.game.entity import make_creature
+
+        c = make_creature(RNG("n"), "dwarf", equip=False)
+        self.assertFalse(self.wear.dressed(c))
+        c.inventory.equip(self._item("tunic", "wool_cloth"))
+        self.assertTrue(self.wear.dressed(c))
+
+    # -- the whetstone ------------------------------------------------------- #
+
+    def test_a_whetstone_puts_an_edge_back(self):
+        from ascii_warriors.game.item import Item
+
+        p = self.game.player
+        blade = self._item("sword")
+        blade.wear = 2
+        p.inventory.equip(blade)
+        p.inventory.add(Item("whetstone", "granite"))
+        for _ in range(12):
+            self.wear.sharpen(p, blade, RNG("s%d" % blade.wear))
+            if blade.wear < 2:
+                break
+        self.assertLess(blade.wear, 2)
+
+    def test_but_not_without_one(self):
+        p = self.game.player
+        blade = self._item("sword")
+        blade.wear = 2
+        p.inventory.equip(blade)
+        self.assertIn("no whetstone", self.wear.sharpen(p, blade, RNG("s")))
+        self.assertEqual(blade.wear, 2)
+
+    def test_and_not_on_a_maul(self):
+        from ascii_warriors.game.item import Item
+
+        p = self.game.player
+        maul = self._item("maul")
+        maul.wear = 2
+        p.inventory.add(Item("whetstone", "granite"))
+        self.assertIn("no edge", self.wear.sharpen(p, maul, RNG("s")))
+        self.assertEqual(maul.wear, 2)
+        self.assertFalse(self.wear.can_sharpen(maul))
+        self.assertTrue(self.wear.can_sharpen(self._item("sword")) is False)
+
+    def test_nor_on_something_already_sharp(self):
+        from ascii_warriors.game.item import Item
+
+        p = self.game.player
+        blade = self._item("sword")
+        p.inventory.add(Item("whetstone", "granite"))
+        self.assertIn("already", self.wear.sharpen(p, blade, RNG("s")))
+
+    def test_the_action_reaches_the_player(self):
+        from ascii_warriors.game import actions
+        from ascii_warriors.game.item import Item
+
+        p = self.game.player
+        blade = self._item("sword")
+        blade.wear = 3
+        p.inventory.equip(blade)
+        p.inventory.add(Item("whetstone", "granite"))
+        for _ in range(12):
+            actions.sharpen(self.game)
+            if blade.wear < 3:
+                return
+        self.fail("sharpening never took")
+
+    # -- flint and steel ----------------------------------------------------- #
+
+    def test_flint_and_steel_lights_what_a_torch_would(self):
+        from ascii_warriors.game import actions
+        from ascii_warriors.game.item import Item
+        from ascii_warriors.world import fire as fire_mod
+
+        p = self.game.player
+        lm = self.game.local
+        cell = (p.x, p.y, p.z)
+        lm.set_tile(cell[0], cell[1], cell[2], "tree")
+        for it in list(p.inventory.items):
+            if it.is_light:
+                p.inventory.items.remove(it)
+                p.inventory.unequip_item(it)
+        self.assertFalse(fire_mod.carrying_flame(p))
+        actions.set_fire(self.game)
+        self.assertFalse(self.game.fire.anything_burning)
+        p.inventory.add(Item("flint_and_steel", "iron"))
+        actions.set_fire(self.game)
+        self.assertTrue(self.game.fire.anything_burning)
