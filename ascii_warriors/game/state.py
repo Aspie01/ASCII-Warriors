@@ -802,10 +802,12 @@ class Game:
             if m:
                 self.log.warn(m)
 
+        from . import feeding as feeding_mod
+
         for c in list(self.creatures.values()):
             if c is p or c.body.dead:
                 continue
-            c.needs.tick(ticks, c, self)
+            c.needs.tick(feeding_mod.need_ticks(c, ticks), c, self)
             venom_mod.tick(c, ticks, self.rng)
             c.body.tick(
                 self.rng, ticks, c.attributes.factor("toughness"),

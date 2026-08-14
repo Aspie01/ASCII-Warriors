@@ -274,6 +274,16 @@ you are extremely visible next to one -- worth remembering if you are sneaking.
 In the fortress, magma sets fire to anything flammable near it. Keep the
 woodpile away from the forge.
 
+THE FOOD CHAIN
+
+The wilderness feeds itself. Grazers eat grass, predators hunt and scavenge,
+and what counts as prey depends on size — a wolf takes a deer but not a bear,
+and a pack of wolves will take an elk that one wolf would leave alone.
+
+Prey runs from predators, not only from you, so following a fleeing deer may
+show you what it was running from. A hungry enough animal stops caring who is
+watching and eats anyway.
+
 NERVE
 
 Nothing fights to the death because it happened to be in the room. A creature

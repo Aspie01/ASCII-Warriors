@@ -2963,7 +2963,51 @@ the scenario cannot happen in play. Unreachable code written to fix an
 unreachable bug is the thing this project keeps finding in itself; the test
 for it went out with it.
 
-## 83. Style
+## 83. The food chain (v3.23)
+
+Two halves of one hole. `CreatureDef.diet` classifies all eighty species as
+carnivore, herbivore or omnivore and **nothing had ever read it** -- everything
+wild shares the faction `"wild"`, `is_hostile_to` returns `False` for the same
+faction, so a wolf and a deer were on the same side. And every creature without
+`NO_EAT` has accrued hunger and thirst since needs existed, with no way to
+answer either: **46 animals on a fresh map, all alive on day three, 43 of them
+dead of thirst on day four.** The three survivors were the undead and the
+megabeasts, who are exempt. The wilderness was a peaceable kingdom in which
+nothing ate anything and everything quietly died of thirst.
+
+`feeding` reads the diet and answers the clock. Animals graze what they are
+standing on, scavenge carrion, and hunt -- and `is_prey` is not a straight
+size comparison, because a wolf is 40 litres and a deer is 100. A hunter takes
+up to `PREY_RATIO` of its own size, and `PACK_REACH` extends that per packmate.
+That constant was sized against the bestiary rather than guessed: at first it
+was decoration, because nothing in the table sat between a lone wolf's reach
+and a pack of four's. Three wolves bring down an elk now, which is what a pack
+is for.
+
+**Two things the fix had to admit.** A local map draws no water at all unless
+the world tile is a river or a lake -- a temperate forest generates 1,647
+cells of grass and zero of water -- so an animal that could only drink from
+terrain could not drink in most of the world. Grass and meat are mostly water,
+which is where a great many real animals get most of theirs, and that is the
+honest model at a resolution with no puddles in it. And `Needs` was written
+for somebody with a waterskin: `WILD_NEED_SCALE` runs an animal's clock
+slower, not as a fudge but because it is foraging continuously in ways the map
+has no cells for. What the clock is still for is the interesting part -- when
+to hunt, when to graze, and when to do either with something watching.
+
+**The mistake this made, and the rule that fixed it.** `pick_mode` asks
+`wild.frightener` before anything else, so the moment prey started running
+from predators, a rabbit within sight of a fox fled until it died of thirst
+standing on grass. Hunger and thirst outrank fear past `DESPERATE_THIRST`,
+which is what a real animal does and the only thing that lets prey and
+predator share a map. Measured after: 42 of 42 alive on day four, and by day
+fourteen the commonest cause of death is being eaten.
+
+One crash went in and out with it: the new prey branch wrote to `creature.ai`,
+which `pick_mode` may be asked about before `take_turn` has built one. It was
+the first branch there ever to write to that state.
+
+## 84. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

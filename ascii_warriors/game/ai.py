@@ -16,6 +16,7 @@ from . import combat
 
 MODES = (
     "idle", "wander", "hunt", "flee", "follow", "sleep", "guard", "graze",
+    "forage",
     "lurk",
     "travel", "talk", "raise",
 )
@@ -145,7 +146,14 @@ def pick_mode(creature, game) -> str:
     if creature.body.unconscious > 0:
         return "sleep"
 
-    from . import wild
+    from . import feeding, wild
+
+    # Hunger and thirst outrank fear, once they are bad enough. Fear is asked
+    # first here and always was; the moment prey started running from
+    # predators, a rabbit in sight of a fox fled until it died of thirst
+    # standing on grass.
+    if feeding.desperate(creature) and feeding.target_cell(creature, game):
+        return "forage"
 
     # Still running from something it saw a moment ago. Fleeing has to last
     # more than one step or the animal simply gets shot where it stands.
@@ -159,6 +167,21 @@ def pick_mode(creature, game) -> str:
     if scared_of is not None:
         wild.start_flight(creature, scared_of)
         return "flee"
+
+    # Whatever it is short of comes before whatever it was doing. Both need
+    # clocks kill, and until v3.23 nothing wild had ever eaten or drunk.
+    if feeding.wants(creature) and feeding.target_cell(creature, game):
+        return "forage"
+
+    quarry = feeding.prey_for(creature, game)
+    if quarry is not None:
+        if ai is not None:
+            # `pick_mode` may be asked about a creature whose AI state has
+            # not been built yet -- `take_turn` builds it, and this is the
+            # first branch here that ever wrote to it.
+            ai.target_id = quarry.id
+            ai.last_seen = (quarry.x, quarry.y, quarry.z)
+        return "hunt"
 
     targets = hostile_targets(creature, game)
     if targets:
@@ -257,6 +280,10 @@ def _move_to(creature, game, cell: Tuple[int, int, int]) -> bool:
                 log=game.log if game.can_see_creature(creature)
                 or occupant.is_player else None)
             creature.ai.last_cost = result.cost
+            if result.killed:
+                from . import feeding
+
+                feeding.ate(creature, occupant)
             return True
         return False
     if not game.is_passable(x, y, z, creature):
@@ -347,6 +374,20 @@ def take_turn(creature, game) -> int:
         # Hold absolutely still. Moving is what gives a hidden thing away --
         # v3.6 charges ten points of stealth for a step -- so an ambusher
         # waiting in cover is an ambusher that stays in cover.
+        return _spent(creature)
+
+    if mode == "forage":
+        from . import feeding
+
+        # Standing in it is the common case, and costs nothing to check.
+        if feeding.feed_here(creature, game):
+            return _spent(creature)
+        cell = feeding.target_cell(creature, game)
+        if cell is not None:
+            _step_toward(creature, game, *cell)
+            feeding.feed_here(creature, game)
+        else:
+            _wander_step(creature, game)
         return _spent(creature)
 
     if mode == "flee":

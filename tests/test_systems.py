@@ -5035,3 +5035,209 @@ class TestNerve(GameFixture):
         self.game.player.shaken = 0.55
         back = Game.from_dict(self.game.to_dict())
         self.assertAlmostEqual(back.player.shaken, 0.55, places=3)
+
+
+class TestFoodChain(GameFixture):
+    """`diet` classified eighty species and nothing read it; nothing wild had
+    ever eaten or drunk anything."""
+
+    def setUp(self):
+        super().setUp()
+        from ascii_warriors.game import feeding
+
+        self.feeding = feeding
+        for c in list(self.game.creatures.values()):
+            if not c.is_player:
+                self.game.creatures.pop(c.id, None)
+
+    def _beast(self, cid, seed="b", n=0):
+        from ascii_warriors.game.entity import make_creature
+
+        p = self.game.player
+        c = make_creature(RNG(seed), cid, faction="wild")
+        c.x, c.y, c.z = p.x + 1 + (n % 3), p.y + (n // 3), p.z
+        self.game.creatures[c.id] = c
+        return c
+
+    # -- diet ---------------------------------------------------------------- #
+
+    def test_diet_is_finally_read(self):
+        wolf = self._beast("wolf")
+        deer = self._beast("deer", n=1)
+        self.assertEqual(wolf.defn.diet, "carnivore")
+        self.assertEqual(deer.defn.diet, "herbivore")
+        self.assertTrue(self.feeding.eats_meat(wolf))
+        self.assertFalse(self.feeding.eats_plants(wolf))
+        self.assertTrue(self.feeding.eats_plants(deer))
+        self.assertFalse(self.feeding.eats_meat(deer))
+
+    def test_a_wolf_eats_a_deer_though_a_deer_is_bigger(self):
+        wolf = self._beast("wolf")
+        deer = self._beast("deer", n=1)
+        self.assertGreater(deer.defn.size, wolf.defn.size)
+        self.assertTrue(self.feeding.is_prey(wolf, deer))
+
+    def test_but_not_a_bear(self):
+        wolf = self._beast("wolf")
+        bear = self._beast("grizzly_bear", n=1)
+        self.assertFalse(self.feeding.is_prey(wolf, bear))
+
+    def test_and_a_deer_eats_nobody(self):
+        deer = self._beast("deer")
+        rabbit = self._beast("rabbit", n=1)
+        self.assertFalse(self.feeding.is_prey(deer, rabbit))
+
+    def test_numbers_extend_what_a_pack_will_take_on(self):
+        # A wolf is 40 litres and reaches three times that alone; an elk is
+        # 300, which is beyond it until there are others with it.
+        wolf = self._beast("wolf")
+        elk = self._beast("elk", n=1)
+        self.assertFalse(self.feeding.is_prey(wolf, elk))
+        self.assertTrue(self.feeding.is_prey(wolf, elk, pack=3))
+
+    def test_people_are_not_prey(self):
+        wolf = self._beast("wolf")
+        self.assertFalse(self.feeding.is_prey(wolf, self.game.player))
+        villager = self._beast("human", n=1)
+        self.assertFalse(self.feeding.is_prey(wolf, villager))
+
+    def test_a_hungry_hunter_looks_for_something(self):
+        wolf = self._beast("wolf")
+        deer = self._beast("deer", n=1)
+        wolf.needs.hunger = 0
+        self.assertIsNone(self.feeding.prey_for(wolf, self.game))
+        wolf.needs.hunger = self.feeding.HUNGRY_AT + 1
+        self.assertIs(self.feeding.prey_for(wolf, self.game), deer)
+
+    def test_and_the_ai_goes_after_it(self):
+        from ascii_warriors.game import ai
+
+        wolf = self._beast("wolf")
+        self._beast("deer", n=1)
+        wolf.needs.hunger = self.feeding.HUNGRY_AT + 1
+        wolf.needs.thirst = 0
+        self.assertEqual(ai.pick_mode(wolf, self.game), "hunt")
+
+    def test_prey_runs_from_a_predator_now(self):
+        from ascii_warriors.game import wild
+
+        # People alarm everything and always did, so put the deer somewhere
+        # there is nobody but the wolf: what is being tested is the wolf.
+        for c in list(self.game.creatures.values()):
+            if c is not self.game.player:
+                self.game.creatures.pop(c.id, None)
+        self.game.creatures.pop(self.game.player.id, None)
+        deer = self._beast("deer")
+        wolf = self._beast("wolf", n=1)
+        # v3.13 asked only about AMBUSHER and SAVAGE.
+        self.assertTrue(self.feeding.hunted_by(deer, wolf))
+        self.assertIs(wild.frightener(self.game, deer), wolf)
+
+    # -- feeding ------------------------------------------------------------- #
+
+    def test_a_grazer_standing_on_grass_eats(self):
+        deer = self._beast("deer")
+        lm = self.game.local
+        lm.set_tile(deer.x, deer.y, deer.z, "grass")
+        deer.needs.hunger = self.feeding.HUNGRY_AT + 1000
+        before = deer.needs.hunger
+        self.assertEqual(self.feeding.feed_here(deer, self.game), "graze")
+        self.assertLess(deer.needs.hunger, before)
+
+    def test_and_a_carnivore_does_not(self):
+        wolf = self._beast("wolf")
+        lm = self.game.local
+        lm.set_tile(wolf.x, wolf.y, wolf.z, "grass")
+        wolf.needs.hunger = self.feeding.HUNGRY_AT + 1000
+        wolf.needs.thirst = 0
+        self.assertEqual(self.feeding.feed_here(wolf, self.game), "")
+
+    def test_a_carnivore_eats_carrion(self):
+        from ascii_warriors.game.item import corpse_of
+
+        wolf = self._beast("wolf")
+        victim = self._beast("rabbit", n=1)
+        self.game.drop_item(corpse_of(victim), wolf.x, wolf.y, wolf.z)
+        wolf.needs.hunger = self.feeding.HUNGRY_AT + 1000
+        wolf.needs.thirst = 0
+        before = wolf.needs.hunger
+        self.assertEqual(self.feeding.feed_here(wolf, self.game), "meat")
+        self.assertLess(wolf.needs.hunger, before)
+
+    def test_eating_is_where_the_water_is(self):
+        """Most maps draw no water at all."""
+        deer = self._beast("deer")
+        lm = self.game.local
+        lm.set_tile(deer.x, deer.y, deer.z, "grass")
+        deer.needs.hunger = self.feeding.HUNGRY_AT + 1000
+        deer.needs.thirst = self.feeding.THIRSTY_AT + 1000
+        before = deer.needs.thirst
+        self.feeding.feed_here(deer, self.game)
+        self.assertLess(deer.needs.thirst, before)
+
+    def test_a_kill_is_a_meal(self):
+        wolf = self._beast("wolf")
+        deer = self._beast("deer", n=1)
+        wolf.needs.hunger = self.feeding.HUNGRY_AT + 5000
+        before = wolf.needs.hunger
+        self.feeding.ate(wolf, deer)
+        self.assertLess(wolf.needs.hunger, before)
+
+    def test_hunger_beats_fear_in_the_end(self):
+        """A rabbit in sight of a fox fled until it died standing on grass."""
+        from ascii_warriors.game import ai
+
+        rabbit = self._beast("rabbit")
+        self._beast("fox", n=1)
+        lm = self.game.local
+        lm.set_tile(rabbit.x, rabbit.y, rabbit.z, "grass")
+        rabbit.needs.thirst = self.feeding.THIRSTY_AT + 100
+        self.assertEqual(ai.pick_mode(rabbit, self.game), "flee")
+        rabbit.needs.thirst = self.feeding.DESPERATE_THIRST + 100
+        self.assertEqual(ai.pick_mode(rabbit, self.game), "forage")
+
+    def test_a_wild_animal_is_not_on_a_persons_clock(self):
+        deer = self._beast("deer")
+        self.assertLess(self.feeding.need_ticks(deer, 1000), 1000)
+        self.assertEqual(self.feeding.need_ticks(self.game.player, 1000), 1000)
+
+    def test_but_a_tame_one_is_somebody_elses_problem(self):
+        deer = self._beast("deer")
+        deer.tame = True
+        self.assertEqual(self.feeding.need_ticks(deer, 1000), 1000)
+
+    def test_the_undead_need_nothing(self):
+        z = self._beast("zombie")
+        self.assertTrue(self.feeding.needs_nothing(z))
+        self.assertEqual(self.feeding.wants(z), "")
+        self.assertEqual(self.feeding.feed_here(z, self.game), "")
+
+    def test_foraging_reaches_food_that_is_not_underfoot(self):
+        from ascii_warriors.game import ai
+
+        # The player alarms everything; this is about food, not fear.
+        self.game.creatures.pop(self.game.player.id, None)
+        deer = self._beast("deer")
+        lm = self.game.local
+        for dx in range(-2, 3):
+            for dy in range(-2, 3):
+                cell = (deer.x + dx, deer.y + dy, deer.z)
+                if lm.in_bounds(*cell) and lm.walkable(*cell):
+                    lm.set_tile(cell[0], cell[1], cell[2], "dirt")
+        spot = (deer.x + 4, deer.y, deer.z)
+        if not lm.in_bounds(*spot) or not lm.walkable(*spot):
+            self.skipTest("no room to put the grass")
+        lm.set_tile(spot[0], spot[1], spot[2], "grass")
+        deer.needs.hunger = self.feeding.HUNGRY_AT + 1000
+        deer.needs.thirst = 0
+        # Not necessarily *this* patch -- the map is full of grass and the
+        # nearest one wins. What matters is that it finds one and walks to it.
+        found = self.feeding.target_cell(deer, self.game)
+        self.assertIsNotNone(found)
+        self.assertEqual(self.feeding.feed_here(deer, self.game), "")
+        before = deer.needs.hunger
+        for _ in range(30):
+            ai.take_turn(deer, self.game)
+            if deer.needs.hunger < before:
+                return
+        self.fail("it never reached the grass")

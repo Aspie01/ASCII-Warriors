@@ -134,7 +134,13 @@ def _alarming(animal, other) -> bool:
         return True
     if is_vermin(animal):
         return other.defn.size > animal.defn.size
-    return is_ambusher(other) or other.defn.has("SAVAGE")
+    if is_ambusher(other) or other.defn.has("SAVAGE"):
+        return True
+    # And anything that would eat it. `diet` says which; asking only about
+    # AMBUSHER and SAVAGE left a wolf looking like scenery to a deer.
+    from . import feeding
+
+    return feeding.hunted_by(animal, other)
 
 
 def start_flight(animal, from_who) -> None:

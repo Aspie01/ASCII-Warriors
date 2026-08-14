@@ -519,6 +519,12 @@ thing you can dig. Standing in a fire hurts and armour helps little; it also
 throws light, so you are extremely visible next to one. In the fortress, magma
 sets light to anything flammable near it.
 
+**A wilderness that feeds itself.** Grazers eat, predators hunt and scavenge,
+and size decides what counts as prey — a wolf takes a deer but not a bear, and
+a pack takes an elk one wolf would leave alone. Prey runs from predators, not
+just from you, so a fleeing deer is worth looking past. Hungry enough, an
+animal eats anyway.
+
 **Nerve.** Nothing fights to the death just because it is in the room. A
 creature takes courage from whoever stands with it, loses it as they fall, and
 a pack animal takes being the last one alive very badly. Kill two wolves of
