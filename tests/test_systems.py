@@ -3703,3 +3703,448 @@ class TestFire(GameFixture):
         del raw["fire"]
         back = Game.from_dict(raw)
         self.assertFalse(back.fire.anything_burning)
+
+
+class TestTemperature(GameFixture):
+    """The world map's temperature, and the material table's melting points,
+    finally reading each other."""
+
+    def setUp(self):
+        super().setUp()
+        from ascii_warriors.world import heat
+
+        self.heat = heat
+
+    # -- the scale ----------------------------------------------------------- #
+
+    def test_freezing_comes_out_of_the_material_table(self):
+        from ascii_warriors.data.materials import MATERIALS
+
+        self.assertEqual(self.heat.FREEZING,
+                         MATERIALS["ice"].melting_point - self.heat.URIST_OFFSET)
+        self.assertEqual(self.heat.FREEZING, 32.0)
+
+    def test_the_conversion_goes_both_ways(self):
+        self.assertAlmostEqual(self.heat.urists(self.heat.degrees(11500)), 11500)
+
+    def test_metal_melts_far_out_of_reach_of_weather(self):
+        self.assertGreater(self.heat.melts_at("iron"), 2000)
+        self.assertEqual(self.heat.melts_at("water"), 32.0)
+        self.assertIsNone(self.heat.melts_at("no_such_material"))
+
+    # -- what the air does --------------------------------------------------- #
+
+    def test_winter_is_colder_than_summer(self):
+        w = self.heat.ambient(50, season="Winter")
+        s = self.heat.ambient(50, season="Summer")
+        self.assertGreater(s - w, 30)
+
+    def test_the_night_is_colder_than_the_afternoon(self):
+        self.assertLess(self.heat.ambient(50, hour=4),
+                        self.heat.ambient(50, hour=15))
+
+    def test_a_blizzard_is_colder_than_a_clear_sky(self):
+        self.assertLess(self.heat.ambient(40, weather="blizzard"),
+                        self.heat.ambient(40, weather="clear"))
+
+    def test_weather_does_not_reach_you_indoors(self):
+        out = self.heat.ambient(40, weather="blizzard", outside=True)
+        inn = self.heat.ambient(40, weather="blizzard", outside=False)
+        self.assertGreater(inn, out)
+
+    def test_the_biome_bias_is_read(self):
+        from ascii_warriors.data import biomes
+
+        glacier = biomes.get("glacier")
+        self.assertLess(glacier.temperature_bias, 0)
+        self.assertLess(self.heat.ambient(40, biome=glacier),
+                        self.heat.ambient(40, biome=None))
+
+    def test_the_biome_bias_is_a_nudge_not_a_second_climate(self):
+        # Believing the whole bias double-counts the climate worldgen already
+        # used to pick the biome, and puts a glacier at ninety below.
+        from ascii_warriors.data import biomes
+
+        g = biomes.get("glacier")
+        shift = self.heat.ambient(40, biome=g) - self.heat.ambient(40)
+        self.assertLess(abs(shift), abs(g.temperature_bias))
+
+    def test_deep_rock_does_not_care_what_month_it_is(self):
+        deep = [self.heat.ambient(40, season=s, depth=self.heat.CAVE_DEPTH * 2,
+                                  outside=False)
+                for s in ("Summer", "Winter")]
+        self.assertAlmostEqual(deep[0], deep[1], places=6)
+        self.assertAlmostEqual(deep[0], self.heat.CAVE_TEMP, places=6)
+
+    def test_depth_moves_you_toward_the_rock(self):
+        cold = 0.0
+        near = max(1, self.heat.CAVE_DEPTH // 4)
+        far = max(near + 1, self.heat.CAVE_DEPTH - 1)
+        shallow = self.heat.ambient(cold, depth=near, outside=False)
+        deeper = self.heat.ambient(cold, depth=far, outside=False)
+        self.assertLess(shallow, deeper)
+        self.assertLess(deeper, self.heat.CAVE_TEMP)
+        self.assertEqual(self.heat.ambient(cold, depth=self.heat.CAVE_DEPTH,
+                                           outside=False), self.heat.CAVE_TEMP)
+
+    # -- what is nearby ------------------------------------------------------ #
+
+    def test_a_fire_warms_the_ground_around_it(self):
+        lm = self.game.local
+        p = self.game.player
+        cell = (p.x, p.y, p.z)
+        lm.set_tile(cell[0], cell[1], cell[2], "tree")
+        self.game.fire.ignite(lm, cell)
+        near = self.heat.source_heat((p.x + 1, p.y, p.z), fire=self.game.fire)
+        far = self.heat.source_heat((p.x + 5, p.y, p.z), fire=self.game.fire)
+        self.assertGreater(near, far)
+        self.assertGreater(far, 0.0)
+        self.assertEqual(
+            self.heat.source_heat((p.x + 40, p.y, p.z), fire=self.game.fire), 0.0)
+
+    def test_no_fire_is_no_heat(self):
+        p = self.game.player
+        self.assertEqual(
+            self.heat.source_heat((p.x, p.y, p.z), fire=self.game.fire), 0.0)
+
+    def test_magma_is_hotter_than_a_camp_fire(self):
+        self.assertGreater(self.heat.MAGMA_HEAT, self.heat.FIRE_HEAT)
+
+    # -- what you are wearing ------------------------------------------------ #
+
+    def test_clothes_insulate_and_nakedness_does_not(self):
+        from ascii_warriors.game.entity import make_creature
+        from ascii_warriors.game.item import make_item
+        from ascii_warriors.engine.rng import RNG
+
+        bare = make_creature(RNG("t"), "dwarf", equip=False)
+        self.assertLess(self.heat.insulation(bare), 0.1)
+        dressed = make_creature(RNG("t"), "dwarf", equip=False)
+        for i in ("tunic", "trousers", "cloak", "hood", "shoes"):
+            dressed.inventory.equip(make_item(RNG("i"), i, material="wool_cloth"))
+        self.assertGreater(self.heat.insulation(dressed), 0.5)
+
+    def test_wool_is_a_better_coat_than_iron(self):
+        from ascii_warriors.game.entity import make_creature
+        from ascii_warriors.game.item import make_item
+        from ascii_warriors.engine.rng import RNG
+
+        def clad(ids, mat):
+            c = make_creature(RNG("t"), "dwarf", equip=False)
+            for i in ids:
+                c.inventory.equip(make_item(RNG("i"), i, material=mat))
+            return self.heat.insulation(c)
+
+        self.assertGreater(clad(("tunic", "trousers", "cloak"), "wool_cloth"),
+                           clad(("mail_shirt", "greaves", "helm"), "iron"))
+
+    def test_coverage_comes_out_of_the_body_table(self):
+        self.assertGreater(self.heat.COVERAGE["torso"], self.heat.COVERAGE["hand"])
+        self.assertAlmostEqual(sum(self.heat.COVERAGE.values()), 1.0, places=6)
+
+    # -- what it does to you ------------------------------------------------- #
+
+    def test_the_comfortable_band_costs_nothing(self):
+        self.assertEqual(self.heat.strain(65.0, 0.0), 0.0)
+
+    def test_cold_and_heat_pull_opposite_ways(self):
+        self.assertLess(self.heat.strain(0.0), 0.0)
+        self.assertGreater(self.heat.strain(120.0), 0.0)
+
+    def test_clothes_help_in_the_cold_and_hurt_in_the_heat(self):
+        self.assertGreater(self.heat.strain(20.0, 0.8), self.heat.strain(20.0, 0.0))
+        self.assertGreater(self.heat.strain(100.0, 0.8), self.heat.strain(100.0, 0.0))
+
+    def test_exposure_builds_over_time_rather_than_tripping(self):
+        p = self.game.player
+        p.exposure = 0.0
+        self.heat.tick(p, -20.0, 60, self.game.rng)
+        first = p.exposure
+        self.assertLess(first, 0.0)
+        self.assertGreater(first, -1.0)
+        self.heat.tick(p, -20.0, 600, self.game.rng)
+        self.assertLess(p.exposure, first)
+
+    def test_coming_in_out_of_the_cold_is_faster_than_going_into_it(self):
+        self.assertLess(self.heat.RECOVER_TICKS, self.heat.ADJUST_TICKS)
+        p = self.game.player
+        p.exposure = -0.8
+        self.heat.tick(p, 65.0, 300, self.game.rng)
+        self.assertGreater(p.exposure, -0.8)
+
+    def test_exposure_never_passes_the_strain_it_is_chasing(self):
+        p = self.game.player
+        p.exposure = 0.0
+        for _ in range(200):
+            self.heat.tick(p, 36.0, 600, self.game.rng)
+        self.assertGreaterEqual(p.exposure, self.heat.strain(36.0,
+                                                             self.heat.insulation(p)))
+        self.assertLessEqual(p.exposure, 0.0)
+
+    def test_a_fire_imp_does_not_care(self):
+        from ascii_warriors.game.entity import make_creature
+        from ascii_warriors.engine.rng import RNG
+
+        drake = make_creature(RNG("t"), "dragon")
+        self.assertTrue(drake.defn.has("FIREIMMUNE"))
+        self.assertTrue(self.heat.unaffected(drake))
+        self.heat.tick(drake, 400.0, 6000, self.game.rng)
+        self.assertEqual(drake.exposure, 0.0)
+
+    def test_the_dead_do_not_shiver(self):
+        from ascii_warriors.game.entity import make_creature
+        from ascii_warriors.engine.rng import RNG
+
+        z = make_creature(RNG("t"), "zombie")
+        self.assertTrue(z.defn.has("UNDEAD"))
+        self.heat.tick(z, -80.0, 6000, self.game.rng)
+        self.assertEqual(z.exposure, 0.0)
+
+    def test_but_the_living_do(self):
+        from ascii_warriors.game.entity import make_creature
+        from ascii_warriors.engine.rng import RNG
+
+        c = make_creature(RNG("t"), "human", equip=False)
+        self.assertFalse(self.heat.unaffected(c))
+        self.heat.tick(c, -80.0, 600, self.game.rng)
+        self.assertLess(c.exposure, 0.0)
+
+    def test_severe_cold_takes_fingers(self):
+        from ascii_warriors.engine.rng import RNG
+
+        p = self.game.player
+        p.exposure = -1.0
+        rng = RNG("frost")
+        before = sum(len(part.wounds) for part in p.body.parts.values())
+        for _ in range(60):
+            self.heat.tick(p, -60.0, 600, rng)
+        after = sum(len(part.wounds) for part in p.body.parts.values())
+        self.assertGreater(after, before)
+        bitten = [part.id for part in p.body.parts.values() if part.wounds]
+        self.assertTrue(any("digit" in b for b in bitten), bitten)
+
+    def test_frostbite_goes_through_the_one_trap_table(self):
+        from ascii_warriors.game import combat
+
+        self.assertIn("frostbite", combat.TRAP_STRIKES)
+        self.assertIn("fire", combat.TRAP_STRIKES)
+
+    def test_a_trap_can_be_aimed(self):
+        from ascii_warriors.game import combat
+        from ascii_warriors.engine.rng import RNG
+
+        hits = set()
+        for i in range(30):
+            r = combat.trap_strike(self.game.player, "frostbite",
+                                   rng=RNG("aim%d" % i), prefer="DIGIT")
+            if r.part:
+                hits.add(r.part)
+        self.assertTrue(hits)
+        self.assertTrue(all("digit" in h for h in hits), hits)
+
+    def test_heat_costs_you_water(self):
+        p = self.game.player
+        p.exposure = 0.9
+        p.needs.thirst = 0
+        self.heat.tick(p, 130.0, 600, self.game.rng)
+        self.assertGreater(p.needs.thirst, 0)
+
+    def test_the_weather_slows_you_when_it_is_bad_enough(self):
+        p = self.game.player
+        p.exposure = 0.0
+        self.assertEqual(self.heat.speed_factor(p), 1.0)
+        p.exposure = -0.95
+        self.assertLess(self.heat.speed_factor(p), 1.0)
+        self.assertGreaterEqual(self.heat.speed_factor(p), self.heat.SLOW_FLOOR)
+
+    def test_exposure_has_a_word_for_itself(self):
+        p = self.game.player
+        p.exposure = 0.0
+        self.assertEqual(self.heat.describe(p), "")
+        p.exposure = -0.9
+        self.assertIn("freezing", self.heat.describe(p))
+        p.exposure = 0.9
+        self.assertNotIn("freezing", self.heat.describe(p))
+
+    # -- frost --------------------------------------------------------------- #
+
+    def _pool(self):
+        """A cell of open-air water on the adventure map."""
+        lm = self.game.local
+        p = self.game.player
+        for dy in range(-4, 5):
+            for dx in range(-4, 5):
+                c = (p.x + dx, p.y + dy, lm.surface_z(p.x + dx, p.y + dy))
+                if lm.in_bounds(*c) and lm.is_outside(*c):
+                    lm.set_tile(c[0], c[1], c[2], "shallow_water")
+                    return c
+        self.skipTest("nowhere to put a pool")
+
+    def test_terrain_water_freezes_and_thaws_back(self):
+        lm = self.game.local
+        cell = self._pool()
+        was = lm.tile(*cell)
+        self.assertTrue(self.game.frost.freeze(lm, cell))
+        self.assertEqual(lm.tile(*cell), "ice")
+        self.assertTrue(self.game.frost.is_frozen(*cell))
+        self.assertTrue(self.game.frost.thaw(lm, cell))
+        self.assertEqual(lm.tile(*cell), was)
+        self.assertFalse(self.game.frost.is_frozen(*cell))
+
+    def test_rock_does_not_freeze(self):
+        lm = self.game.local
+        p = self.game.player
+        cell = (p.x, p.y, p.z)
+        lm.set_tile(cell[0], cell[1], cell[2], "rock_wall")
+        self.assertFalse(self.game.frost.freeze(lm, cell))
+
+    def test_deep_water_is_left_alone(self):
+        lm = self.game.local
+        cell = self._pool()
+        lm.set_tile(cell[0], cell[1], cell[2], "deep_water")
+        self.assertIsNone(self.heat.liquid_freezes_at(lm, cell))
+        self.assertFalse(self.game.frost.freeze(lm, cell))
+
+    def test_ice_is_something_you_slip_on(self):
+        # v3.14 has read the ICE flag since it shipped; nothing had ever put
+        # an ice tile anywhere a player would walk.
+        from ascii_warriors.world import tiles
+
+        self.assertTrue(tiles.get(self.heat.ICE_TILE).has("ICE"))
+
+    def test_freezing_swallows_the_fluid_layer_and_gives_it_back(self):
+        from ascii_warriors.world.fluids import Water
+
+        lm = self.game.local
+        cell = self._pool()
+        water = Water()
+        water.set(cell, 3)
+        self.assertTrue(self.game.frost.freeze(lm, cell, water))
+        self.assertEqual(water.at(*cell), 0)
+        self.assertEqual(lm.tile(*cell), "ice")
+        self.assertTrue(self.game.frost.thaw(lm, cell, water))
+        self.assertEqual(water.at(*cell), 3)
+
+    def test_only_the_surface_of_deep_fluid_freezes(self):
+        from ascii_warriors.world.fluids import Water
+
+        lm = self.game.local
+        cell = self._pool()
+        water = Water()
+        water.set(cell, 4)
+        water.set((cell[0], cell[1], cell[2] + 1), 2)
+        self.assertFalse(self.game.frost.freeze(lm, cell, water))
+
+    def test_the_cold_only_looks_on_a_cadence(self):
+        lm = self.game.local
+        self._pool()
+        first = self.game.frost.step(lm, self.game.rng, lambda c: -40.0, 0)
+        again = self.game.frost.step(lm, self.game.rng, lambda c: -40.0, 1)
+        self.assertGreater(first[0], 0)
+        self.assertEqual(again, (0, 0))
+
+    def test_a_warm_day_freezes_nothing(self):
+        lm = self.game.local
+        self._pool()
+        froze, _thawed = self.game.frost.step(
+            lm, self.game.rng, lambda c: 70.0, 0)
+        self.assertEqual(froze, 0)
+
+    def test_frost_survives_a_save(self):
+        from ascii_warriors.game.state import Game
+
+        lm = self.game.local
+        cell = self._pool()
+        self.game.frost.freeze(lm, cell)
+        back = Game.from_dict(self.game.to_dict())
+        self.assertTrue(back.frost.is_frozen(*cell))
+
+    def test_exposure_survives_a_save(self):
+        from ascii_warriors.game.state import Game
+
+        self.game.player.exposure = -0.42
+        back = Game.from_dict(self.game.to_dict())
+        self.assertAlmostEqual(back.player.exposure, -0.42, places=3)
+
+    # -- both modes ask the same question ------------------------------------ #
+
+    def test_the_game_reads_a_temperature_at_a_cell(self):
+        p = self.game.player
+        t = self.game.temperature_at(p.x, p.y, p.z)
+        self.assertIsInstance(t, float)
+        self.assertGreater(t, -150.0)
+        self.assertLess(t, 250.0)
+
+    def test_standing_by_a_fire_is_warmer_than_not(self):
+        lm = self.game.local
+        p = self.game.player
+        cold = self.game.temperature_at(p.x, p.y, p.z)
+        cell = (p.x + 1, p.y, p.z)
+        if not lm.in_bounds(*cell):
+            self.skipTest("no room beside the player")
+        lm.set_tile(cell[0], cell[1], cell[2], "tree")
+        self.game.fire.ignite(lm, cell)
+        self.assertGreater(self.game.temperature_at(p.x, p.y, p.z), cold)
+
+    def test_a_deep_cell_is_steadier_than_the_surface(self):
+        lm = self.game.local
+        p = self.game.player
+        surf = lm.surface_z(p.x, p.y)
+        if surf - 20 < 0:
+            self.skipTest("map is too shallow")
+        deep = self.game.temperature_at(p.x, p.y, surf - 20)
+        self.assertAlmostEqual(deep, self.heat.CAVE_TEMP, places=4)
+
+
+class TestMapLayersStayOnTheirMap(GameFixture):
+    """Fires, frost, traps and webs belong to a map, not to the player."""
+
+    def _neighbour(self):
+        p = self.game.player
+        for nx, ny in self.game.world.neighbours(p.wx, p.wy):
+            if not self.game.world.tile(nx, ny).is_ocean:
+                return (nx, ny)
+        self.skipTest("landlocked nowhere to go")
+
+    def _light_something(self):
+        from ascii_warriors.world import fire as fire_mod
+
+        lm = self.game.local
+        lit = 0
+        for y in range(lm.height):
+            for x in range(lm.width):
+                cell = (x, y, lm.surface_z(x, y))
+                if fire_mod.fuel_at(lm, cell) > 0 and self.game.fire.ignite(lm, cell):
+                    lit += 1
+            if lit >= 3:
+                return lit
+        if not lit:
+            self.skipTest("nothing flammable on this map")
+        return lit
+
+    def test_a_fire_does_not_follow_you_to_another_map(self):
+        here = (self.game.player.wx, self.game.player.wy)
+        there = self._neighbour()
+        self.game.enter_world_tile(*there)
+        self.game.enter_world_tile(*here)
+        self._light_something()
+        self.assertTrue(self.game.fire.anything_burning)
+        self.game.enter_world_tile(*there)
+        self.assertFalse(self.game.fire.anything_burning)
+
+    def test_but_it_is_still_burning_when_you_come_back(self):
+        here = (self.game.player.wx, self.game.player.wy)
+        there = self._neighbour()
+        self.game.enter_world_tile(*there)
+        self.game.enter_world_tile(*here)
+        lit = self._light_something()
+        self.game.enter_world_tile(*there)
+        self.game.enter_world_tile(*here)
+        self.assertEqual(len(self.game.fire.fuel), lit)
+
+    def test_a_fresh_map_starts_clean(self):
+        self.game._restore_layers({})
+        self.assertFalse(self.game.fire.anything_burning)
+        self.assertFalse(self.game.frost.any_ice)
+        self.assertEqual(self.game.traps, {})
+        self.assertEqual(self.game.webs, {})

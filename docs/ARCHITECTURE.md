@@ -2733,7 +2733,63 @@ three sets of numbers drifting apart.
 stealth charges for standing next to a burning tree without knowing that fire
 exists.
 
-## 78. Style
+## 78. Temperature (v3.18)
+
+Every world tile has carried a `temperature` since worldgen was written. The
+embark screen called it *freezing* or *scorching*, the travel screen printed
+it, and the weather asked it one question -- whether falling water should be
+snow. Beyond that a glacier and a desert were the same place to stand in.
+
+Meanwhile every material in the table carried a `melting_point` that nothing
+had ever read, and the reason it is worth reading is the scale it is written
+on. It is Dwarf Fortress's -- degrees above absolute zero in Urists, where ice
+melts at 10000. Subtract `URIST_OFFSET` and you are in the degrees the world
+map is already using. **The bridge between the material table and the climate
+was sitting in both of them the whole time**, which is why `heat.FREEZING` is
+not a constant anybody chose: it is ice's melting point, converted.
+
+**Temperature is three questions.** What the air is doing (`ambient`: the
+world tile, its biome, the season, the hour, the weather, and how far
+underground you are). What is nearby (`source_heat`: v3.17's fire and v2.5's
+magma, because a fire that does not warm you is a light bulb). And what you
+are wearing (`insulation`) -- the first thing in this game that has ever cared,
+after nine versions of shirts and cloaks and mittens being traded, stockpiled,
+tailored and worn for no reason at all. Coverage comes out of the body table's
+`rel_size`, which combat has always used to decide where a blow lands and
+nothing had used to decide how much of somebody a cloak actually covers.
+
+A biome's `temperature_bias` is taken at a quarter. Worldgen picked the biome
+*from* the tile's temperature, so believing the whole bias is the same climate
+counted twice -- it puts a glacier at ninety below, where nothing you can wear
+matters.
+
+**Cold takes your fingers; heat takes your water.** Cold ends in frostbite,
+through `combat.trap_strike` with the `prefer` hint the body model has always
+had, so there is still one table of things you cannot parry. Heat ends in
+thirst, which has been able to kill since v1 and needed nothing new. Exposure
+is a number that moves rather than a threshold that trips, because the
+interesting decision is when to turn back and a threshold gives no warning to
+act on. Coming in out of the cold is faster than going into it: shelter is
+meant to be worth reaching.
+
+**Frost** freezes water and thaws it back, remembering the tile it covered and
+the depth it swallowed so a thaw undoes it exactly. It works on v2.5's fluid
+layer in the fortress and on terrain in adventure mode, and it puts `ice`
+tiles where a player walks -- which v3.14 has been ready to make you slip on
+since it shipped. It is sampled on a cadence, which is v3.17's lesson applied
+before the mistake instead of after: the cost is never the work, it is doing
+the work every step.
+
+**One bug, found by adding the sixth of something.** Fires, frost, traps and
+webs belong to a *map*, not to the game. Each was added in its own version and
+each was wired by hand into the branch of `enter_world_tile` that generates a
+fresh map -- and every one was missed on the branch that loads a cached one.
+Walking out of a burning forest onto a map you had already visited took the
+fire with you, still alight, at the same coordinates, over water or inside a
+wall. Four layers made the same mistake four times. They go through
+`_store_layers`/`_restore_layers` now, and the map cache carries them.
+
+## 79. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

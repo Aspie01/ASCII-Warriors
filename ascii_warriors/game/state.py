@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Set, Tuple
 
+from ..data import biomes as biome_data
 from ..data import creatures as creature_data
 from ..data import names as name_data
 from ..data.calendar import GameTime, TICKS_PER_DAY
@@ -21,6 +22,7 @@ from .item import Item, corpse_of, starting_kit
 from .log import MessageLog
 from .quests import QuestLog
 from ..world.fire import Fire as FireLayer
+from ..world.heat import Frost
 from . import standing as standing_mod
 from . import traps as traps_mod
 from . import venom as venom_mod
@@ -67,6 +69,8 @@ class Game:
         self.weather = Weather()
         #: Everything currently alight on this map.
         self.fire = FireLayer()
+        #: What the cold has taken on this map.
+        self.frost = Frost()
         #: Ids of the companions following the player.
         self.companion_ids: List[int] = []
         #: Companions in transit between local maps.
@@ -182,6 +186,7 @@ class Game:
             for cd in cached["creatures"]:
                 c = Creature.from_dict(cd)
                 self.creatures[c.id] = c
+            self._restore_layers(cached.get("layers") or {})
         else:
             lm_rng = self.rng.sub("local-%d-%d" % (wx, wy))
             self.local, population = generate_local(
@@ -189,9 +194,7 @@ class Game:
             )
             self.creatures = {}
             self.items_on_ground = {}
-            self.traps = {}
-            self.webs = {}
-            self.fire = FireLayer()
+            self._restore_layers({})
             self._populate(population, lm_rng, site)
             # Traps belong to a floor plan, and floor plans are made here
             # rather than at worldgen, so this is where they go in.
@@ -321,6 +324,7 @@ class Game:
                 "%d,%d,%d" % k: [i.to_dict() for i in v]
                 for k, v in self.items_on_ground.items() if v
             },
+            "layers": self._store_layers(),
         }
         # Keep the cache from growing without bound on long journeys, dropping
         # the tiles the player has not seen for longest.
@@ -329,6 +333,34 @@ class Game:
         while len(self._cache_order) > 24:
             stale = self._cache_order.pop(0)
             self._local_cache.pop(stale, None)
+
+    # -- per-map layers ----------------------------------------------------- #
+    #
+    # Fires, frost, traps and webs belong to a *map*, not to the game. Each
+    # was added in its own version and each was wired by hand into the branch
+    # that generates a fresh map -- and every one of them was missed on the
+    # branch that loads a cached one, so walking out of a burning forest onto
+    # a map you had already visited took the fire with you, still alight, at
+    # the same coordinates, over water or inside a wall. Four layers made the
+    # same mistake four times; they go through one pair of functions now.
+
+    def _store_layers(self) -> Dict[str, Any]:
+        """The current map's own layers, to be kept with the map."""
+        return {
+            "fire": self.fire.to_list(),
+            "frost": self.frost.to_list(),
+            "traps": traps_mod.to_list(self),
+            "webs": webs_mod.to_list(self),
+        }
+
+    def _restore_layers(self, d: Mapping[str, Any]) -> None:
+        """Put a map's layers back. An empty mapping is a clean map."""
+        self.fire = FireLayer.from_list(d.get("fire") or [])
+        self.frost = Frost.from_list(d.get("frost") or [])
+        self.traps = {}
+        self.webs = {}
+        traps_mod.from_list(self, d.get("traps") or [])
+        webs_mod.from_list(self, d.get("webs") or [])
 
     def spawn_wildlife(self, n: Optional[int] = None) -> None:
         """Populate the wilderness with creatures suited to the biome."""
@@ -511,6 +543,55 @@ class Game:
             return max(flame, 0.8)
         return max(flame, 0.05)
 
+    def temperature_at(self, x: int, y: int, z: int) -> float:
+        """How cold or hot a cell is, in degrees.
+
+        The world tile's own figure, its biome, the season, the hour and the
+        weather, damped by how far underground the cell is -- and then
+        whatever is burning nearby, because a fire that does not warm you is
+        a light bulb.
+        """
+        from ..world import heat
+
+        tile = self.world.tile(self.player.wx, self.player.wy)
+        if self.local is None:
+            return heat.ambient(
+                tile.temperature, biome=biome_data.get(tile.biome),
+                season=self.time.season, hour=self.time.hour,
+                weather=self.weather.kind)
+        outside = self.local.is_outside(x, y, z)
+        air = heat.ambient(
+            tile.temperature, biome=biome_data.get(tile.biome),
+            season=self.time.season, hour=self.time.hour,
+            weather=self.weather.kind,
+            depth=max(0, self.local.surface_z(x, y) - z), outside=outside)
+        return air + heat.source_heat((x, y, z), fire=self.fire)
+
+    def _weather_bite(self, ticks: int) -> None:
+        """What the temperature does to everyone standing in it.
+
+        Only the player and whoever is near enough to matter: the weather is
+        the same everywhere on the map, and stepping ten thousand off-screen
+        squirrels through a chill model is how a step gets slow.
+        """
+        from ..world import heat
+
+        p = self.player
+        for m in heat.tick(p, self.temperature_at(p.x, p.y, p.z),
+                           ticks, self.rng, log=self.log):
+            self.log.warn(m)
+        if p.body.dead:
+            return
+        for c in list(self.creatures.values()):
+            if c is p or c.body.dead or not self.can_see_creature(c):
+                continue
+            heat.tick(c, self.temperature_at(c.x, c.y, c.z), ticks, self.rng)
+            if c.body.dead:
+                self.kill_creature(c)
+        if self.local is not None:
+            self.frost.step(self.local, self.rng, lambda cell:
+                            self.temperature_at(*cell), self.time.ticks)
+
     def player_light(self) -> int:
         """Burn time remaining on the player's lit light sources."""
         return sum(
@@ -552,6 +633,10 @@ class Game:
         out.append(Frag(t.name.capitalize(), t.color))
         if t.description:
             out.append(Frag(t.description, colors.UI["dim"]))
+        if self.frost.is_frozen(x, y, z):
+            out.append(Frag("The water here has frozen over.", colors.ICE))
+        if self.fire.burning(x, y, z):
+            out.append(Frag("It is on fire.", colors.EMBER))
         for c in self.creatures_at(x, y, z):
             out.append(Frag("", colors.UI["fg"]))
             out.extend(c.describe())
@@ -707,6 +792,7 @@ class Game:
                             p.inventory.items.remove(it)
 
         self._burn(ticks)
+        self._weather_bite(ticks)
         self._tavern_music(ticks)
 
         if p.body.dead and not self.game_over:
@@ -937,6 +1023,7 @@ class Game:
             "webs": webs_mod.to_list(self),
             "traps": traps_mod.to_list(self),
             "fire": self.fire.to_list(),
+            "frost": self.frost.to_list(),
             "companion_ids": list(self.companion_ids),
             "companions": [c.to_dict() for c in self.travelling_companions],
             "cache": {
@@ -969,6 +1056,7 @@ class Game:
         webs_mod.from_list(game, d.get("webs") or [])
         traps_mod.from_list(game, d.get("traps") or [])
         game.fire = FireLayer.from_list(d.get("fire") or [])
+        game.frost = Frost.from_list(d.get("frost") or [])
         game.companion_ids = [int(i) for i in d.get("companion_ids", [])]
         game._season_mark = int(d.get("season_mark", 0))
         game.travelling_companions = [

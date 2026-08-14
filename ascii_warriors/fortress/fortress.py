@@ -13,6 +13,7 @@ from ..game.log import MessageLog
 from ..game.weather import Weather, starting_weather
 from ..world import tiles as tile_data
 from ..world.fire import Fire as FireLayer
+from ..world.heat import Frost
 from ..world.fluids import (Magma, Water, can_hold, seed_from_terrain,
                             seed_magma)
 from ..world.localmap import LocalMap
@@ -61,6 +62,8 @@ class Fortress:
         self.log = MessageLog()
         #: Everything currently alight on this map.
         self.fire = FireLayer()
+        #: What the winter has taken of the water.
+        self.frost = Frost()
         self.designations = Designations()
         self.jobs = JobBoard()
         self.buildings: List[Building] = []
@@ -863,6 +866,27 @@ class Fortress:
             return self.time.light_level() * self.weather.light_modifier()
         return 0.12
 
+    def temperature_at(self, x: int, y: int, z: int) -> float:
+        """How cold or hot a cell is, in degrees.
+
+        Also the same question a Game answers, and the reason a fortress is
+        dug downwards: the rock does not care what month it is, so the
+        difference between a hard winter and a comfortable one is how much of
+        your fortress is above the surface.
+        """
+        from ..data import biomes as biome_data
+        from ..world import heat
+
+        tile = self.world.tile(self.wx, self.wy)
+        outside = self.local.is_outside(x, y, z)
+        air = heat.ambient(
+            tile.temperature, biome=biome_data.get(tile.biome),
+            season=self.time.season, hour=self.time.hour,
+            weather=self.weather.kind,
+            depth=max(0, self.local.surface_z(x, y) - z), outside=outside)
+        return air + heat.source_heat(
+            (x, y, z), fire=self.fire, magma=self.magma)
+
     def tavern(self) -> Optional[Building]:
         """Where the fortress drinks, if it has built anywhere to."""
         for b in self.buildings:
@@ -1289,6 +1313,7 @@ class Fortress:
             "water": self.water.to_dict(),
             "magma": self.magma.to_dict(),
             "fire": self.fire.to_list(),
+            "frost": self.frost.to_list(),
             "magma_floor": self.magma_floor,
             "magma_mark": self._magma_mark,
             "hollow": ["%d,%d,%d" % c for c in self.hollow],
@@ -1359,6 +1384,7 @@ class Fortress:
         fort.water = Water.from_dict(d.get("water") or {})
         fort.magma = Magma.from_dict(d.get("magma") or {})
         fort.fire = FireLayer.from_list(d.get("fire") or [])
+        fort.frost = Frost.from_list(d.get("frost") or [])
         fort.magma_floor = int(d.get("magma_floor", 0))
         fort._magma_mark = int(d.get("magma_mark", 0))
         fort.hollow = {

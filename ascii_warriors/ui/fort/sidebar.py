@@ -12,6 +12,19 @@ SIDEBAR_WIDTH = 32
 LOG_HEIGHT = 7
 
 
+def _temp_color(temp: float):
+    """Cold is blue, hot is red, comfortable is neither."""
+    from ...world import heat
+
+    if temp <= heat.FREEZING:
+        return colors.ICE
+    if temp < heat.COMFORT_LOW:
+        return colors.Color(140, 180, 220)
+    if temp <= heat.COMFORT_HIGH:
+        return colors.UI["dim"]
+    return colors.Color(232, 150, 90)
+
+
 def draw_sidebar(scr: Screen, x: int, y: int, w: int, h: int, fort) -> None:
     """Everything you need to see at a glance while time is running."""
     row = y
@@ -25,6 +38,9 @@ def draw_sidebar(scr: Screen, x: int, y: int, w: int, h: int, fort) -> None:
              colors.UI["dim"])
     row += 1
     scr.text(x, row, fort.weather.name, fort.weather.defn.color)
+    cx, cy = fort.local.width // 2, fort.local.height // 2
+    temp = fort.temperature_at(cx, cy, fort.local.surface_z(cx, cy))
+    scr.text_right(x + w - 1, row, "%d F" % round(temp), _temp_color(temp))
     row += 2
 
     dwarves = fort.dwarves()
@@ -152,6 +168,9 @@ def draw_status_line(scr: Screen, x: int, y: int, w: int, fort, mode: str = "") 
     if getattr(fort, "water", None) is not None and fort.water.flooded:
         parts.append(Frag("| ", colors.UI["frame"]))
         parts.append(Frag("FLOODING ", colors.UI["danger"]))
+    if getattr(fort, "frost", None) is not None and fort.frost.any_ice:
+        parts.append(Frag("| ", colors.UI["frame"]))
+        parts.append(Frag("FROZEN ", colors.ICE))
     if getattr(fort, "magma", None) is not None and fort.magma.flooded:
         parts.append(Frag("| ", colors.UI["frame"]))
         parts.append(Frag("MAGMA ", colors.Color(255, 150, 60)))

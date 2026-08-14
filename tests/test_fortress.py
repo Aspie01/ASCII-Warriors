@@ -2896,17 +2896,27 @@ class TestWater(unittest.TestCase):
         self.assertTrue(any(n > 0 for n in found),
                         "no aquifer on any of three wet embarks")
 
+    def _water_underground(self, fort):
+        """Water inside the fortress, where an aquifer puts it.
+
+        Counted here rather than as `water.total()` because since v3.18 the
+        weather freezes the water outdoors, and a brook icing over while the
+        test runs hides the leak it is supposed to be measuring.
+        """
+        return sum(v for c, v in fort.water.depth.items()
+                   if not fort.local.is_outside(*c))
+
     def test_breaching_an_aquifer_floods_and_warns(self):
         """Digging into wet rock is supposed to be a disaster."""
         fort = embark("breach")
         if not fort.aquifer:
             self.skipTest("this embark has no aquifer")
         cell = sorted(fort.aquifer)[len(fort.aquifer) // 2]
-        before = fort.water.total()
+        before = self._water_underground(fort)
         fort.dig_out(cell, "floor")
         self.assertIn(cell, fort.water.sources)
         sim.run(fort, 60)
-        self.assertGreater(fort.water.total(), before)
+        self.assertGreater(self._water_underground(fort), before)
         self.assertTrue(any("aquifer" in m.text.lower()
                             for m in fort.log.all()))
 
@@ -4614,3 +4624,130 @@ class TestTavernPathing(unittest.TestCase):
         for _ in range(200):
             sim.step(fort)
         self.assertGreaterEqual(len(perform_mod.in_tavern(fort)), 2)
+
+
+class TestCold(unittest.TestCase):
+    """What the season does to a fortress and the water around it."""
+
+    def test_a_fortress_reads_a_temperature(self):
+        fort = embark("temp")
+        cx, cy = fort.local.width // 2, fort.local.height // 2
+        t = fort.temperature_at(cx, cy, fort.local.surface_z(cx, cy))
+        self.assertIsInstance(t, float)
+        self.assertGreater(t, -120.0)
+        self.assertLess(t, 200.0)
+
+    def test_the_deep_does_not_care_what_month_it_is(self):
+        from ascii_warriors.data.calendar import GameTime
+        from ascii_warriors.world import heat
+
+        fort = embark("deep-temp")
+        cx, cy = fort.local.width // 2, fort.local.height // 2
+        z = fort.local.surface_z(cx, cy) - heat.CAVE_DEPTH
+        if not fort.local.in_bounds(cx, cy, z):
+            self.skipTest("map is not deep enough")
+        surf = fort.local.surface_z(cx, cy)
+        deep, top = [], []
+        for month in (1, 4, 7, 10):
+            fort.time = GameTime.at(fort.time.year, month, 15, 12, 0)
+            deep.append(fort.temperature_at(cx, cy, z))
+            top.append(fort.temperature_at(cx, cy, surf))
+        # Not "exactly CAVE_TEMP": on a map whose magma sea sits a few levels
+        # below the living quarters, the rock down there is hotter than the
+        # year's average and rightly so. The claim is that it does not move.
+        self.assertLess(max(deep) - min(deep), 1.0)
+        self.assertGreater(max(top) - min(top), 25.0)
+
+    def test_the_surface_does_care(self):
+        from ascii_warriors.data.calendar import GameTime
+
+        fort = embark("season-temp")
+        cx, cy = fort.local.width // 2, fort.local.height // 2
+        z = fort.local.surface_z(cx, cy)
+        fort.time = GameTime.at(fort.time.year, 4, 15, 12, 0)
+        summer = fort.temperature_at(cx, cy, z)
+        fort.time = GameTime.at(fort.time.year, 10, 15, 12, 0)
+        winter = fort.temperature_at(cx, cy, z)
+        self.assertGreater(summer - winter, 25.0)
+
+    def test_magma_is_why_the_deeps_are_warm(self):
+        from ascii_warriors.world import heat
+
+        fort = embark("magma-temp")
+        if not fort.magma.depth:
+            self.skipTest("no magma on this embark")
+        # Not "hotter than somewhere far away on the same level" -- the sea
+        # covers the level, so there is no far away on it.
+        cell = sorted(fort.magma.depth)[0]
+        self.assertGreater(fort.temperature_at(*cell), heat.CAVE_TEMP + 100.0)
+        above = (cell[0], cell[1], cell[2] + heat.HEAT_RANGE + 4)
+        if fort.local.in_bounds(*above):
+            self.assertLess(fort.temperature_at(*above),
+                            fort.temperature_at(*cell))
+
+    def test_dwarves_arrive_wearing_clothes(self):
+        """Nine versions of tailoring and nobody had ever put any on."""
+        from ascii_warriors.world import heat
+
+        fort = embark("dressed")
+        for d in fort.dwarves():
+            worn = [i.defn.id for i in d.inventory.equipped.values() if i]
+            self.assertTrue(
+                any(i in worn for i in ("tunic", "trousers", "shoes")), worn)
+            self.assertGreater(heat.insulation(d), 0.25)
+
+    def test_a_dwarf_underground_is_warmer_than_one_on_the_roof(self):
+        from ascii_warriors.world import heat
+
+        fort = embark("shelter")
+        cx, cy = fort.local.width // 2, fort.local.height // 2
+        surf = fort.local.surface_z(cx, cy)
+        deep = surf - heat.CAVE_DEPTH
+        if not fort.local.in_bounds(cx, cy, deep):
+            self.skipTest("map is not deep enough")
+        fort.weather.kind = "blizzard"
+        self.assertGreater(fort.temperature_at(cx, cy, deep),
+                           fort.temperature_at(cx, cy, surf))
+
+    def test_a_cold_fortress_freezes_its_water_over(self):
+        fort = embark("freeze")
+        wet = [c for c in fort.water.depth if fort.local.is_outside(*c)]
+        if not wet:
+            self.skipTest("no open water on this embark")
+        cold = min(fort.temperature_at(*c) for c in wet)
+        if cold > 32.0:
+            self.skipTest("this embark is not cold enough to freeze")
+        for _ in range(200):
+            sim.step(fort)
+        self.assertTrue(fort.frost.any_ice)
+        cell = next(iter(fort.frost.frozen))
+        self.assertEqual(fort.local.tile(*cell), "ice")
+
+    def test_the_ice_gives_the_water_back_when_it_thaws(self):
+        from ascii_warriors.world import heat
+
+        fort = embark("thaw")
+        wet = [c for c in fort.water.depth if fort.local.is_outside(*c)]
+        if not wet:
+            self.skipTest("no open water on this embark")
+        cell = wet[0]
+        depth = fort.water.at(*cell)
+        was = fort.local.tile(*cell)
+        self.assertTrue(fort.frost.freeze(fort.local, cell, fort.water))
+        self.assertEqual(fort.water.at(*cell), 0)
+        fort.frost.step(fort.local, fort.rng, lambda c: 90.0,
+                        fort.ticks + heat.CHECK_TICKS, water=fort.water)
+        self.assertFalse(fort.frost.is_frozen(*cell))
+        self.assertEqual(fort.local.tile(*cell), was)
+        self.assertEqual(fort.water.at(*cell), depth)
+
+    def test_frost_and_exposure_survive_a_save(self):
+        fort = embark("frost-save")
+        wet = [c for c in fort.water.depth if fort.local.is_outside(*c)]
+        if not wet:
+            self.skipTest("no open water on this embark")
+        fort.frost.freeze(fort.local, wet[0], fort.water)
+        fort.dwarves()[0].exposure = -0.37
+        back = Fortress.from_dict(fort.to_dict())
+        self.assertTrue(back.frost.is_frozen(*wet[0]))
+        self.assertAlmostEqual(back.dwarves()[0].exposure, -0.37, places=3)

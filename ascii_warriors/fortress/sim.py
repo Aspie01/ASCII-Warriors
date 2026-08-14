@@ -127,6 +127,7 @@ def step(fort) -> None:
         fort.wealth = appraise(fort)
     _flow(fort, ticks)
     _burn(fort, ticks)
+    _chill(fort, ticks)
     _bodies(fort, ticks)
     _triage(fort)
     for dwarf in list(fort.dwarves()):
@@ -438,6 +439,53 @@ def _burn(fort, ticks: int) -> None:
                           log=fort.log if c in fort.dwarves() else None)
             if c.body.dead:
                 fort.kill_creature(c)
+
+
+#: How often the cold gets to work on the dwarves. They are checked as a
+#: group because the weather is the same for all of them; what differs is
+#: where each one is standing and what it is wearing.
+CHILL_TICKS = 100
+
+
+def _chill(fort, ticks: int) -> None:
+    """What the season does to the fortress and to the water around it.
+
+    A fortress dug into the rock barely notices winter, which is the point of
+    digging into the rock. The dwarves working the surface farm in Winter
+    notice it a great deal.
+    """
+    from ..world import heat
+
+    if fort.ticks < getattr(fort, "_next_chill", 0):
+        return
+    span = max(ticks, fort.ticks - getattr(fort, "_last_chill", fort.ticks))
+    fort._next_chill = fort.ticks + CHILL_TICKS
+    fort._last_chill = fort.ticks
+
+    for c in list(fort.creatures.values()):
+        if not c.alive:
+            continue
+        for msg in heat.tick(c, fort.temperature_at(c.x, c.y, c.z),
+                             span, fort.rng,
+                             log=fort.log if c in fort.dwarves() else None):
+            if msg:
+                fort.log.warn(msg)
+        if c.body.dead:
+            fort.kill_creature(c)
+
+    froze, thawed = fort.frost.step(
+        fort.local, fort.rng, lambda cell: fort.temperature_at(*cell),
+        fort.ticks, water=fort.water)
+    if froze or thawed:
+        # Ice is ground and water is not, so anything that cached which cells
+        # can be walked or pathed through has to look again.
+        fort._water_cache = None
+        if froze:
+            fort.warn_once("frozen", "The water is freezing over.")
+            fort.clear_warning("thawed")
+        if thawed:
+            fort.warn_once("thawed", "The ice is breaking up.")
+            fort.clear_warning("frozen")
 
 
 def _traps(fort) -> None:

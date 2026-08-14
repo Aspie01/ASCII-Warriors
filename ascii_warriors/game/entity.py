@@ -110,6 +110,10 @@ class Creature:
         self.forms: List[int] = []
         #: Venom currently working in this creature.
         self.venom: List[Any] = []
+        #: How the weather is going, -1.0 freezing to death through 0.0
+        #: comfortable to +1.0 collapsing in the heat. A number that moves
+        #: rather than a threshold that trips, so there is time to turn back.
+        self.exposure = 0.0
         #: The mount this creature is riding, held off the map while ridden.
         self.mount: Optional["Creature"] = None
         #: Whether this animal has been won over, and how often somebody has
@@ -300,6 +304,10 @@ class Creature:
             from . import venom as venom_mod
 
             speed *= venom_mod.slow_factor(self)
+        if self.exposure:
+            from ..world import heat
+
+            speed *= heat.speed_factor(self)
         return max(10, int(speed))
 
     def sight_radius(self, light: float = 1.0) -> int:
@@ -457,6 +465,8 @@ class Creature:
             from . import venom as venom_mod
 
             d["venom"] = venom_mod.to_list(self)
+        if self.exposure:
+            d["exposure"] = round(self.exposure, 4)
         if self.tame or self.tame_tries:
             d["tame"] = [self.tame, self.tame_tries]
         if self.mount is not None:
@@ -519,6 +529,7 @@ class Creature:
             from . import venom as venom_mod
 
             venom_mod.from_list(c, d["venom"])
+        c.exposure = float(d.get("exposure", 0.0))
         tame = d.get("tame")
         if tame:
             c.tame, c.tame_tries = bool(tame[0]), int(tame[1])

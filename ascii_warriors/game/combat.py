@@ -463,16 +463,25 @@ TRAP_STRIKES: Dict[str, Tuple[str, float, int, int, str]] = {
     # Standing in a fire. Armour helps against a dart and helps a great deal
     # less against burning, which is what the low contact area buys.
     "fire": ("blunt", 5200.0, 2, 300, "burns"),
+    # The other end of the same scale. Frostbite is slow and small and takes
+    # fingers rather than limbs, and a mitten is worth more against it than a
+    # breastplate — which is what the armour model already says, given the
+    # chance to say it.
+    "frostbite": ("blunt", 2600.0, 4, 150, "numbs"),
 }
 
 
 def trap_strike(
-    victim, trap_kind: str, material: str = "", *, rng: RNG, log=None
+    victim, trap_kind: str, material: str = "", *, rng: RNG, log=None,
+    prefer: str = "",
 ) -> AttackResult:
     """A trap goes off under somebody.
 
     Traps do not miss and cannot be parried — that is the point of them — but
     armour still counts, so a well-equipped goblin may walk over one and live.
+
+    *prefer* aims at a part, a category or a flag, for the hazards that have
+    somewhere in particular to bite.
     """
     result = AttackResult()
     if victim.body.dead:
@@ -482,7 +491,7 @@ def trap_strike(
         return result
     kind, momentum, contact, penetration, verb = spec
 
-    part = victim.body.random_part(rng)
+    part = victim.body.random_part(rng, prefer=prefer or None)
     if part is None:
         return result
     result.part = part.id

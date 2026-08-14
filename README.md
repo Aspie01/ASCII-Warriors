@@ -519,6 +519,15 @@ thing you can dig. Standing in a fire hurts and armour helps little; it also
 throws light, so you are extremely visible next to one. In the fortress, magma
 sets light to anything flammable near it.
 
+**Cold and heat.** The temperature follows the region, the season, the hour and
+the weather, and what you are wearing is what keeps it off you — a cloak, a
+hood and boots beat a suit of iron plate, which insulates almost nothing and is
+worse than useless in high summer. Cold takes your fingers; heat takes your
+water. Neither arrives all at once, and a camp fire will pull you back from
+either. Underground is the same temperature all year, which is most of why
+dwarves live there: a fortress dug deep barely notices winter, while one built
+on the surface watches its water freeze over — and ice is slippery.
+
 **A history of people, not just deeds.** The figures in the world's history
 are related to each other: they marry, have children who carry the family
 name, and heroes are bound to the beasts that killed them. Kill somebody with

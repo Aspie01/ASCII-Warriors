@@ -93,6 +93,24 @@ def attach(dwarf: Creature, profession: str = "") -> Creature:
     return dwarf
 
 
+#: What everybody walks off the wagon wearing. Clothing has been in the item
+#: table since it was written -- traded, stockpiled, sorted into a category of
+#: its own and tailored at a workshop -- and no dwarf has ever put any on. It
+#: did not matter until v3.18 made the air cold, at which point a fortress in
+#: the mountains froze to death in its own dining hall.
+EVERYDAY_CLOTHES: Tuple[Tuple[str, str], ...] = (
+    ("tunic", "wool_cloth"), ("trousers", "wool_cloth"), ("shoes", "leather"),
+)
+
+#: And what the ones whose work is above ground add to it.
+OUTDOOR_CLOTHES: Tuple[Tuple[str, str], ...] = (
+    ("cloak", "wool_cloth"), ("hood", "wool_cloth"),
+)
+
+#: Whose work is above ground.
+OUTDOOR_WORK = frozenset({"woodcutter", "farmer", "hunter", "soldier"})
+
+
 def make_dwarf(rng: RNG, profession: str = "", *, race: str = "dwarf",
                age: Optional[int] = None) -> Creature:
     """Create a fortress dwarf of a given profession.
@@ -107,6 +125,12 @@ def make_dwarf(rng: RNG, profession: str = "", *, race: str = "dwarf",
     if age is not None:
         c.age = age
     attach(c, profession)
+    for item_id, material in EVERYDAY_CLOTHES:
+        c.inventory.add(Item(item_id, material))
+    if profession in OUTDOOR_WORK:
+        for item_id, material in OUTDOOR_CLOTHES:
+            c.inventory.add(Item(item_id, material))
+    c.inventory.auto_equip()
     if profession in ("miner", "woodcutter"):
         c.inventory.add(Item("pick" if profession == "miner" else "axe", "iron"))
         c.inventory.auto_equip()

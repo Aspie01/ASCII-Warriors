@@ -129,6 +129,29 @@ def draw_sidebar(scr: Screen, x: int, y: int, w: int, h: int, game) -> None:
         bits.append(Frag("  lit", colors.EMBER))
     scr.text_right(x + w - 1, by + 3, bits)
 
+    from ..world import heat
+
+    temp = game.temperature_at(p.x, p.y, p.z)
+    word = heat.describe(p)
+    scr.text(x, by + 4, "%d F" % round(temp), _temp_color(temp))
+    if word:
+        scr.text_right(x + w - 1, by + 4, word[:w - 7],
+                       colors.UI["danger"] if abs(p.exposure) >= 0.6
+                       else colors.UI["warn"])
+
+
+def _temp_color(temp: float) -> colors.Color:
+    """Cold is blue, hot is red, comfortable is neither."""
+    from ..world import heat
+
+    if temp <= heat.FREEZING:
+        return colors.ICE
+    if temp < heat.COMFORT_LOW:
+        return colors.Color(140, 180, 220)
+    if temp <= heat.COMFORT_HIGH:
+        return colors.UI["dim"]
+    return colors.Color(232, 150, 90)
+
 
 def draw_log(scr: Screen, x: int, y: int, w: int, h: int, game) -> None:
     """Draw the scrolling message log."""

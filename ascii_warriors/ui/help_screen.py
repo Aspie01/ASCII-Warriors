@@ -274,6 +274,28 @@ you are extremely visible next to one -- worth remembering if you are sneaking.
 In the fortress, magma sets fire to anything flammable near it. Keep the
 woodpile away from the forge.
 
+COLD AND HEAT
+
+The sidebar shows the temperature where you are standing. It follows the
+region, the season, the hour and the weather, and a fire warms the ground
+around it -- a camp fire is the difference between a blizzard you walk out of
+and one you do not.
+
+What you are wearing is what keeps it off you. A cloak, a hood and boots are
+worth more against a hard winter than a suit of iron plate, which insulates
+almost nothing and is worse than nothing in high summer. Clothing has been in
+the game since the start; this is the reason to put it on.
+
+Cold takes your fingers first: get numb enough and you will lose them. Heat
+takes your water instead, so a desert crossing is a question of how much you
+can carry. Neither happens all at once -- you get told you are cold long
+before it matters, and getting indoors or beside a fire pulls you back faster
+than the weather pushed you out.
+
+Underground is the same temperature all year, which is most of why dwarves
+live there. A fortress dug deep barely notices winter; one built on the
+surface notices it a great deal, and its water freezes over. Ice is slippery.
+
 KIN
 
 The people in the world's history are related to each other. They marry, they
