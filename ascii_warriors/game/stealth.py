@@ -62,6 +62,13 @@ DISTANCE_HELP = 0.9
 #: Being asleep, unconscious or stunned is not watching.
 ASLEEP_HELP = 40.0
 
+#: What the AMBUSHER flag is worth in the roll. An ambush predator is not a
+#: trained sneak -- a tiger has no `sneak` skill at all -- it is an animal
+#: built to be invisible in its own cover, and without this the whole flag
+#: bought it nothing: `natural_sneak` put it in the hiding game and then the
+#: roll noticed it every single time, which made lurking dead code.
+AMBUSHER_HELP = 26.0
+
 #: Behind something. Cover is worth about as much as a rank of sneaking.
 COVER_HELP = 5.0
 
@@ -99,6 +106,11 @@ def natural_sneak(creature) -> bool:
     """
     if creature.is_player:
         return False
+    if creature.defn.has("AMBUSHER"):
+        # The flag, not the skill. A fox carries AMBUSHER and no `ambusher`
+        # skill at all, so reading only the skill left every animal the data
+        # calls an ambusher standing in plain sight.
+        return True
     return creature.skills.level("ambusher") >= 3 \
         or creature.skills.level("sneak") >= 5
 
@@ -136,6 +148,8 @@ def hide_chance(world, sneaker, watcher) -> float:
     score += SKILL_WEIGHT * (sneaker.skills.level("sneak")
                              + sneaker.skills.level("ambusher") * 0.5)
     score -= SKILL_WEIGHT * watcher.skills.level("observer")
+    if sneaker.defn.has("AMBUSHER"):
+        score += AMBUSHER_HELP
     score += sneaker.attributes.factor("agility") * 8.0 - 8.0
     score -= watcher.attributes.factor("intuition") * 8.0 - 8.0
 

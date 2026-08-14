@@ -258,6 +258,22 @@ demands makes the mayor furious, and a furious dwarf in a fortress full of
 unhappy dwarves is how tantrums start: broken furniture, then somebody going
 berserk with an axe.
 
+THE WILD
+
+Animals behave like animals. Deer, rabbits and livestock run when a person
+gets near, and how near depends entirely on whether they have noticed you --
+so sneaking (v) is how you get inside bowshot of dinner, and the tracks you
+read with s are how you find where it went.
+
+Predators that ambush -- foxes, tigers, leopards, snakes, alligators, cave
+spiders -- do not charge at you across a field. They wait, hidden, until you
+are close, and then they are on you with the ambush bonus. Whether you spot
+one first is your Observer skill against its cover. A high Observer is the
+difference between being attacked and being stalked.
+
+Rats and bats want your food, not your blood. They run from anything bigger
+than they are and take anything edible they pass.
+
 RIDING
 
 Horses, donkeys, mules and camels can be ridden; those and a good many other

@@ -2536,7 +2536,48 @@ What a mount is actually for is the numbers: 85% of the animal's speed rather
 than your own (93 to 155 for a human on a horse), 1.6x carrying capacity, and
 overland tiles that cost 62% of the time they did on foot.
 
-## 73. Style
+## 73. The wild (v3.13)
+
+Three creature flags had never been read. `BENIGN` is on the cow, pig, sheep,
+chicken, duck, deer and rabbit; `AMBUSHER` on the kobold, fox, tiger, leopard,
+alligator, snake, giant cave spider and gremlin; `VERMIN` on the rat, the bat
+and the cave spider. The wilderness was a set of creatures that either
+attacked you or stood still.
+
+**`BENIGN` means it runs**, and not because it is hurt -- `opportunity_to_flee`
+already covers that, and it is a different question. It runs because a person
+came near. That is what makes hunting an activity: v3.9 put tracks in the
+ground and v3.6 put stealth in so you could close the distance, and neither
+had a point while dinner waited politely for you to arrive. How near is near
+comes out of `noticed_by`, so sneaking well is what gets you inside a deer's
+flight distance. Flight lasts fourteen turns, because an animal that flees one
+step and stops just gets shot standing still.
+
+**`AMBUSHER` means it does not charge.** It holds while you are far off and
+springs inside `STRIKE_RANGE`. Measured at seven tiles: against an untrained
+observer a tiger lurks 15 turns in 20, and against a trained one it lurks 2
+and comes on 18. The observer skill is what decides whether you are stalked or
+merely attacked.
+
+Two defects turned up building it. The flag put a creature into
+`natural_sneak`'s hiding game and then the roll noticed it every single time,
+because a tiger has no `sneak` skill at all -- so `lurk` was dead code. The
+flag is now worth `AMBUSHER_HELP` in the roll directly, which is the honest
+statement that an ambush predator is not a trained sneak but an animal built
+to be invisible in its own cover. And `waiting` set its give-up counter
+straight to the ceiling on a single noticed roll, which permanently ended
+lurking for that animal after one unlucky turn -- `noticed_by` is rolled fresh
+every time by design, so one True is not a verdict.
+
+**`VERMIN` means it wants your food.** It flees anything bigger than itself
+and takes edible items off the ground on its way past.
+
+A latent trap fixed in passing: `is_hostile_to` let the `wild_hostile` faction
+fall through to `False`, so the one faction with "hostile" in its name was the
+one that never attacked anybody. Nothing spawns with it today, which is why it
+was a trap and not a bug.
+
+## 74. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

@@ -340,8 +340,13 @@ class Creature:
         if other.faction == "player":
             if self.faction == "hostile":
                 return True
-            if self.faction == "wild":
-                return self.defn.has("SAVAGE") or self.defn.has("EVIL")
+            if self.faction in ("wild", "wild_hostile"):
+                # `wild_hostile` fell through to False here, which made the
+                # one faction with "hostile" in its name the one that never
+                # attacked anybody. Nothing spawns with it today, so this was
+                # a trap rather than a bug; it is neither now.
+                return (self.faction == "wild_hostile"
+                        or self.defn.has("SAVAGE") or self.defn.has("EVIL"))
             return False
         if self.faction == "hostile" and other.faction in ("town", "player"):
             return True

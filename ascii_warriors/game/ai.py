@@ -16,6 +16,7 @@ from . import combat
 
 MODES = (
     "idle", "wander", "hunt", "flee", "follow", "sleep", "guard", "graze",
+    "lurk",
     "travel", "talk", "raise",
 )
 
@@ -138,6 +139,21 @@ def pick_mode(creature, game) -> str:
     if creature.body.unconscious > 0:
         return "sleep"
 
+    from . import wild
+
+    # Still running from something it saw a moment ago. Fleeing has to last
+    # more than one step or the animal simply gets shot where it stands.
+    if wild.still_fleeing(creature):
+        return "flee"
+
+    # A deer does not wait to be attacked before it decides to leave, and
+    # `opportunity_to_flee` below is about being hurt, which is a different
+    # question with a different answer.
+    scared_of = wild.frightener(game, creature)
+    if scared_of is not None:
+        wild.start_flight(creature, scared_of)
+        return "flee"
+
     targets = hostile_targets(creature, game)
     if targets:
         ai.target_id = targets[0].id
@@ -145,6 +161,9 @@ def pick_mode(creature, game) -> str:
         ai.alertness = 12
         if combat.opportunity_to_flee(creature):
             return "flee"
+        # An ambusher does not cross a field at you. It waits.
+        if wild.waiting(game, creature, targets[0]):
+            return "lurk"
         return "hunt"
 
     if ai.alertness > 0:
@@ -309,8 +328,21 @@ def take_turn(creature, game) -> int:
         _step_toward(creature, game, target.x, target.y, target.z)
         return ACTION_COST
 
+    if mode == "lurk":
+        # Hold absolutely still. Moving is what gives a hidden thing away --
+        # v3.6 charges ten points of stealth for a step -- so an ambusher
+        # waiting in cover is an ambusher that stays in cover.
+        return ACTION_COST
+
     if mode == "flee":
+        from . import wild
+
         target = game.creatures.get(ai.target_id) if ai.target_id else None
+        took = wild.steal(game, creature, game.rng)
+        if took is not None and game.can_see_creature(creature):
+            game.log.warn("%s snatches %s and bolts."
+                          % (creature.short_name().capitalize(),
+                             took.name(article=True)))
         if target is not None:
             _step_away(creature, game, target.x, target.y)
         else:

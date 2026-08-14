@@ -511,6 +511,14 @@ generated history. Ask for work and you get a quest that points at a real
 megabeast in a real lair, or a real artifact in a real ruin. Threaten somebody
 and they will either talk or attack you.
 
+**A wilderness that behaves like one.** Deer, rabbits and livestock run when
+you come near, and how near depends on whether they have noticed you — so
+stealth is how you get within bowshot of dinner and tracking is how you find
+where it went. Ambush predators don't charge across open ground: they hold
+still and hidden until you are close, and whether you spot one first is your
+Observer skill against its cover. Rats and bats flee anything bigger and steal
+any food they pass.
+
 **Mounts.** Horses, donkeys, mules and camels can be tamed and ridden, and a
 good many other animals can be tamed. Taming takes time and every refusal
 makes the next try harder; a wild animal minds far more than a village one.

@@ -2686,3 +2686,239 @@ class TestMounts(GameFixture):
         self.assertTrue(theirs[0].tame)
         self.assertEqual(theirs[0].tame_tries, 3)
         path.unlink()
+
+
+class TestTheWild(GameFixture):
+    """BENIGN, AMBUSHER and VERMIN, finally read by something."""
+
+    def setUp(self):
+        super().setUp()
+        from ascii_warriors.game import wild
+
+        self.wild = wild
+        for c in list(self.game.creatures.values()):
+            if not c.is_player:
+                self.game.remove_creature(c)
+        self.game.update_fov()
+
+    def _spawn(self, def_id, dist=5, faction="wild"):
+        """Put a creature *dist* away with a clear line of sight, if possible."""
+        from ascii_warriors.engine.geometry import DIRS8
+        from ascii_warriors.game import ai
+        from ascii_warriors.game.ai import AIState
+        from ascii_warriors.game.entity import make_creature
+
+        p = self.game.player
+        c = make_creature(self.game.rng, def_id, faction=faction)
+        c.ai = AIState("idle")
+        self.game.add_creature(c)
+        for dx, dy in DIRS8:
+            cell = (p.x + dx * dist, p.y + dy * dist, p.z)
+            if not self.game.is_passable(*cell):
+                continue
+            c.x, c.y, c.z = cell
+            self.game.update_fov()
+            if ai.can_see(c, p, self.game):
+                return c
+        c.x, c.y, c.z = p.x, p.y, p.z
+        self.game.update_fov()
+        return None if dist else c
+
+    # -- the flags --------------------------------------------------------- #
+
+    def test_the_flags_pick_out_the_right_animals(self):
+        from ascii_warriors.data import creatures as creature_data
+
+        for flag, checker in (("BENIGN", self.wild.is_skittish),
+                              ("AMBUSHER", self.wild.is_ambusher),
+                              ("VERMIN", self.wild.is_vermin)):
+            owners = [i for i, d in creature_data.CREATURES.items()
+                      if d.has(flag)]
+            self.assertTrue(owners, "%s is on nothing" % flag)
+        deer = self._spawn("deer", 0)
+        self.assertTrue(self.wild.is_skittish(deer))
+        self.assertFalse(self.wild.is_ambusher(deer))
+
+    def test_a_person_is_never_skittish(self):
+        self.assertFalse(self.wild.is_skittish(self.game.player))
+
+    # -- running away ------------------------------------------------------ #
+
+    def test_a_deer_runs_from_you(self):
+        from ascii_warriors.game import ai
+
+        deer = self._spawn("deer", 5)
+        if deer is None:
+            self.skipTest("no clear ground to put a deer on")
+        self.assertEqual(ai.pick_mode(deer, self.game), "flee")
+
+    def test_a_deer_actually_gets_further_away(self):
+        from ascii_warriors.game import ai
+
+        deer = self._spawn("deer", 4)
+        if deer is None:
+            self.skipTest("no clear ground to put a deer on")
+        was = deer.distance_to(self.game.player)
+        for _ in range(12):
+            ai.take_turn(deer, self.game)
+        self.assertGreater(deer.distance_to(self.game.player), was)
+
+    def test_a_tame_animal_does_not_run(self):
+        deer = self._spawn("deer", 4)
+        if deer is None:
+            self.skipTest("no clear ground to put a deer on")
+        deer.tame = True
+        self.assertIsNone(self.wild.frightener(self.game, deer))
+        self.assertEqual(self.wild.flight_distance(
+            self.game, deer, self.game.player), 0)
+
+    def test_sneaking_gets_you_closer_than_walking(self):
+        """The reason v3.6 and v3.9 exist, finally paid off."""
+        from ascii_warriors.game import stealth
+
+        deer = self._spawn("deer", 6)
+        if deer is None:
+            self.skipTest("no clear ground to put a deer on")
+        p = self.game.player
+        p.skills.set_level("sneak", 18)
+        stealth.set_sneaking(p, True)
+        sneaking = self.wild.flight_distance(self.game, deer, p)
+        stealth.set_sneaking(p, False)
+        p.skills.set_level("sneak", 0)
+        walking = self.wild.flight_distance(self.game, deer, p)
+        self.assertLess(sneaking, walking)
+
+    def test_flight_lasts_more_than_one_step(self):
+        deer = self._spawn("deer", 4)
+        if deer is None:
+            self.skipTest("no clear ground to put a deer on")
+        self.wild.start_flight(deer, self.game.player)
+        kept = sum(1 for _ in range(self.wild.FLIGHT_TURNS)
+                   if self.wild.still_fleeing(deer))
+        self.assertGreater(kept, 1)
+        self.assertFalse(self.wild.still_fleeing(deer))
+
+    def test_a_deer_does_not_bolt_from_another_deer(self):
+        a = self._spawn("deer", 0)
+        b = self._spawn("deer", 2)
+        if a is None or b is None:
+            self.skipTest("no clear ground for two deer")
+        self.assertFalse(self.wild._alarming(a, b))
+
+    # -- lying in wait ----------------------------------------------------- #
+
+    def test_an_ambusher_waits_when_it_has_not_been_seen(self):
+        from ascii_warriors.game import ai
+
+        self.game.player.skills.set_level("observer", 0)
+        tiger = self._spawn("tiger", 7)
+        if tiger is None:
+            self.skipTest("no clear sightline for a tiger")
+        modes = [ai.pick_mode(tiger, self.game) for _ in range(30)]
+        self.assertIn("lurk", modes)
+
+    def test_an_ambusher_springs_once_you_are_close(self):
+        from ascii_warriors.game import ai
+
+        self.game.player.skills.set_level("observer", 0)
+        tiger = self._spawn("tiger", 2)
+        if tiger is None:
+            self.skipTest("no clear sightline for a tiger")
+        modes = [ai.pick_mode(tiger, self.game) for _ in range(10)]
+        self.assertNotIn("lurk", modes)
+
+    def test_a_watchful_eye_stops_the_ambush(self):
+        from ascii_warriors.game import ai
+
+        p = self.game.player
+        tiger = self._spawn("tiger", 7)
+        if tiger is None:
+            self.skipTest("no clear sightline for a tiger")
+        p.skills.set_level("observer", 0)
+        blind = [ai.pick_mode(tiger, self.game) for _ in range(30)].count("lurk")
+        tiger.ambush_wait = 0
+        p.skills.set_level("observer", 15)
+        sharp = [ai.pick_mode(tiger, self.game) for _ in range(30)].count("lurk")
+        self.assertGreater(blind, sharp)
+
+    def test_an_ambusher_does_not_wait_for_ever(self):
+        tiger = self._spawn("tiger", 7)
+        if tiger is None:
+            self.skipTest("no clear sightline for a tiger")
+        tiger.ambush_wait = self.wild.GIVE_UP_HIDDEN
+        self.assertFalse(self.wild.waiting(self.game, tiger, self.game.player))
+
+    def test_one_unlucky_roll_does_not_end_the_ambush(self):
+        """It did: a single notice set the counter straight to its ceiling."""
+        tiger = self._spawn("tiger", 7)
+        if tiger is None:
+            self.skipTest("no clear sightline for a tiger")
+        self.game.player.skills.set_level("observer", 0)
+        seen = [self.wild.waiting(self.game, tiger, self.game.player)
+                for _ in range(self.wild.GIVE_UP_HIDDEN - 1)]
+        self.assertIn(True, seen)
+        self.assertLess(tiger.ambush_wait, self.wild.GIVE_UP_HIDDEN + 1)
+
+    def test_an_ambusher_hides_without_being_told_to(self):
+        from ascii_warriors.game import stealth
+
+        tiger = self._spawn("tiger", 0)
+        self.assertTrue(stealth.natural_sneak(tiger))
+        self.assertEqual(tiger.skills.level("ambusher"), 0,
+                         "this test is about the flag, not the skill")
+
+    def test_the_flag_is_worth_something_in_the_roll(self):
+        from ascii_warriors.game import stealth
+
+        tiger = self._spawn("tiger", 5)
+        if tiger is None:
+            self.skipTest("no clear sightline for a tiger")
+        p = self.game.player
+        p.skills.set_level("observer", 0)
+        seen = sum(1 for _ in range(300)
+                   if stealth.noticed_by(self.game, tiger, p))
+        self.assertLess(seen, 250, "an ambush predator is never hidden at all")
+
+    # -- vermin ------------------------------------------------------------- #
+
+    def test_vermin_run_from_anything_bigger(self):
+        rat = self._spawn("rat", 2)
+        if rat is None:
+            self.skipTest("no clear ground for a rat")
+        self.assertTrue(self.wild.is_skittish(rat))
+        self.assertIsNotNone(self.wild.frightener(self.game, rat))
+
+    def test_vermin_steal_food_off_the_ground(self):
+        from ascii_warriors.game.item import Item
+
+        rat = self._spawn("rat", 2)
+        if rat is None:
+            self.skipTest("no clear ground for a rat")
+        self.game.drop_item(Item("meat", "meat"), rat.x, rat.y, rat.z)
+        took = None
+        for _ in range(30):
+            took = self.wild.steal(self.game, rat, self.game.rng)
+            if took is not None:
+                break
+        self.assertIsNotNone(took)
+        self.assertEqual(self.game.items_at(rat.x, rat.y, rat.z), [])
+
+    def test_something_that_is_not_vermin_steals_nothing(self):
+        from ascii_warriors.game.item import Item
+
+        deer = self._spawn("deer", 2)
+        if deer is None:
+            self.skipTest("no clear ground for a deer")
+        self.game.drop_item(Item("meat", "meat"), deer.x, deer.y, deer.z)
+        self.assertIsNone(self.wild.steal(self.game, deer, self.game.rng))
+
+    # -- the faction that never was ----------------------------------------- #
+
+    def test_wild_hostile_is_actually_hostile(self):
+        """It fell through to False, so the one faction with `hostile` in its
+        name was the one that never attacked anybody."""
+        rabbit = self._spawn("rabbit", 2, faction="wild_hostile")
+        if rabbit is None:
+            self.skipTest("no clear ground for a rabbit")
+        self.assertTrue(rabbit.is_hostile_to(self.game.player))
+        self.assertTrue(self.game.player.is_hostile_to(rabbit))
