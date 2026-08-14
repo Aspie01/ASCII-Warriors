@@ -2577,7 +2577,51 @@ fall through to `False`, so the one faction with "hostile" in its name was the
 one that never attacked anybody. Nothing spawns with it today, which is why it
 was a trap and not a bug.
 
-## 74. Style
+## 74. Traps and treacherous ground (v3.14)
+
+The tile table has had a `trap` tile with a `TRAP` flag since it existed, and
+an `ice` tile with an `ICE` flag that glacier biomes have been laying down all
+along. The fortress reads neither -- its traps are buildings with their own
+machinery -- and adventure mode read neither either, so a tomb sealed four
+hundred years ago to keep people out was a room with a skeleton in it, and a
+glacier was a white floor.
+
+**A trap you can see is a puzzle; a trap you cannot is a tax.** Every trap
+starts hidden and every one can be found before it goes off: by searching,
+which v3.9 already made the verb for reading the ground, or by walking past
+with a good enough Observer. Once found it is drawn as a red `^`, named, and
+can be disarmed with `mechanics` or simply walked around. What a trap must
+never be is an unavoidable die roll on entering a room.
+
+The first spotting curve divided by 20 on a 0.45 base, which made each
+Observer rank worth a fifth of the whole range: an untrained searcher found a
+pit 1% of the time and a level-5 one found it 95%. A cliff, not a skill --
+the same mistake v3.6's stealth and v3.8's performance each made once. It now
+runs 14% to 95% across twenty ranks, with hidden traps a full tier harder than
+obvious ones.
+
+**They spring what the game already has.** A dart carries v3.11's venom, a
+snare lays v3.11's web, a pit drops you a level, and an alarm wakes everything
+within forty tiles -- the one that turns a tomb from a fight into a running
+fight. Damage goes through `combat.trap_strike`, which the fortress has used
+since traps were buildings and which already handles armour, body parts and
+the wound model. A second damage path for the same idea is how two systems
+quietly stop agreeing about what a spike does.
+
+Venom is gated on the strike getting through. A dart that failed to penetrate
+armour has not envenomed anybody, and armour mattering for the wound but not
+the venom is armour mattering for half the trap.
+
+**Ice is the other half.** `ICE` ground is a roll against agility and
+`climbing` every time it is crossed, and failing costs the turn and leaves you
+stunned for one. The danger of ice is not that it hurts; it is that you are on
+the floor for a moment while something else is not.
+
+Traps are seeded when a local map is generated rather than at worldgen,
+because a trap belongs to a floor plan and floor plans are made on arrival:
+tombs get three to six, ruins one to three, lairs nought to two.
+
+## 75. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

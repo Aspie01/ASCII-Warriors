@@ -452,6 +452,14 @@ TRAP_STRIKES: Dict[str, Tuple[str, float, int, int, str]] = {
     # kind -> (damage kind, momentum, contact, penetration, verb)
     "weapon_trap": ("edged", 30000.0, 60, 4000, "slashes"),
     "spike_trap": ("piercing", 24000.0, 10, 8000, "impales"),
+    # The ones a tomb was sealed with. Same table so armour counts against
+    # them exactly as it does against a fortress trap -- a second damage path
+    # for the same idea is how the two quietly stop agreeing.
+    "dart": ("piercing", 9000.0, 5, 9000, "strikes"),
+    "pit": ("blunt", 26000.0, 400, 500, "slams"),
+    "collapse": ("blunt", 42000.0, 600, 800, "crushes"),
+    "snare": ("blunt", 3000.0, 200, 200, "catches"),
+    "alarm": ("blunt", 0.0, 0, 0, "startles"),
 }
 
 

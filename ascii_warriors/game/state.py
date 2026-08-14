@@ -21,6 +21,7 @@ from .item import Item, corpse_of, starting_kit
 from .log import MessageLog
 from .quests import QuestLog
 from . import standing as standing_mod
+from . import traps as traps_mod
 from . import venom as venom_mod
 from . import webs as webs_mod
 from . import tracks as tracks_mod
@@ -185,7 +186,12 @@ class Game:
             )
             self.creatures = {}
             self.items_on_ground = {}
+            self.traps = {}
+            self.webs = {}
             self._populate(population, lm_rng, site)
+            # Traps belong to a floor plan, and floor plans are made here
+            # rather than at worldgen, so this is where they go in.
+            traps_mod.populate(self, site, lm_rng)
 
         self.player.wx, self.player.wy = wx, wy
         self.world.tile(wx, wy).explored = True
@@ -896,6 +902,7 @@ class Game:
             "tracks": tracks_mod.to_list(self),
             "standing": standing_mod.book(self).to_dict(),
             "webs": webs_mod.to_list(self),
+            "traps": traps_mod.to_list(self),
             "companion_ids": list(self.companion_ids),
             "companions": [c.to_dict() for c in self.travelling_companions],
             "cache": {
@@ -926,6 +933,7 @@ class Game:
         game.standing = standing_mod.Standing.from_dict(
             d.get("standing") or {})
         webs_mod.from_list(game, d.get("webs") or [])
+        traps_mod.from_list(game, d.get("traps") or [])
         game.companion_ids = [int(i) for i in d.get("companion_ids", [])]
         game._season_mark = int(d.get("season_mark", 0))
         game.travelling_companions = [

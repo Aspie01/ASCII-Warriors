@@ -127,6 +127,24 @@ def _pay(game, coins: int) -> None:
     game.player.inventory.add(item)
 
 
+def disarm_trap(game) -> int:
+    """Take apart a trap you have found, next to you or under you."""
+    from ..engine.geometry import DIRS8
+    from . import traps as traps_mod
+
+    p = game.player
+    for dx, dy in ((0, 0),) + tuple(DIRS8):
+        cell = (p.x + dx, p.y + dy, p.z)
+        trap = traps_mod.at(game, cell)
+        if trap is None or not trap.found or not trap.armed:
+            continue
+        ok, said = traps_mod.disarm(game, cell)
+        game.log.good(said) if ok else game.log.warn(said)
+        return SLOW
+    game.log.info("There is no trap here you know of.")
+    return FREE
+
+
 def ride_or_dismount(game) -> int:
     """Get on whatever is next to you, or get off what you are on."""
     from . import mounts
@@ -275,7 +293,13 @@ def move_or_attack(game, dx: int, dy: int) -> int:
     while nz > game.local.zmin and not game.local.has_floor(nx, ny, nz):
         nz -= 1
 
+    from . import traps as traps_mod
+
     game.move_creature(p, nx, ny, nz)
+    if traps_mod.cross(game, p, (nx, ny, nz)):
+        return NORMAL
+    traps_mod.step_on(game, p, (nx, ny, nz))
+    traps_mod.look_around(game, searching=False)
     pile = game.items_at(nx, ny, nz)
     if pile:
         if len(pile) == 1:
@@ -651,8 +675,13 @@ def search(game) -> int:
                 found.append(t.name)
     if found:
         game.log.good("You notice %s nearby." % ", ".join(sorted(set(found))))
+    from . import traps as traps_mod
+
     trail = read_tracks(game)
-    if not found and not trail:
+    spotted = traps_mod.look_around(game, searching=True)
+    for _cell, trap in spotted:
+        game.log.warn("You spot a %s." % trap.name)
+    if not found and not trail and not spotted:
         game.log.info("You find nothing of interest.")
     return NORMAL
 

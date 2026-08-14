@@ -206,6 +206,7 @@ python -m ascii_warriors --dump-world - --size small --history 200 | less
 | `C` `z` `Q` `G` | character / skills / tasks / legends |
 | `p` `P` | your party / perform a song, poem or dance |
 | `m` `E` | mount or dismount / tame the animal beside you |
+| `U` | disarm a trap you have found |
 | `T` `M` | travel / view the world map |
 | `?` | help |
 | `Ctrl-S` | save |
@@ -510,6 +511,14 @@ beasts in the region, or for directions, and you get real answers from the
 generated history. Ask for work and you get a quest that points at a real
 megabeast in a real lair, or a real artifact in a real ruin. Threaten somebody
 and they will either talk or attack you.
+
+**Traps.** Tombs were sealed to keep people out — with dart traps, pits,
+falling rock, snares and alarms — and ruins and lairs have their share. Every
+one starts hidden; searching finds them, your Observer skill decides how well,
+and Mechanic takes them apart. A dart carries venom, a snare wraps you in web,
+a pit drops you a level, and an alarm tells everything within forty tiles
+where you are. Armour counts, and a dart that cannot get through your mail
+does not poison you either. Ice is slippery, and going down costs you the turn.
 
 **A wilderness that behaves like one.** Deer, rabbits and livestock run when
 you come near, and how near depends on whether they have noticed you — so

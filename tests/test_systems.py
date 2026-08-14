@@ -2922,3 +2922,256 @@ class TestTheWild(GameFixture):
             self.skipTest("no clear ground for a rabbit")
         self.assertTrue(rabbit.is_hostile_to(self.game.player))
         self.assertTrue(self.game.player.is_hostile_to(rabbit))
+
+
+class TestTraps(GameFixture):
+    """The TRAP and ICE tile flags, and what a sealed tomb is for."""
+
+    def setUp(self):
+        super().setUp()
+        from ascii_warriors.game import traps
+
+        self.traps = traps
+        self.traps.layer(self.game).clear()
+
+    def _here(self, dx=1, dy=0):
+        """A walkable cell beside the player."""
+        p = self.game.player
+        for ox, oy in ((dx, dy), (-dx, dy), (dx, -dy), (0, 1), (1, 1), (-1, -1)):
+            cell = (p.x + ox, p.y + oy, p.z)
+            if self.game.local.walkable(*cell):
+                return cell
+        return None
+
+    def _trap(self, kind="pit"):
+        cell = self._here()
+        if cell is None:
+            self.skipTest("no walkable ground beside the player")
+        trap = self.traps.place(self.game, cell, kind)
+        self.assertIsNotNone(trap)
+        return cell, trap
+
+    # -- placing them ------------------------------------------------------ #
+
+    def test_every_kind_has_a_strike_the_combat_model_knows(self):
+        from ascii_warriors.game import combat
+
+        for kind, defn in self.traps.KINDS.items():
+            if not defn.get("damage", (0, 0))[1]:
+                continue
+            self.assertIn(kind, combat.TRAP_STRIKES, kind)
+
+    def test_a_trap_cannot_be_put_in_a_wall(self):
+        p = self.game.player
+        solid = None
+        for r in range(1, 20):
+            for dx in range(-r, r + 1):
+                cell = (p.x + dx, p.y + r, p.z)
+                if (self.game.local.in_bounds(*cell)
+                        and not self.game.local.walkable(*cell)):
+                    solid = cell
+                    break
+            if solid:
+                break
+        if solid is None:
+            self.skipTest("nothing solid nearby")
+        self.assertIsNone(self.traps.place(self.game, solid, "pit"))
+
+    def test_two_traps_do_not_share_a_cell(self):
+        cell, _t = self._trap()
+        self.assertIsNone(self.traps.place(self.game, cell, "dart"))
+
+    def test_tombs_get_more_traps_than_ruins(self):
+        self.assertGreater(self.traps.PER_SITE["tomb"][0],
+                           self.traps.PER_SITE["ruin"][0])
+
+    # -- finding them ------------------------------------------------------ #
+
+    def test_a_trap_starts_hidden(self):
+        _cell, trap = self._trap()
+        self.assertFalse(trap.found)
+
+    def test_looking_finds_them_better_than_walking_past(self):
+        _cell, trap = self._trap()
+        p = self.game.player
+        p.skills.set_level("observer", 8)
+        self.assertGreater(
+            self.traps.spot_chance(p, trap, searching=True),
+            self.traps.spot_chance(p, trap, searching=False))
+
+    def test_the_spot_curve_is_a_curve_and_not_a_cliff(self):
+        """It was: observer 0 found a pit 1% of the time and observer 5, 95%."""
+        _cell, trap = self._trap()
+        p = self.game.player
+        seen = []
+        for level in (0, 5, 10, 16):
+            p.skills.set_level("observer", level)
+            seen.append(self.traps.spot_chance(p, trap, searching=True))
+        self.assertEqual(seen, sorted(seen))
+        # No single rank may be worth more than half the whole range.
+        steps = [b - a for a, b in zip(seen, seen[1:])]
+        self.assertLess(max(steps), 0.5)
+        self.assertGreater(seen[-1] - seen[0], 0.3)
+
+    def test_a_hidden_trap_is_harder_than_an_obvious_one(self):
+        p = self.game.player
+        p.skills.set_level("observer", 6)
+        pit = self.traps.Trap("pit")
+        alarm = self.traps.Trap("alarm")
+        self.assertGreater(self.traps.spot_chance(p, pit, searching=True),
+                           self.traps.spot_chance(p, alarm, searching=True))
+
+    def test_searching_eventually_finds_one(self):
+        cell, trap = self._trap()
+        p = self.game.player
+        p.x, p.y, p.z = cell[0], cell[1], cell[2]
+        p.skills.set_level("observer", 10)
+        for _ in range(40):
+            if self.traps.look_around(self.game, searching=True):
+                break
+        self.assertTrue(trap.found)
+
+    def test_finding_one_draws_it(self):
+        cell, trap = self._trap()
+        self.traps.reveal(self.game, cell, trap)
+        self.assertEqual(self.game.local.tile(*cell), self.traps.TRAP_TILE)
+
+    # -- disarming them ---------------------------------------------------- #
+
+    def test_you_cannot_disarm_what_you_have_not_found(self):
+        cell, _trap = self._trap()
+        ok, _said = self.traps.disarm(self.game, cell)
+        self.assertFalse(ok)
+
+    def test_a_mechanic_takes_one_apart(self):
+        cell, trap = self._trap()
+        self.traps.reveal(self.game, cell, trap)
+        self.game.player.skills.set_level("mechanics", 14)
+        for _ in range(30):
+            ok, _said = self.traps.disarm(self.game, cell)
+            if ok or trap.sprung:
+                break
+        self.assertFalse(trap.armed)
+
+    def test_a_disarmed_trap_does_nothing(self):
+        cell, trap = self._trap()
+        trap.armed = False
+        self.assertIsNone(
+            self.traps.step_on(self.game, self.game.player, cell))
+
+    # -- setting them off --------------------------------------------------- #
+
+    def test_stepping_on_one_springs_it(self):
+        cell, trap = self._trap()
+        p = self.game.player
+        p.x, p.y, p.z = cell
+        self.assertIsNotNone(self.traps.step_on(self.game, p, cell))
+        self.assertTrue(trap.sprung)
+        self.assertFalse(trap.armed)
+
+    def test_a_sprung_trap_does_not_spring_twice(self):
+        cell, _trap = self._trap()
+        p = self.game.player
+        p.x, p.y, p.z = cell
+        self.traps.step_on(self.game, p, cell)
+        self.assertIsNone(self.traps.step_on(self.game, p, cell))
+
+    def test_a_dart_envenoms(self):
+        cell, _trap = self._trap("dart")
+        p = self.game.player
+        p.x, p.y, p.z = cell
+        p.inventory.remove_all()          # no armour to stop it
+        self.traps.spring(self.game, cell, p)
+        self.assertTrue(p.venom)
+
+    def test_a_dart_that_cannot_get_through_does_not_envenom(self):
+        """Armour mattering for the wound and not the venom is armour
+        mattering for half the trap."""
+        cell, _trap = self._trap("dart")
+        p = self.game.player
+        p.venom = []
+        landed = self.traps._hurt(self.game, p, "dart")
+        if landed:
+            self.skipTest("the dart got through this time")
+        self.assertFalse(p.venom)
+
+    def test_a_snare_lays_a_web(self):
+        from ascii_warriors.game import webs
+
+        cell, _trap = self._trap("snare")
+        p = self.game.player
+        p.x, p.y, p.z = cell
+        self.traps.spring(self.game, cell, p)
+        self.assertTrue(webs.is_web(self.game, cell))
+
+    def test_an_alarm_wakes_the_neighbours(self):
+        from ascii_warriors.game.ai import AIState
+        from ascii_warriors.game.entity import make_creature
+
+        cell, _trap = self._trap("alarm")
+        p = self.game.player
+        p.x, p.y, p.z = cell
+        other = make_creature(self.game.rng, "human", faction="hostile")
+        other.x, other.y, other.z = cell[0] + 2, cell[1], cell[2]
+        other.ai = AIState("idle")
+        other.ai.alertness = 0
+        self.game.add_creature(other)
+        self.traps.spring(self.game, cell, p)
+        self.assertGreater(other.ai.alertness, 0)
+
+    # -- ice ---------------------------------------------------------------- #
+
+    def test_ice_is_recognised_by_its_flag(self):
+        cell = self._here()
+        if cell is None:
+            self.skipTest("no walkable ground beside the player")
+        self.assertFalse(self.traps.is_ice(self.game, cell))
+        self.game.local.set_tile(cell[0], cell[1], cell[2], "ice")
+        self.assertTrue(self.traps.is_ice(self.game, cell))
+
+    def test_climbing_keeps_your_feet(self):
+        p = self.game.player
+        p.skills.set_level("climbing", 0)
+        poor = self.traps.footing(p)
+        p.skills.set_level("climbing", 15)
+        self.assertGreater(self.traps.footing(p), poor)
+
+    def test_you_can_slip_on_ice(self):
+        cell = self._here()
+        if cell is None:
+            self.skipTest("no walkable ground beside the player")
+        self.game.local.set_tile(cell[0], cell[1], cell[2], "ice")
+        p = self.game.player
+        p.skills.set_level("climbing", 0)
+        slipped = any(self.traps.cross(self.game, p, cell) for _ in range(60))
+        self.assertTrue(slipped)
+
+    def test_ordinary_ground_never_trips_anybody(self):
+        cell = self._here()
+        if cell is None:
+            self.skipTest("no walkable ground beside the player")
+        self.assertFalse(any(self.traps.cross(self.game, self.game.player, cell)
+                             for _ in range(40)))
+
+    # -- persistence --------------------------------------------------------- #
+
+    def test_traps_survive_a_save(self):
+        from ascii_warriors.game import save as save_mod
+
+        cell, trap = self._trap("collapse")
+        self.traps.reveal(self.game, cell, trap)
+        path = save_mod.save_game(self.game, "trap-test")
+        back = save_mod.load_game(path)
+        again = self.traps.at(back, cell)
+        self.assertIsNotNone(again)
+        self.assertEqual((again.kind, again.found, again.armed),
+                         ("collapse", True, True))
+        path.unlink()
+
+    def test_a_save_without_traps_still_loads(self):
+        from ascii_warriors.game.state import Game
+
+        raw = self.game.to_dict()
+        del raw["traps"]
+        back = Game.from_dict(raw)
+        self.assertEqual(self.traps.layer(back), {})

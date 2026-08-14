@@ -253,6 +253,8 @@ class PlayScene(Scene):
             cost = actions.ride_or_dismount(game)
         elif key == "E":
             cost = actions.tame_animal(game)
+        elif key == "U":
+            cost = actions.disarm_trap(game)
         elif key == "s":
             cost = actions.search(game)
         elif key == "S":
