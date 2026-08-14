@@ -539,7 +539,13 @@ def _hold_position(fort, dwarf, squad) -> bool:
         return False
     if fort.military.alarm and fort.military.burrow is not None:
         if fort.military.in_burrow(dwarf.x, dwarf.y, dwarf.z):
-            return False
+            # Stay in it. Returning False here meant "I did not use my turn",
+            # so a civilian that had just run to safety immediately claimed a
+            # job and walked back out of the burrow -- which is the one thing
+            # a burrow exists to stop. Needs are handled before this, so
+            # holding position cannot starve anybody.
+            release_job(fort, dwarf)
+            return True
         release_job(fort, dwarf)
         return _retreat_to_burrow(fort, dwarf)
     return False

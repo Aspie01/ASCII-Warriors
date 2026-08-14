@@ -2664,7 +2664,41 @@ constructor made, and with it the back-reference the whole thing reads
 through. Without one line restoring it, a *loaded* game silently ignored every
 personality in it while a fresh one worked perfectly.
 
-## 76. Style
+## 76. Kin and rivals (v3.16)
+
+`HistoricalFigure.relationships` is a `Dict[int, str]` that has been declared,
+serialised and reloaded since figures existed, and never once written to or
+read from. `"marriage"` has been in `EVENT_KINDS` just as long and was never
+recorded either. So the world had heroes, rulers, slain beasts and four
+hundred remembered names, and not one of them was anybody's anything.
+
+**`relate(a, b, kind)` writes both halves.** A relationship recorded one way
+only is a relationship half the code will fail to find, so `OPPOSITE` pairs
+every kind with its mirror and the test suite checks reciprocity across every
+figure in a generated world.
+
+Worldgen now fills it: people marry, have children, and the children take
+their parent's family name -- a child of Varen Kettleby called Adelin Fenwick
+is two strangers and a family the legends screen cannot draw. Heroes and the
+beasts that killed them become `slayer`/`slain_by`. Leaders of peoples at war
+become `enemy`.
+
+The first cut was unbounded and one prolific couple accumulated fifteen
+children and eight siblings apiece, with births making up four hundred of the
+world's four hundred and sixty-seven figures. A history where most of the
+names are somebody's youngest child is not a history: `MAX_CHILDREN` caps a
+couple at four and the odds came down to match.
+
+**The payoff is that kin remember.** `standing._kin_remember` is the first
+thing in play to read the graph: kill somebody with a family and anybody on
+that map who was blood or marriage to them turns on you outright, and their
+people think less of you for every relative you have left behind. Killing a
+nobody and killing somebody's father were the same act until the world's
+figures had relationships, and now they are not.
+
+The legends screen lists a figure's relations by name, marking the dead.
+
+## 77. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

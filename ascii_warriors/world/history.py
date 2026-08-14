@@ -201,6 +201,141 @@ class Artifact:
 # --------------------------------------------------------------------------- #
 
 
+# --------------------------------------------------------------------------- #
+# Who people were to each other
+# --------------------------------------------------------------------------- #
+#
+# `HistoricalFigure.relationships` is a `Dict[int, str]` that has been declared,
+# serialised and reloaded since figures existed, and never once written to or
+# read from. `"marriage"` has been in EVENT_KINDS just as long and was never
+# recorded either. So the world had heroes and rulers and slain beasts, and
+# nobody in it was anybody's anything.
+
+#: The reciprocal of each relationship. A relationship written one way only is
+#: a relationship half the code will fail to find.
+OPPOSITE: Dict[str, str] = {
+    "spouse": "spouse", "parent": "child", "child": "parent",
+    "sibling": "sibling", "slayer": "slain_by", "slain_by": "slayer",
+    "enemy": "enemy", "lord": "subject", "subject": "lord",
+}
+
+#: How relationships read on the legends page.
+RELATION_NAMES: Dict[str, str] = {
+    "spouse": "married to", "parent": "parent of", "child": "child of",
+    "sibling": "sibling of", "slayer": "slayer of",
+    "slain_by": "slain by", "enemy": "enemy of", "lord": "lord of",
+    "subject": "subject of",
+}
+
+#: Odds per year that two eligible figures of a people marry.
+MARRY_ODDS = 0.30
+
+#: And that a married pair have a child the world remembers. Low, and capped
+#: below, because the first cut let one prolific couple accumulate fifteen
+#: children and eight siblings apiece and made births four hundred of the
+#: world's four hundred and sixty-seven historical figures. A history where
+#: most of the names are somebody's youngest child is not a history.
+CHILD_ODDS = 0.12
+
+#: The most children one couple is remembered for.
+MAX_CHILDREN = 4
+
+#: Nobody marries before this age, or after their people's prime.
+MARRY_AGE = 18
+
+
+def relate(a, b, kind: str) -> None:
+    """Record that *a* is *kind* to *b*, and *b* the opposite to *a*."""
+    if a is None or b is None or a.id == b.id:
+        return
+    a.relationships[b.id] = kind
+    b.relationships[a.id] = OPPOSITE.get(kind, kind)
+
+
+def relations_of(world, figure) -> List[Tuple[str, Any]]:
+    """Everybody this figure was something to, as ``(kind, figure)``."""
+    out = []
+    for other_id, kind in sorted(figure.relationships.items()):
+        other = world.figures.get(other_id)
+        if other is not None:
+            out.append((kind, other))
+    return out
+
+
+def kin_of(world, figure) -> List[Any]:
+    """Blood and marriage. The ones who mind when somebody dies."""
+    return [f for kind, f in relations_of(world, figure)
+            if kind in ("spouse", "parent", "child", "sibling")]
+
+
+def _marriages(world, rng: RNG, year: int, civs) -> None:
+    """People marry and have children, and the world writes it down."""
+    for civ in civs:
+        if not rng.chance(MARRY_ODDS):
+            continue
+        pool = [f for f in world.figures.values()
+                if f.civ_id == civ.id and f.alive(year)
+                and year - f.born >= MARRY_AGE
+                and "monster" not in f.flags
+                and not any(k == "spouse" for k in f.relationships.values())]
+        if len(pool) < 2:
+            continue
+        a, b = rng.sample(pool, 2)
+        if a.female == b.female:
+            continue
+        relate(a, b, "spouse")
+        record(world, year, "marriage",
+               "%s and %s were married." % (a.display_name, b.display_name),
+               [a.id, b.id], [a.site_id] if a.site_id else [], [civ.id])
+
+    for civ in civs:
+        if not rng.chance(CHILD_ODDS):
+            continue
+        parents = [f for f in world.figures.values()
+                   if f.civ_id == civ.id and f.alive(year)
+                   and any(k == "spouse" for k in f.relationships.values())]
+        if not parents:
+            continue
+        parents = [f for f in parents
+                   if sum(1 for k in f.relationships.values() if k == "child")
+                   < MAX_CHILDREN]
+        if not parents:
+            continue
+        parent = rng.choice(parents)
+        spouse = next((world.figures.get(i)
+                       for i, k in parent.relationships.items()
+                       if k == "spouse"), None)
+        child = new_figure(world, rng, civ.race, civ.id, parent.site_id,
+                           year=year, profession="peasant")
+        child.born = year
+        _take_family_name(child, parent)
+        relate(parent, child, "parent")
+        if spouse is not None:
+            relate(spouse, child, "parent")
+            for sib_id, kind in list(parent.relationships.items()):
+                if kind == "child" and sib_id != child.id:
+                    relate(world.figures[sib_id], child, "sibling")
+        record(world, year, "birth",
+               "%s was born to %s." % (child.display_name,
+                                       parent.display_name),
+               [child.id, parent.id],
+               [parent.site_id] if parent.site_id else [], [civ.id])
+
+
+def _take_family_name(child, parent) -> None:
+    """A child carries its parent's family name, where the race has one.
+
+    Generated names are ``given surname``; a child of Varen Kettleby called
+    Adelin Fenwick is two strangers, and a family the legends screen cannot
+    show as one.
+    """
+    theirs = parent.name.split()
+    mine = child.name.split()
+    if len(theirs) < 2 or len(mine) < 2:
+        return
+    child.name = "%s %s" % (mine[0], " ".join(theirs[1:]))
+
+
 def record(
     world,
     year: int,
@@ -266,6 +401,14 @@ def _pick_leader(world, rng: RNG, civ, year: int) -> Optional[HistoricalFigure]:
     fig.titles.append(name_data.title_for(rng, "leader", fig.female))
     fig.flags.add("leader")
     civ.leader_hf = fig.id
+    # The leader before this one, and whoever leads the peoples they are at
+    # war with. A crown is a set of relationships more than it is a hat.
+    for other in _living_civs(world):
+        if other.id == civ.id or civ.id not in other.at_war_with:
+            continue
+        rival = world.figures.get(other.leader_hf) if other.leader_hf else None
+        if rival is not None and rival.alive(year):
+            relate(fig, rival, "enemy")
     site = world.site(civ.capital) if civ.capital else None
     if site is not None:
         site.ruler_hf = fig.id
@@ -437,6 +580,9 @@ def _simulate_year(world, rng: RNG, year: int) -> None:
                 [leader.id], [], [civ.id],
             )
 
+    # People marry, and have children who go on to be somebody.
+    _marriages(world, rng, year, civs)
+
     # Civilizations expand.
     for civ in civs:
         live = _live_sites(world, civ)
@@ -530,6 +676,7 @@ def _simulate_year(world, rng: RNG, year: int) -> None:
                 beast.death_cause = "slain by %s" % hero.display_name
                 hero.kills.append(beast.id)
                 hero.flags.add("legendary")
+                relate(hero, beast, "slayer")
                 record(
                     world, year, "beast_slain",
                     "%s slew the %s %s near %s." % (
@@ -542,6 +689,7 @@ def _simulate_year(world, rng: RNG, year: int) -> None:
                 hero.death_cause = "slain by the %s %s" % (
                     beast_def.name, beast.display_name)
                 beast.kills.append(hero.id)
+                relate(beast, hero, "slayer")
                 record(
                     world, year, "death",
                     "%s was slain by the %s %s near %s." % (

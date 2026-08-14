@@ -3337,3 +3337,167 @@ class TestPersonality(GameFixture):
                                before, places=5)
         self.assertIs(back.player.needs.owner, back.player)
         path.unlink()
+
+
+class TestKin(GameFixture):
+    """`relationships` and `"marriage"`, declared for ever and never used."""
+
+    def setUp(self):
+        super().setUp()
+        from ascii_warriors.world import history
+
+        self.history = history
+
+    def _figures_with(self, kind, n=1):
+        out = [f for f in self.world.figures.values()
+               if any(k == kind for k in f.relationships.values())]
+        if len(out) < n:
+            self.skipTest("this world has no %s" % kind)
+        return out
+
+    # -- the graph ---------------------------------------------------------- #
+
+    def test_worldgen_makes_families(self):
+        related = [f for f in self.world.figures.values() if f.relationships]
+        self.assertTrue(related, "nobody in this world is anybody's anything")
+
+    def test_marriages_are_recorded_as_events(self):
+        weddings = [e for e in self.world.events if e.kind == "marriage"]
+        spouses = self._figures_with("spouse")
+        self.assertTrue(spouses)
+        self.assertTrue(weddings, "people married and the world forgot")
+
+    def test_every_relationship_is_reciprocal(self):
+        for f in self.world.figures.values():
+            for other_id, kind in f.relationships.items():
+                other = self.world.figures.get(other_id)
+                self.assertIsNotNone(other, "relation to a figure that is gone")
+                back = other.relationships.get(f.id)
+                self.assertEqual(back, self.history.OPPOSITE.get(kind, kind),
+                                 "%s -> %s" % (kind, back))
+
+    def test_nobody_is_related_to_themselves(self):
+        for f in self.world.figures.values():
+            self.assertNotIn(f.id, f.relationships)
+
+    def test_every_relationship_kind_has_an_opposite_and_a_name(self):
+        for kind in self.history.OPPOSITE:
+            self.assertIn(kind, self.history.RELATION_NAMES, kind)
+        for f in self.world.figures.values():
+            for kind in f.relationships.values():
+                self.assertIn(kind, self.history.OPPOSITE, kind)
+
+    def test_relate_writes_both_ways(self):
+        a, b = list(self.world.figures.values())[:2]
+        a.relationships.clear()
+        b.relationships.clear()
+        self.history.relate(a, b, "parent")
+        self.assertEqual(a.relationships[b.id], "parent")
+        self.assertEqual(b.relationships[a.id], "child")
+
+    def test_relating_somebody_to_themselves_does_nothing(self):
+        a = list(self.world.figures.values())[0]
+        before = dict(a.relationships)
+        self.history.relate(a, a, "spouse")
+        self.assertEqual(a.relationships, before)
+
+    # -- bounds -------------------------------------------------------------- #
+
+    def test_no_couple_has_an_absurd_number_of_children(self):
+        """One couple accumulated fifteen before this was bounded."""
+        for f in self.world.figures.values():
+            kids = sum(1 for k in f.relationships.values() if k == "child")
+            self.assertLessEqual(kids, self.history.MAX_CHILDREN)
+
+    def test_children_take_the_family_name(self):
+        parents = self._figures_with("child")
+        shared = 0
+        for parent in parents:
+            for kid_id, kind in parent.relationships.items():
+                if kind != "child":
+                    continue
+                kid = self.world.figures[kid_id]
+                if (len(parent.name.split()) > 1
+                        and parent.name.split()[1:] == kid.name.split()[1:]):
+                    shared += 1
+        if not shared:
+            self.skipTest("this race has no surnames")
+        self.assertGreater(shared, 0)
+
+    def test_kin_are_blood_and_marriage_only(self):
+        slain = [f for f in self.world.figures.values()
+                 if any(k == "slain_by" for k in f.relationships.values())]
+        if not slain:
+            self.skipTest("nobody in this world was slain by anybody")
+        for f in slain:
+            for k in self.history.kin_of(self.world, f):
+                self.assertIn(f.relationships[k.id],
+                              ("spouse", "parent", "child", "sibling"))
+
+    # -- reading it ---------------------------------------------------------- #
+
+    def test_the_legends_page_shows_relations(self):
+        from ascii_warriors.world import legends
+
+        related = [f for f in self.world.figures.values() if f.relationships]
+        if not related:
+            self.skipTest("no relations in this world")
+        fig = related[0]
+        text = " ".join(f.text for f in legends.figure_lines(self.world, fig.id))
+        self.assertIn("Relations", text)
+
+    def test_relations_survive_a_world_round_trip(self):
+        from ascii_warriors.world.worldgen import World
+
+        related = [f for f in self.world.figures.values() if f.relationships]
+        if not related:
+            self.skipTest("no relations in this world")
+        fig = related[0]
+        back = World.from_dict(self.world.to_dict())
+        self.assertEqual(back.figures[fig.id].relationships, fig.relationships)
+
+    # -- kin remember --------------------------------------------------------- #
+
+    def test_killing_somebody_turns_their_kin_on_you(self):
+        from ascii_warriors.game import standing
+
+        related = [f for f in self.world.figures.values()
+                   if self.history.kin_of(self.world, f)]
+        if not related:
+            self.skipTest("nobody here has family")
+        victim_fig = related[0]
+        relative = self.history.kin_of(self.world, victim_fig)[0]
+
+        folk = [c for c in self.game.creatures.values()
+                if not c.is_player and c.defn.intelligent]
+        if len(folk) < 2:
+            self.skipTest("not enough people on this map")
+        victim, avenger = folk[0], folk[1]
+        victim.hf_id = victim_fig.id
+        victim.faction = "town"
+        avenger.hf_id = relative.id
+        p = self.game.player
+        for i, c in enumerate((victim, avenger)):
+            c.x, c.y, c.z = p.x + 1 + i, p.y, p.z
+        self.game.update_fov()
+
+        standing.on_kill(self.game, victim)
+        self.assertIn(p.id, avenger.hostile_to)
+
+    def test_killing_a_nobody_leaves_no_avengers(self):
+        from ascii_warriors.game import standing
+
+        folk = [c for c in self.game.creatures.values()
+                if not c.is_player and c.defn.intelligent]
+        if not folk:
+            self.skipTest("nobody on this map")
+        victim = folk[0]
+        victim.hf_id = None
+        victim.faction = "town"
+        p = self.game.player
+        victim.x, victim.y, victim.z = p.x + 1, p.y, p.z
+        self.game.update_fov()
+        before = {c.id: set(c.hostile_to) for c in folk}
+        standing.on_kill(self.game, victim)
+        for c in folk[1:]:
+            self.assertEqual(c.hostile_to, before[c.id])

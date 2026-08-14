@@ -512,6 +512,13 @@ generated history. Ask for work and you get a quest that points at a real
 megabeast in a real lair, or a real artifact in a real ruin. Threaten somebody
 and they will either talk or attack you.
 
+**A history of people, not just deeds.** The figures in the world's history
+are related to each other: they marry, have children who carry the family
+name, and heroes are bound to the beasts that killed them. Kill somebody with
+a family and any relative standing nearby turns on you on the spot, while
+their whole people think less of you for each one you left behind — killing a
+nobody and killing somebody's father are not the same act.
+
 **Personalities that matter.** Every creature has thirty personality facets
 and twenty cultural values, and they decide how the world lands on it. The
 same funeral costs an anxious dwarf considerably more than a stoic one, and

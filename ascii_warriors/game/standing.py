@@ -293,7 +293,55 @@ def on_kill(game, victim) -> Dict[int, int]:
     if not seen:
         return {}
     deed = "murder" if victim.faction in ("town", "player") else "manslaughter"
-    return did(game, deed, seen_by=seen)
+    changes = did(game, deed, seen_by=seen)
+    changes = _kin_remember(game, victim, changes)
+    return changes
+
+
+#: What each living relative of the dead is worth, on top of the deed itself.
+#: Killing a nobody and killing somebody's father are not the same act, and
+#: until the world's figures had relationships there was no way to tell them
+#: apart.
+KIN_PENALTY = -6
+
+
+def _kin_remember(game, victim, changes: Dict[int, int]) -> Dict[int, int]:
+    """The dead person's family take it personally.
+
+    v3.16 gave the world's historical figures relationships; this is the first
+    thing that reads them in play. Anybody on this map who was kin to the dead
+    turns on you outright, and their people think less of you for every
+    relative you have left them with.
+    """
+    from ..world import history as history_mod
+
+    hf_id = getattr(victim, "hf_id", None)
+    if hf_id is None:
+        return changes
+    fig = game.world.figures.get(hf_id)
+    if fig is None:
+        return changes
+    kin = history_mod.kin_of(game.world, fig)
+    if not kin:
+        return changes
+    kin_ids = {f.id for f in kin}
+    marks = book(game)
+    told = False
+    for c in game.creatures.values():
+        if c.is_player or not c.alive or getattr(c, "hf_id", None) not in kin_ids:
+            continue
+        c.hostile_to.add(game.player.id)
+        told = True
+    living = [f for f in kin if f.died is None]
+    for f in living:
+        cid = f.civ_id
+        if cid is None:
+            continue
+        changes[int(cid)] = changes.get(int(cid), 0) + KIN_PENALTY
+        marks.add(cid, KIN_PENALTY)
+    if told:
+        game.log.bad("Somebody here was kin to the dead.")
+    return changes
 
 
 # --------------------------------------------------------------------------- #

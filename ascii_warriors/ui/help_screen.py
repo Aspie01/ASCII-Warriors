@@ -259,6 +259,18 @@ demands makes the mayor furious, and a furious dwarf in a fortress full of
 unhappy dwarves is how tantrums start: broken furniture, then somebody going
 berserk with an axe.
 
+KIN
+
+The people in the world's history are related to each other. They marry, they
+have children who take their family name, heroes and the beasts that killed
+them are bound together, and the leaders of warring peoples are enemies. Press
+G and open any figure to see who they were to whom.
+
+This matters when you kill somebody. If the dead had family and any of them
+are standing nearby, those relatives turn on you where they stand, and their
+whole people think less of you for every relative you left behind. Killing a
+nobody and killing somebody's father are not the same act.
+
 PERSONALITY
 
 Every dwarf and every person in the world has thirty personality facets and

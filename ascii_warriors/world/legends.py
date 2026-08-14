@@ -52,6 +52,15 @@ def figure_lines(world, hf_id: int) -> List[Frag]:
     if fig.stats:
         out.append(_line("Prowess %d, cunning %d." % (
             fig.stats.get("prowess", 0), fig.stats.get("cunning", 0)), _DIM))
+    kin = history_mod.relations_of(world, fig)
+    if kin:
+        out.append(_line(""))
+        out.append(_line("Relations:", _ACCENT))
+        for kind, other in kin[:20]:
+            out.append(_line("  %-12s %s%s" % (
+                history_mod.RELATION_NAMES.get(kind, kind),
+                other.display_name,
+                "" if other.died is None else " (dead)")))
     made = [a for a in world.artifacts if a.creator_hf == hf_id]
     if made:
         out.append(_line(""))
