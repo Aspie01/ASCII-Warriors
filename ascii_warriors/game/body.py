@@ -199,8 +199,6 @@ class Body:
         self.stunned = 0
         self.unconscious = 0
         self.winded = 0
-        self.nausea = 0
-        self.bleeding_wounds: List[Wound] = []
         self.dead = False
         self.death_cause = ""
         self.bloodless = False

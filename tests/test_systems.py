@@ -7260,3 +7260,87 @@ class TestFlight(GameFixture):
         self.assertGreater(bird.encumbrance(), flight.FLIGHT_LOAD)
         self.assertFalse(flight.can_fly(bird))
         self.assertEqual(flight.grounded_reason(bird), "too heavily laden")
+
+
+class TestWhatAnAdventureSaveKeeps(GameFixture):
+    """The other half of v3.34's round-trip guarantee.
+
+    Adventure mode turned out to be clean, which is worth having a test say
+    rather than having found once and forgotten -- most of the state the last
+    dozen milestones added lives here.
+    """
+
+    #: Recomputed by whatever the creature does next, deliberately not saved.
+    TRANSIENT = {"noise", "rng", "log", "local", "world", "owner", "defn",
+                 "game", "fort", "scheduler", "path", "visible", "creatures",
+                 "items_on_ground", "travel_target"}
+
+    def _diff(self, before, after, label):
+        def summarise(value):
+            if isinstance(value, (int, float, str, bool)) or value is None:
+                return value
+            if isinstance(value, dict):
+                return ("dict", len(value))
+            if isinstance(value, (list, tuple, set, frozenset)):
+                return (type(value).__name__, len(value))
+            return type(value).__name__
+
+        names = set()
+        for obj in (before, after):
+            names |= set(getattr(obj, "__dict__", {}))
+            names |= set(getattr(type(obj), "__slots__", ()) or ())
+        out = []
+        for name in sorted(names):
+            if name.startswith("_") or name in self.TRANSIENT:
+                continue
+            was, now = getattr(before, name, "?"), getattr(after, name, "?")
+            if callable(was):
+                continue
+            if summarise(was) != summarise(now):
+                out.append("%s.%s: %r -> %r"
+                           % (label, name, summarise(was), summarise(now)))
+        return out
+
+    def test_an_adventure_comes_back_the_way_it_went_in(self):
+        from ascii_warriors.game.state import Game
+
+        game = self.game
+        player = game.player
+        for _ in range(30):
+            game.player_acts(100)
+        # The state the recent milestones added, all set at once.
+        game.drowning[player.id] = 7.5
+        player.shaken = 0.8
+        player.swing_bank = 33.0
+        player.exposure = -0.4
+        player.skills.set_level("discipline", 4)
+        player.add_exp("swimming", 200)
+
+        back = Game.from_dict(game.to_dict())
+        lost = self._diff(game, back, "game")
+        lost += self._diff(player, back.player, "player")
+        lost += self._diff(player.body, back.player.body, "player.body")
+        lost += self._diff(player.needs, back.player.needs, "player.needs")
+        lost += self._diff(player.skills, back.player.skills, "player.skills")
+        self.assertEqual(lost, [], "a save lost state:\n  " + "\n  ".join(lost))
+
+    def test_the_things_the_last_milestones_added_all_survive(self):
+        """Named one at a time, because a shape-only diff would pass on a
+        field that came back the right type and the wrong value."""
+        from ascii_warriors.game.state import Game
+
+        game = self.game
+        p = game.player
+        game.drowning[p.id] = 7.5
+        p.shaken = 0.8
+        p.swing_bank = 33.0
+        p.skills.set_level("discipline", 4)
+        p.skills.set_level("swimming", 6)
+
+        back = Game.from_dict(game.to_dict())
+        bp = back.player
+        self.assertAlmostEqual(back.drowning.get(p.id, 0.0), 7.5, places=3)
+        self.assertAlmostEqual(getattr(bp, "shaken", 0.0), 0.8, places=3)
+        self.assertAlmostEqual(getattr(bp, "swing_bank", 0.0), 33.0, places=3)
+        self.assertEqual(bp.skills.level("discipline"), 4)
+        self.assertEqual(bp.skills.level("swimming"), 6)

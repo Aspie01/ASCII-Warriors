@@ -2023,6 +2023,119 @@ class TestSaveLoad(unittest.TestCase):
                     os.environ["ASCII_WARRIORS_SAVE_DIR"] = old
 
 
+#: Attributes a fortress save deliberately does not keep, and why. This list
+#: is the point of `TestWhatASaveKeeps`: anything new that fails to survive a
+#: round trip breaks the suite until somebody either serialises it or comes
+#: here and says in writing that it is transient.
+TRANSIENT = {
+    # Rebuilt from the world and the map on load.
+    "rng", "log", "local", "world", "owner", "defn", "game", "fort",
+    "scheduler",
+    # Recomputed on the first step: pathing caches and derived indexes.
+    "path", "path_goal", "hostile_state", "jobs_by_cell",
+    # Written when a dwarf picks something up for a job and read by nothing.
+    # The item is in the dwarf's inventory and `put_down` finds it from the
+    # job, so this is a debugging aid and not state.
+    "carrying",
+    # Per-turn stealth state, recomputed by whatever the creature does next.
+    "noise",
+}
+
+
+def _round_trip_diff(before, after, label, seen=None):
+    """Every attribute that came back from a save different from how it went in."""
+    seen = seen if seen is not None else set()
+    if id(before) in seen:
+        return []
+    seen.add(id(before))
+
+    def summarise(value):
+        if isinstance(value, (int, float, str, bool)) or value is None:
+            return value
+        if isinstance(value, dict):
+            return ("dict", len(value))
+        if isinstance(value, (list, tuple, set, frozenset)):
+            return (type(value).__name__, len(value))
+        return type(value).__name__
+
+    names = set()
+    for obj in (before, after):
+        names |= set(getattr(obj, "__dict__", {}))
+        names |= set(getattr(type(obj), "__slots__", ()) or ())
+    out = []
+    for name in sorted(names):
+        if name.startswith("_") or name in TRANSIENT:
+            continue
+        was = getattr(before, name, "<missing>")
+        now = getattr(after, name, "<missing>")
+        if callable(was):
+            continue
+        if summarise(was) != summarise(now):
+            out.append("%s.%s: %r -> %r" % (
+                label, name, summarise(was), summarise(now)))
+    return out
+
+
+class TestWhatASaveKeeps(unittest.TestCase):
+    """A save is supposed to give back the game you saved.
+
+    Found by diffing every attribute across a round trip rather than by
+    checking the ones somebody remembered. The fortress was losing held
+    breath, whether a dwarf was asleep, two behaviour counters and the phase
+    of the fluid clock -- and the sleeping flag is read by the vampire's
+    victim search, so saving quietly woke the whole fortress and left the
+    vampire with nobody to feed on.
+    """
+
+    def _busy_fortress(self):
+        fort = embark("roundtrip")
+        for _ in range(200):
+            sim.step(fort)
+        return fort
+
+    def test_a_fortress_comes_back_the_way_it_went_in(self):
+        fort = self._busy_fortress()
+        dwarf = fort.dwarves()[0]
+        fort.drowning[dwarf.id] = 4
+        dwarf.fort.sleeping = True
+        dwarf.fort.idle_ticks = 77
+        dwarf.fort.blocked = 5
+        fort.water.ticks = 1234
+
+        back = Fortress.from_dict(fort.to_dict())
+        lost = _round_trip_diff(fort, back, "fortress")
+        lost += _round_trip_diff(fort.water, back.water, "water")
+        same = back.creatures.get(dwarf.id)
+        self.assertIsNotNone(same, "the dwarf did not survive the save")
+        lost += _round_trip_diff(dwarf.fort, same.fort, "dwarf.fort")
+        lost += _round_trip_diff(dwarf.body, same.body, "dwarf.body")
+        lost += _round_trip_diff(dwarf.needs, same.needs, "dwarf.needs")
+        self.assertEqual(lost, [], "a save lost state:\n  " + "\n  ".join(lost))
+
+    def test_held_breath_survives_a_save(self):
+        """Adventure mode has saved this since v3.29 and the fortress had not,
+        so a fortress save handed everybody drowning in it a fresh lungful."""
+        fort = embark("breath")
+        dwarf = fort.dwarves()[0]
+        fort.drowning[dwarf.id] = 5
+        back = Fortress.from_dict(fort.to_dict())
+        self.assertEqual(back.drowning.get(dwarf.id), 5)
+
+    def test_a_sleeping_dwarf_is_still_asleep_after_a_save(self):
+        """Which is what the vampire is looking for."""
+        fort = embark("asleep")
+        dwarf = fort.dwarves()[0]
+        dwarf.fort.sleeping = True
+        back = Fortress.from_dict(fort.to_dict())
+        self.assertTrue(back.creatures[dwarf.id].fort.sleeping)
+
+    def test_the_fluid_clock_keeps_its_phase(self):
+        fort = embark("clock")
+        fort.water.ticks = 99
+        back = Fortress.from_dict(fort.to_dict())
+        self.assertEqual(back.water.ticks, 99)
+
+
 class TestEvents(unittest.TestCase):
     """Migrants, sieges, moods and caravans."""
 

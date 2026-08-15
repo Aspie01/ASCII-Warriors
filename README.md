@@ -519,6 +519,11 @@ thing you can dig. Standing in a fire hurts and armour helps little; it also
 throws light, so you are extremely visible next to one. In the fortress, magma
 sets light to anything flammable near it.
 
+**Saves that give back the game you saved.** Every attribute of a running
+fortress is diffed across a save and a load by the test suite, so held breath,
+who is asleep and where the fluid clock had got to all come back the way they
+went in — and anything added later that does not survive breaks the build.
+
 **A siege with wings.** In the fortress too: a roc or a demon comes at you
 straight, over the moat and the wall and the chasm you dug, while the goblins
 walk round to the entrance you left them. Terrain is your defence against

@@ -1359,6 +1359,10 @@ class Fortress:
             "time": self.time.to_dict(),
             "log": self.log.to_dict(),
             "weather": self.weather.to_dict(),
+            # Held breath. Adventure mode has saved this since v3.29 and the
+            # fortress had not, so a fortress save handed everybody drowning
+            # in it a fresh lungful.
+            "drowning": {str(k): v for k, v in self.drowning.items()},
             "water": self.water.to_dict(),
             "magma": self.magma.to_dict(),
             "fire": self.fire.to_list(),
@@ -1430,6 +1434,9 @@ class Fortress:
         fort.time = GameTime.from_dict(d.get("time") or {})
         fort.log = MessageLog.from_dict(d.get("log") or {})
         fort.weather = Weather.from_dict(d.get("weather") or {})
+        fort.drowning = {
+            int(k): int(v) for k, v in (d.get("drowning") or {}).items()
+        }
         fort.water = Water.from_dict(d.get("water") or {})
         fort.magma = Magma.from_dict(d.get("magma") or {})
         fort.fire = FireLayer.from_list(d.get("fire") or [])

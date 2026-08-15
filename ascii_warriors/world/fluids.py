@@ -407,6 +407,10 @@ class Water:
             "infinite": {"%d,%d,%d" % c: d for c, d in self.infinite.items()},
             "sealed": ["%d,%d,%d" % c for c in self.sealed],
             "flooded": self.flooded,
+            # Magma moves every `VISCOSITY` ticks and this is the phase of
+            # that clock. Dropping it on load restarted the cadence, which is
+            # small and is still not the game you saved.
+            "ticks": self.ticks,
         }
 
     @classmethod
@@ -433,6 +437,7 @@ class Water:
         # after loading works it out.
         w._shore_dirty = True
         w.wake_all()
+        w.ticks = int(d.get("ticks", 0))
         return w
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid

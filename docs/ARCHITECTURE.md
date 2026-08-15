@@ -3547,7 +3547,51 @@ dwarf: a roc that had killed five and chased the sixth into a corner scored 65,
 and a goblin that killed one and stopped beside the body scored 1. Closest
 approach at any point is the honest measure of "did the terrain stop it".
 
-## 94. Style
+## 94. What a save keeps (v3.34)
+
+Found by a different question again: not "is this read" but "does this survive
+being written down". Every class with a `to_dict` was checked by diffing every
+attribute across a round trip, rather than by reading the serialiser and
+thinking about it.
+
+Adventure mode came back clean -- which is worth a test saying rather than
+having been established once and forgotten, because most of the state the last
+dozen milestones added lives there. The fortress did not.
+
+**Held breath.** `Fortress.drowning` was not written. Adventure mode has saved
+its copy since v3.29 and the fortress never has, so saving a flooding fortress
+handed everybody drowning in it a fresh lungful. The two modes have carried the
+same dict under the same name since v2.5, which is exactly the kind of near-
+symmetry that hides a gap.
+
+**Whether a dwarf is asleep.** `DwarfState.sleeping` was not written, so a save
+woke the entire fortress. That is worse than it sounds: the flag is read by the
+vampire's victim search as well as by the sleep loop, so a vampire that had
+picked its night quietly had nobody to feed on after a reload.
+
+**Two behaviour counters and a clock.** `idle_ticks` paces what an idle dwarf
+does, `blocked` counts pathing retries before a dwarf gives up on a route, and
+`Water.ticks` is the phase of the cadence magma moves on. All small; none of
+them the game you saved.
+
+**Three fields were vestigial rather than lost.** `Body.bleeding_wounds` and
+`Body.nausea` were set in `__init__` and never read or written by anything --
+`bleeding_rate` sums the wounds on the parts, and venom's nausea comes out of
+its own table into `needs`. Both are gone. `DwarfState.carrying` is written
+whenever a dwarf picks something up for a job and read nowhere; the item is in
+the dwarf's inventory and `put_down` finds it from the job, so it is a
+debugging aid and is now commented as one rather than left looking like state a
+save ought to be keeping.
+
+**The guarantee is the deliverable, not the five fixes.**
+`TestWhatASaveKeeps` diffs every attribute of a busy fortress, its water, and
+one dwarf's state, body and needs across a round trip. `TRANSIENT` is a named
+list with a reason against each entry, and it is the whole point: anything new
+that fails to survive breaks the suite until somebody either serialises it or
+comes and writes down why it should not be. Verified by breaking the
+serialisation again and watching two tests fail.
+
+## 95. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

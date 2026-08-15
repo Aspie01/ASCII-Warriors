@@ -47,6 +47,11 @@ class DwarfState:
         self.mood_ticks = 0
         self.idle_ticks = 0
         self.squad = False
+        #: Written whenever a dwarf picks something up for a job, and read by
+        #: nothing. The item lives in the dwarf's inventory and `put_down`
+        #: finds it from the job, so this was never load-bearing; it is a
+        #: debugging aid and is now marked as one rather than left looking
+        #: like state that a save ought to be keeping.
         self.carrying: Optional[int] = None
         self.workshop: Optional[int] = None
         #: Ticks since this dwarf last spoke to anybody.
@@ -64,6 +69,12 @@ class DwarfState:
             "squad": self.squad,
             "workshop": self.workshop,
             "lonely": self.lonely,
+            # Read by the vampire's victim search and by the sleep loop: a
+            # save used to wake the whole fortress, which quietly meant a
+            # vampire could not feed until somebody went back to bed.
+            "sleeping": self.sleeping,
+            "idle_ticks": self.idle_ticks,
+            "blocked": self.blocked,
         }
 
     @classmethod
@@ -77,6 +88,9 @@ class DwarfState:
         s.squad = bool(d.get("squad", False))
         s.workshop = d.get("workshop")
         s.lonely = int(d.get("lonely", 0))
+        s.sleeping = bool(d.get("sleeping", False))
+        s.idle_ticks = int(d.get("idle_ticks", 0))
+        s.blocked = int(d.get("blocked", 0))
         return s
 
 
