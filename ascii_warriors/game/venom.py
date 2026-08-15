@@ -69,6 +69,12 @@ RESIST_PER_POINT = 0.03
 #: The most resistance is ever worth. Somebody very tough still has a bad day.
 MAX_RESIST = 0.55
 
+#: What one step of keeping going through a syndrome teaches, and what getting
+#: to the far side of one teaches. Small, because a syndrome is a clock and a
+#: long one would otherwise hand out a legendary skill for standing still.
+ENDURE_EXP = 2
+THROUGH_EXP = 25
+
 #: A second dose extends rather than stacks, and only up to this multiple of
 #: the base duration. A nest of spiders should be terrifying and finite.
 MAX_EXTEND = 2.5
@@ -232,9 +238,15 @@ def tick(creature, ticks: int, rng=None) -> List[str]:
                 msgs.append(str(defn["arrives"]))
             continue
         dose.left -= ticks
+        # `discipline` was the one skill in the table that nothing granted and
+        # nothing trained: every creature in the game had it at zero for ever,
+        # so the grit half of `resistance` was always worth nothing. This is
+        # where it is learned, because this is what it is for.
+        creature.add_exp("discipline", ENDURE_EXP)
         if dose.left <= 0:
             active.remove(dose)
             msgs.append(str(defn["ends"]))
+            creature.add_exp("discipline", THROUGH_EXP)
             continue
         _apply(creature, dose, defn, ticks, rng, msgs)
     return msgs

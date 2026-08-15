@@ -6971,3 +6971,292 @@ class TestAptitude(unittest.TestCase):
         self.assertEqual(skills.aptitude_word(1.0), "")
         self.assertTrue(skills.aptitude_word(skills.MIN_APTITUDE))
         self.assertTrue(skills.aptitude_word(skills.MAX_APTITUDE))
+
+
+class TestFlight(GameFixture):
+    """`FLIER`, on ten creature definitions since the bestiary was written and
+    read by no line of code in the project. A raven walked."""
+
+    def _bird(self, cid="raven", at=None):
+        from ascii_warriors.game.entity import make_creature
+
+        c = make_creature(RNG(cid), cid)
+        x, y, z = at or (self.game.player.x + 3, self.game.player.y, self.game.player.z)
+        c.x, c.y, c.z = x, y, z
+        self.game.add_creature(c)
+        return c
+
+    def _shaft(self, cell, depth=4):
+        """A hole you actually fall down: the cell and the ones beneath it."""
+        lm = self.game.local
+        x, y, z = cell
+        for dz in range(0, depth + 1):
+            for dx in range(-1, 2):
+                for dy in range(-1, 2):
+                    if lm.in_bounds(x + dx, y + dy, z - dz):
+                        lm.set_tile(x + dx, y + dy, z - dz, "chasm")
+
+    def _pool(self, cell, tile_id="deep_water", w=4):
+        lm = self.game.local
+        x, y, z = cell
+        for dx in range(w):
+            lm.set_tile(x + dx, y, z, tile_id)
+
+    # -- who flies ------------------------------------------------------------ #
+
+    def test_the_bestiary_has_fliers_and_they_have_wings(self):
+        from ascii_warriors.data import bodies as body_data
+        from ascii_warriors.data import creatures as creature_data
+        from ascii_warriors.game import flight
+        from ascii_warriors.game.entity import make_creature
+
+        fliers = [cid for cid, d in creature_data.CREATURES.items()
+                  if d.has("FLIER")]
+        self.assertGreaterEqual(len(fliers), 8)
+        winged = 0
+        for cid in fliers:
+            c = make_creature(RNG(cid), cid)
+            self.assertTrue(flight.is_flier(c), cid)
+            self.assertTrue(flight.can_fly(c), cid)
+            if flight.has_wings(c):
+                winged += 1
+        self.assertGreaterEqual(winged, len(fliers) - 1,
+                                "wings are the point; only the demon may lack them")
+
+    def test_nothing_without_the_flag_gets_off_the_ground(self):
+        from ascii_warriors.game import flight
+        from ascii_warriors.game.entity import make_creature
+
+        for cid in ("cow", "human", "dwarf", "goblin", "carp"):
+            self.assertFalse(flight.can_fly(make_creature(RNG(cid), cid)), cid)
+
+    # -- gravity -------------------------------------------------------------- #
+
+    def test_a_bird_does_not_fall_down_a_hole(self):
+        from ascii_warriors.world import gravity
+
+        cell = (self.game.player.x + 5, self.game.player.y + 5, self.game.player.z)
+        self._shaft(cell)
+        bird = self._bird(at=cell)
+        self.assertEqual(gravity.settle(self.game, bird, self.game.rng), 0)
+        self.assertEqual(bird.z, cell[2])
+
+    def test_a_cow_in_the_same_hole_certainly_does(self):
+        """The control. If this stops falling, the test above proves nothing."""
+        from ascii_warriors.world import gravity
+
+        cell = (self.game.player.x + 5, self.game.player.y + 5, self.game.player.z)
+        self._shaft(cell)
+        cow = self._bird("cow", at=cell)
+        self.assertGreater(gravity.settle(self.game, cow, self.game.rng), 0)
+        self.assertLess(cow.z, cell[2])
+
+    def test_a_flier_is_never_counted_as_standing_on_nothing(self):
+        from ascii_warriors.world import gravity
+
+        cell = (self.game.player.x + 5, self.game.player.y + 5, self.game.player.z)
+        self._shaft(cell)
+        bird = self._bird(at=cell)
+        self.assertNotIn(bird, gravity.unsupported_creatures(self.game))
+
+    # -- what it can cross ----------------------------------------------------- #
+
+    def test_air_is_a_road_to_a_flier_and_a_wall_to_everything_else(self):
+        cell = (self.game.player.x + 5, self.game.player.y + 5, self.game.player.z)
+        self._shaft(cell)
+        bird = self._bird(at=(cell[0] - 2, cell[1], cell[2]))
+        cow = self._bird("cow", at=(cell[0] - 2, cell[1] + 1, cell[2]))
+        self.assertTrue(self.game.is_passable(*cell, bird))
+        self.assertFalse(self.game.is_passable(*cell, cow))
+
+    def test_rock_is_still_rock(self):
+        """Flight is a set of exemptions, and this is not one of them."""
+        lm = self.game.local
+        cell = (self.game.player.x + 6, self.game.player.y + 6, self.game.player.z)
+        lm.set_tile(*cell, "rock_wall")
+        bird = self._bird(at=(cell[0] - 2, cell[1], cell[2]))
+        self.assertFalse(self.game.is_passable(*cell, bird))
+
+    def test_fire_is_deliberately_still_fire(self):
+        lm = self.game.local
+        cell = (self.game.player.x + 6, self.game.player.y + 8, self.game.player.z)
+        lm.set_tile(*cell, "fire")
+        bird = self._bird(at=(cell[0] - 2, cell[1], cell[2]))
+        self.assertFalse(self.game.is_passable(*cell, bird))
+
+    def test_magma_is_deliberately_still_magma(self):
+        """A creature occupies a whole cell here, so "over the lava" is not a
+        place there is any way to be."""
+        lm = self.game.local
+        cell = (self.game.player.x + 6, self.game.player.y + 7, self.game.player.z)
+        lm.set_tile(*cell, "lava")
+        bird = self._bird(at=(cell[0] - 2, cell[1], cell[2]))
+        self.assertFalse(self.game.is_passable(*cell, bird))
+
+    def test_a_bird_crosses_a_lake_without_swimming_it(self):
+        from ascii_warriors.game import swimming
+
+        cell = (self.game.player.x + 4, self.game.player.y + 4, self.game.player.z)
+        self._pool(cell)
+        bird = self._bird(at=cell)
+        self.assertEqual(
+            swimming.stroke_chance(bird, swimming.depth_of("deep_water")), 1.0)
+        for _ in range(80):
+            self.game._swim(5)
+        self.assertFalse(bird.body.dead)
+        self.assertNotIn(bird.id, self.game.drowning)
+
+    def test_a_flooded_room_drowns_a_flier_like_everybody_else(self):
+        """Water to the ceiling has no air in it. This is the one place wings
+        buy nothing, and it is what keeps the fortress's sealed-room drowning
+        honest now that demons and rocs can turn up in one."""
+        from ascii_warriors.game import swimming
+        from ascii_warriors.world import fluids
+
+        bird = self._bird()
+        self.assertLess(swimming.stroke_chance(bird, fluids.MAX_DEPTH), 0.2)
+
+    def test_a_wandering_flier_is_not_kept_out_of_the_water(self):
+        from ascii_warriors.game import swimming
+
+        bird = self._bird()
+        self.assertFalse(swimming.avoids(
+            bird, 0, swimming.depth_of("deep_water")))
+
+    # -- wings ----------------------------------------------------------------- #
+
+    def test_taking_the_wings_off_brings_it_down(self):
+        """The reason wings are modelled rather than flagged: the combat model
+        has been able to sever a body part since long before this, and a wing
+        is a body part."""
+        from ascii_warriors.game import flight
+        from ascii_warriors.world import gravity
+
+        cell = (self.game.player.x + 5, self.game.player.y + 5, self.game.player.z)
+        self._shaft(cell)
+        bird = self._bird(at=cell)
+        self.assertTrue(flight.can_fly(bird))
+        for wing in flight.wings(bird):
+            bird.body.sever(wing.id)
+        self.assertFalse(flight.can_fly(bird))
+        self.assertGreater(gravity.settle(self.game, bird, self.game.rng), 0)
+        self.assertLess(bird.z, cell[2])
+
+    def test_a_grounded_flier_says_why(self):
+        from ascii_warriors.game import flight
+
+        bird = self._bird()
+        self.assertIsNone(flight.grounded_reason(bird))
+        for wing in flight.wings(bird):
+            bird.body.sever(wing.id)
+        reason = flight.grounded_reason(bird)
+        self.assertTrue(reason)
+        self.assertIn("wing", reason)
+
+    def test_the_demon_flies_without_wings_and_cannot_be_clipped(self):
+        """Whatever is carrying it is not a pair of wings."""
+        from ascii_warriors.game import flight
+        from ascii_warriors.game.entity import make_creature
+
+        demon = make_creature(RNG("d"), "demon")
+        self.assertFalse(flight.has_wings(demon))
+        self.assertTrue(flight.can_fly(demon))
+
+    def test_a_senseless_bird_falls(self):
+        from ascii_warriors.game import flight
+
+        bird = self._bird()
+        bird.body.unconscious = 50
+        self.assertFalse(flight.can_fly(bird))
+        bird.body.unconscious = 0
+        bird.body.stunned = 20
+        self.assertFalse(flight.can_fly(bird))
+
+    def test_a_dead_bird_is_not_flying(self):
+        from ascii_warriors.game import flight
+        from ascii_warriors.world import gravity
+
+        cell = (self.game.player.x + 5, self.game.player.y + 5, self.game.player.z)
+        self._shaft(cell)
+        bird = self._bird(at=cell)
+        bird.body.dead = True
+        self.assertFalse(flight.can_fly(bird))
+        self.assertGreater(gravity.settle(self.game, bird, self.game.rng), 0)
+
+    # -- the skill nothing could train ----------------------------------------- #
+
+    def test_every_skill_can_be_reached(self):
+        """`discipline` was granted by no profession, no creature and no
+        labour, and awarded experience by nothing anywhere: every creature in
+        the game had it at zero for ever, and `venom.resistance` reads it."""
+        import os
+        import re
+
+        from ascii_warriors.data import creatures as creature_data
+        from ascii_warriors.game import skills
+        from ascii_warriors.ui import charcreate
+
+        text = []
+        for dirpath, _dirs, names in os.walk("ascii_warriors"):
+            if "__pycache__" in dirpath:
+                continue
+            for name in names:
+                if name.endswith(".py"):
+                    with open(os.path.join(dirpath, name)) as fh:
+                        text.append(fh.read())
+        source = "\n".join(text)
+
+        granted = set()
+        for _desc, table in charcreate.PROFESSIONS.values():
+            granted |= set(table)
+        for defn in creature_data.CREATURES.values():
+            granted |= set(defn.skills or {})
+        trained = set(re.findall(r'add_exp\(\s*["\']([a-z_]+)["\']', source))
+        # The families whose skill id is chosen at run time.
+        dynamic = {sd.id for sd in skills.SKILLS.values()
+                   if sd.category in ("craft", "medical", "weapon")}
+        dynamic |= {"music", "poetry", "dancing", "striker", "biter", "kicker",
+                    "wrestling", "rider"}
+        for sid in skills.SKILLS:
+            self.assertTrue(sid in granted or sid in trained or sid in dynamic,
+                            "nothing grants or trains %s" % sid)
+
+    def test_enduring_a_syndrome_teaches_discipline(self):
+        from ascii_warriors.game import venom
+
+        victim = self._bird("cow")
+        venom.inject(victim, "rot", self.game.rng)
+        before = victim.skills.exp("discipline")
+        for _ in range(40):
+            venom.tick(victim, 30, self.game.rng)
+        self.assertGreater(victim.skills.exp("discipline"), before)
+
+    def test_holding_together_after_a_death_teaches_discipline(self):
+        from ascii_warriors.game import morale
+
+        witness = self._bird("cow")
+        witness.shaken = 1.0
+        before = witness.skills.exp("discipline")
+        for _ in range(30):
+            morale.steady(witness, 10)
+        self.assertGreater(witness.skills.exp("discipline"), before)
+
+    def test_discipline_now_actually_shortens_a_syndrome(self):
+        """It was read all along; there was simply never any of it."""
+        from ascii_warriors.game import venom
+
+        green = self._bird("cow")
+        hard = self._bird("cow")
+        hard.skills.set_level("discipline", 12)
+        self.assertGreater(venom.resistance(hard), venom.resistance(green))
+
+    def test_a_bird_cannot_carry_off_a_granite_block(self):
+        from ascii_warriors.game import flight
+
+        bird = self._bird("roc")
+        self.assertTrue(flight.can_fly(bird))
+        for _ in range(400):
+            bird.inventory.add(Item("boulder", "granite"))
+        self.assertGreater(bird.encumbrance(), flight.FLIGHT_LOAD)
+        self.assertFalse(flight.can_fly(bird))
+        self.assertEqual(flight.grounded_reason(bird), "too heavily laden")

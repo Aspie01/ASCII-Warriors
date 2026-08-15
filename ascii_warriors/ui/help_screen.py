@@ -827,6 +827,13 @@ hopeless.
 Things live in there. Carp and pike are in the rivers now, and a hippo in one
 is not a joke.
 
+Some things do not have to bother. Ravens, eagles, bats, rocs, dragons and
+demons fly: they cross water and chasms without a thought and cannot be
+cornered by terrain. What they cannot cross is rock, magma or fire, and a room
+flooded to the ceiling drowns them like anything else. Their wings are real --
+break or sever one and the thing comes out of the sky, which is worth aiming
+for on something you cannot otherwise reach.
+
 Press 'c' to make camp: butcher a corpse for meat, bone and hide, build a fire
 and cook the meat. Raw meat feeds you far less than a roast.
 

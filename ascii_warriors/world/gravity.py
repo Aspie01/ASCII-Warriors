@@ -110,6 +110,12 @@ def settle(world, creature, rng, *, log=None) -> int:
     lm = getattr(world, "local", None)
     if lm is None:
         return 0
+    from ..game import flight
+
+    if flight.can_fly(creature):
+        # Ten creatures in the bestiary carry `FLIER` and every one of them
+        # used to fall down holes with the cows.
+        return 0
     here = (creature.x, creature.y, creature.z)
     rest = landing(lm, here)
     distance = here[2] - rest[2]
@@ -156,9 +162,13 @@ def unsupported_creatures(world) -> List[Any]:
     lm = getattr(world, "local", None)
     if lm is None:
         return []
+    from ..game import flight
+
     out = []
     for c in getattr(world, "creatures", {}).values():
         if c.body.dead or getattr(c, "mount", None) is not None:
+            continue
+        if flight.can_fly(c):
             continue
         if not supported(lm, (c.x, c.y, c.z)):
             out.append(c)

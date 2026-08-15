@@ -40,6 +40,8 @@ PACK_ALONE = 0.45
 #: What seeing somebody on your side go down does, and how long the shock
 #: takes to wear off.
 DEATH_SHOCK = 0.30
+STEADY_EXP = 1
+
 SHOCK_DECAY_TICKS = 1200
 
 #: The most shock a creature can be carrying. Without a cap a massacre makes
@@ -123,10 +125,17 @@ def shake(creature, amount: float) -> None:
 
 
 def steady(creature, ticks: int) -> None:
-    """Let the shock wear off."""
+    """Let the shock wear off.
+
+    And teach `discipline` for having stood there while it did. The skill is
+    described as keeping your head when things go badly, which is precisely
+    this: somebody who has seen a friend go down and has not run is learning
+    something that nothing else in the game teaches.
+    """
     have = getattr(creature, "shaken", 0.0)
     if not have:
         return
+    creature.add_exp("discipline", STEADY_EXP)
     creature.shaken = max(0.0, have - ticks / float(SHOCK_DECAY_TICKS))
 
 

@@ -3446,7 +3446,64 @@ work -- torches, bandages, arrows, rope, a bone dagger, and two forge recipes
 for when you are standing at one. A lone adventurer hammering out a breastplate
 in a wood is not the same game.
 
-## 92. Style
+## 92. Things that fly (v3.32)
+
+`FLIER` has been on ten creature definitions since the bestiary was written --
+the duck, the raven, the eagle, the buzzard, the bat, the giant bat, the giant
+cave swallow, the roc, the dragon and the demon -- and no line of code in the
+project had ever read it. Nine of the ten also carry a pair of wings in their
+body plan, modelled down to the tissue, which nothing had ever asked about
+either. A raven walked. A dragon walked. Everything that could fly was
+pathfinding around lakes and falling down holes with the cows.
+
+Flight is mostly a set of exemptions from rules written for things with feet,
+so `game/flight.py` is the one place that says who is exempt. v3.26 made
+everything fall; a flier does not. v3.29 made deep water swimmable and
+drownable; a flier crosses it dry. A chasm and an open shaft are walls to a
+walker and a road to a flier.
+
+**Three things are deliberately not exemptions.** Rock is still rock. Magma is
+still magma and fire is still fire -- a creature occupies a whole cell in this
+game, so "over the lava" is not a place there is any way to be, and letting
+wings past that would have handed every flier free passage across a magma pipe.
+And water to the ceiling still drowns: a flooded room has no air in it, which
+is what keeps v2.5's sealed-room drowning honest now that a demon can turn up
+in one. The rule lives in `swimming.stroke_chance`, so the fortress gets it
+without a second copy.
+
+**Wings are why it is worth modelling rather than flagging.** A wing is a body
+part with tissues and the combat model has been able to break and sever those
+since long before this. Take the wings off a roc and `can_fly` goes false, and
+the next call to `gravity.settle` brings it down through however many levels
+the drop is worth. That is a fight you can win by aiming. The demon has no
+wings in its plan and flies regardless -- whatever is carrying it is not a pair
+of wings and cannot be cut off.
+
+`can_fly` also asks the questions that ground anything else: dead, unconscious,
+stunned, incapacitated, or carrying more than `FLIGHT_LOAD`. A roc can carry
+off a goat and not a granite block.
+
+**Not done: fortress pathing.** `Fortress.is_passable` is documented as "true
+if a dwarf could stand there" and takes no creature, so a flying siege still
+walks. Threading a creature through it is a refactor of the fortress's whole
+route planner and belongs to whoever wants flying sieges, not to this.
+
+## 92.1. The skill nobody could train
+
+The same sweep asked which skills any creature can ever have above zero:
+granted by a profession, granted by a creature definition, or awarded
+experience anywhere. Sixty-six of sixty-seven passed. `discipline` was granted
+by nothing and trained by nothing, so every creature in the game had it at zero
+for ever -- and `venom.resistance` has read it since v3.x, meaning the grit
+half of shrugging off a syndrome was always worth exactly nothing.
+
+Its description says "keeping your head when things go badly", which names its
+two homes precisely: enduring a syndrome, and standing there while the shock of
+watching somebody die wears off. Both awards are small on purpose, because both
+are clocks and a long one would otherwise hand out a legendary skill for
+standing still.
+
+## 93. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

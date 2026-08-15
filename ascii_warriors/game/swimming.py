@@ -120,6 +120,13 @@ def stroke_chance(creature, depth: int) -> float:
         return 1.0
     if not is_swimming(depth):
         return 1.0
+    from . import flight
+
+    if flight.can_fly(creature) and depth < fluids.MAX_DEPTH:
+        # Over the surface, not on it. Water to the ceiling is the exception
+        # and deliberately so: a flooded room has no air in it, and a demon in
+        # one is in the same trouble as everybody else.
+        return 1.0
     load = creature.encumbrance()
     if load >= SINK_LOAD:
         return 0.0
@@ -189,6 +196,11 @@ def avoids(creature, here_depth: int, there_depth: int, *,
     if not is_swimming(there_depth):
         return False
     if creature.defn.has("AQUATIC") or creature.defn.has("SWIMMER"):
+        return False
+    from . import flight
+
+    if flight.can_fly(creature):
+        # A raven crossing a lake is not swimming it.
         return False
     if is_swimming(here_depth) or desperate:
         return False

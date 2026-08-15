@@ -550,12 +550,22 @@ class Game:
             # it. Both deep tiles carry it and both are `walk=False`, so until
             # it was read a river was a wall -- and the SWIMMER branch that
             # used to live below this line could never be reached.
-            if not t.swim:
-                return False
-            from . import swimming
+            #
+            # Air is the same question asked of something with wings: a chasm
+            # and an open shaft are walls to a walker and a road to a flier.
+            # Rock is still rock, and magma and fire are deliberately still
+            # magma and fire: a creature occupies a whole cell in this game,
+            # so "over the lava" is not a place there is any way to be.
+            from . import flight
 
-            if not swimming.can_enter(creature, swimming.depth_of(tid)):
-                return False
+            solid = t.has("WALL") or t.has("LAVA") or t.has("FIRE")
+            if solid or not flight.can_fly(creature):
+                if not t.swim:
+                    return False
+                from . import swimming
+
+                if not swimming.can_enter(creature, swimming.depth_of(tid)):
+                    return False
         if creature is not None and creature.defn.has("AQUATIC") and not t.has("WATER"):
             return False
         return True

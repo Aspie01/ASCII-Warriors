@@ -519,6 +519,13 @@ thing you can dig. Standing in a fire hurts and armour helps little; it also
 throws light, so you are extremely visible next to one. In the fortress, magma
 sets light to anything flammable near it.
 
+**Things that fly.** Ravens, eagles, bats, rocs, dragons and demons are in the
+air, not on the ground. They do not fall down shafts, they cross lakes and
+chasms without a thought, and a walker has to go round. Rock, magma and fire
+still stop them, and a room flooded to the ceiling drowns them like anything
+else. Wings are real body parts: take them off a roc and it comes down, at
+whatever the drop is worth. That is a fight you can win by aiming.
+
 **An industry that can arm its own soldiers.** Every uniform names the weapons
 and armour it wants, and your forge can make all of it — swords and long
 swords, battle axes and great axes, maces and mauls, pikes and halberds,
