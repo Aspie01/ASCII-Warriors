@@ -118,6 +118,15 @@ class Inventory:
         """Combined weight of everything carried, in kilograms."""
         return sum(i.weight for i in self.items)
 
+    def worn_armor_weight(self) -> float:
+        """Weight of the armour actually being worn, in kilograms.
+
+        Worn, not carried: a breastplate in a sack is dead weight to anybody,
+        however good they are at wearing one.
+        """
+        return sum(i.weight for i in self.equipped.values()
+                   if i.defn.armor is not None)
+
     def total_value(self) -> int:
         """Combined trade value of everything carried."""
         return sum(i.value for i in self.items)

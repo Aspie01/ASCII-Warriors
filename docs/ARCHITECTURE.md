@@ -3196,7 +3196,86 @@ at 2000 ("an enormous contact area, so armour spreads it rather than stopping
 it"). All three are true statements about the running game now, and none of
 them needed a line changed.
 
-## 88. Style
+## 88. What armour is worth (v3.28)
+
+Armour decided what it absorbed by comparing the blow to its own material:
+shear yield against an edge, impact yield against a hammer. Half of that is
+right. Steel's impact yield is three and a half times its shear yield, so every
+piece of armour in the game was three and a half times *better* against a mace
+than against an axe -- a steel breastplate absorbed 322,000 from a war hammer
+carrying 51,000. The hammerman's entire pitch at character creation, "armour
+does not help against a hammer", was exactly inverted, and had been since both
+were written.
+
+**The two blows are not the same question.** Stopping a cut is a question about
+the armour: either the edge shears the plate or nothing at all gets through.
+That part was right, and a breastplate no weapon in the game can cut is a
+feature. Stopping an impact is a question about where the momentum goes -- the
+plate is not cut, it is driven into the man inside it -- and a share of it
+always arrives. So `game/armour.py` caps blunt absorption at a share of what
+was swung and transmits the rest.
+
+**The cap is a ceiling, not a floor.** A wool tunic's own absorption is 400,
+which is nowhere near the cap, so the `min` never fires and a hammer goes
+through a shirt exactly as it always did. The cap only ever binds on metal,
+which is the only place the defect was.
+
+**Rigidity is geometry, not metallurgy.** Without it the cap binds equally on
+mail and plate and a breastplate is worth exactly a mail shirt against a mace,
+which is not what a breastplate is. What decides how well a shell spreads an
+impact is thickness and `armor_level`, not whether the metal is hard to cut, so
+that is what the term is built from and the material yield is deliberately
+absent from it.
+
+Blows to put a man down, v3.27 -> v3.28. Against mail: mace 26.0 -> 8.8,
+war hammer 25.9 -> 8.4, flail 16.6 -> 7.6. Against full plate: mace
+15.3 -> 8.5, war hammer 15.3 -> 8.7, maul 11.0 -> 6.2, morningstar
+14.9 -> 7.5. **Every pure edge is unchanged to the decimal** -- sword 18.4,
+dagger 28.9, great axe 9.0, two-handed sword 10.7 -- because the cap is on
+blunt only and v3.27's calibration had to come through untouched. Against plate
+the five best weapons in the game are now all blunt; they were the five worst.
+
+**`armor_use` had been levelling up for nothing.** In the skill table with a
+blank description, granted to four professions, three species and the fortress
+soldier labor, counted in the squad list's danger score, and awarded experience
+every single time a blow was turned -- and read by no code anywhere. It now
+does the two things the name means. It takes weight off what is worn, in
+`encumbrance()` and nowhere else so that dodging and walking pace get it by the
+one route; and it takes up to 29% off what a hammer puts through a breastplate,
+because a blow arriving on well-padded, well-fitted plate is a different event
+from one arriving on plate that is merely present. A knight at legendary takes
+10.5 hammer blows to put down against a novice's 7.7. Both curves were
+stretched to reach their limit at level 20 rather than 15: a skill whose last
+five levels buy nothing lies to whoever is training it.
+
+**Nobody wrote the spearman.** A spear's point is stopped dead by a breastplate
+and its shaft is not, so v3.27's attack judgement reads the difference off the
+same numbers and a trained spearman facing a knight clubs him with the shaft
+every time -- and thrusts again the moment the armour comes off. The contact
+model and the armour model compose without being told to.
+
+## 88.1. The traps that never cut anybody
+
+Measuring the blunt cap turned up a spelling. `TRAP_STRIKES` was written with
+damage kinds `"edged"` and `"piercing"`; the model has only ever known `"edge"`
+and `"blunt"`, and both the armour test and the tissue test are `kind ==
+"edge"`. So a weapon trap that "slashes" you, a spike trap that "impales" you
+and a dart that pierces you all fell through to the blunt branch -- which does
+not bleed, does not puncture and cannot sever. Cut or puncture wounds from all
+three: 0%. A dart drew no blood at all.
+
+They are `"edge"` now, and the low contact areas they were already given do the
+rest: a dart carries 9,000 and a mail shirt turns it, a spike trap carries
+24,000 and goes through. All three draw blood 99% of the time.
+
+## 88.2. Still dead
+
+`ArmorDef.permit_size` is declared, is settable through `_armor()`, and is 0 on
+every one of the twenty armour pieces in the table. Unlike `contact` this is
+not data waiting to be read -- there is no data. Authoring what may be worn
+over what is a design decision, not a wiring job, and it is left alone.
+
+## 89. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

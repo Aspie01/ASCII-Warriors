@@ -246,11 +246,45 @@ class Item:
             )
             if d.armor.coverage:
                 lines.append("Covers: %s" % ", ".join(d.armor.coverage))
+            lines.extend(self._armor_lines(owner))
         if d.nutrition:
             lines.append("Nutrition: %d" % d.nutrition)
         if d.hydration:
             lines.append("Hydration: %d" % d.hydration)
         return lines
+
+    def _armor_lines(self, owner) -> List[str]:
+        """What this piece stops, and what it only spreads.
+
+        The two are not the same question and the answers are nothing alike: a
+        breastplate cannot be cut by any weapon in the game and can be dented
+        by all of them. Saying only "level 5, thickness 4" left the player to
+        guess which of those they were buying.
+        """
+        from . import armour
+
+        d = self.defn
+        if d.armor is None or d.has("SHIELD"):
+            return []
+        scale = (d.armor.thickness / 3.0) * 0.12
+        scale *= 1.0 + d.armor.armor_level * 0.12
+        scale *= self.quality_bonus() * self.wear_factor()
+        cut = self.mat.shear_yield * scale
+        rigid = armour.rigidity(d.armor.armor_level, d.armor.thickness)
+        out = ["Turns a cut of up to %d force." % int(cut)]
+        if not armour.caps_blunt(self.mat.impact_yield * scale,
+                                 int(contact.REFERENCE), rigid):
+            out.append("Too thin to spread a blunt blow; it goes through.")
+            return out
+        skill = owner.skills.level("armor_use") if owner is not None else 0
+        bare = armour.transmit_share(int(contact.REFERENCE), 0, rigid)
+        through = armour.transmit_share(int(contact.REFERENCE), skill, rigid)
+        out.append("Lets %d%% of a blunt blow through, however hard it is hit."
+                   % int(round(through * 100)))
+        if skill:
+            out.append("  Your skill at wearing it is worth %d%% of that."
+                       % int(round((1.0 - through / bare) * 100)))
+        return out
 
     def _contact_lines(self) -> List[str]:
         """What armour does to this weapon, in a sentence.

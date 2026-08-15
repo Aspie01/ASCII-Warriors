@@ -719,9 +719,23 @@ spear point, a pick or a war hammer hand it a few square millimetres and go
 through. That is the whole of the weapon triangle: the edge is for the man with
 no armour, the point is for the man who has some.
 
-Against a steel breastplate none of it matters. Nothing in the weapon table
-gets through the front of one, so do not try -- his arms and legs are not
-plated, and a man cannot fight on a broken leg.
+None of that applies to a hammer, and this is the part worth knowing. Stopping
+a cut is a question about the armour: either the edge shears it or nothing at
+all comes through, and nothing in the weapon table cuts a steel breastplate.
+Stopping an impact is a question about where the momentum goes, and the answer
+is always "some of it into the man inside". Good armour spreads a great deal of
+it -- a breastplate lets through about a seventh of what hits it, mail about a
+fifth, and boiled leather does not spread a blunt blow at all -- but no
+thickness of steel makes that share nothing.
+
+So: bring an edge to an unarmoured man, a point to one in mail, and a hammer to
+the one in plate. Against plate the five best weapons in the game are all
+blunt, and a swordsman is reduced to hunting for the gaps.
+
+Armor User is the skill for this, and it is worth training. It takes weight off
+what you are wearing, so you dodge and march better in it, and it takes nearly
+a third off what a hammer puts through your breastplate -- the difference
+between armour that is merely on you and armour you know how to wear.
 
 A point also keeps its force through the tissues instead of spending it, which
 is how it reaches a lung behind the ribs. An edge spends everything opening the

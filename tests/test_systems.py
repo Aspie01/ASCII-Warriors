@@ -6069,3 +6069,296 @@ class TestContactArea(unittest.TestCase):
                 foe.body.tick(rng, 1, 1.0, 1.0)
         self.assertEqual(len(lengths), 6)
         self.assertLess(sum(lengths) / len(lengths), 90.0)
+
+
+class TestWhatArmourIsWorth(unittest.TestCase):
+    """Armour that stops a cut absolutely and a hammer not at all, and the
+    skill that had been levelling up for nothing since it was written."""
+
+    PLATE = (("breastplate", "steel"), ("mail_shirt", "iron"), ("helm", "iron"),
+             ("greaves", "steel"), ("gauntlets", "steel"))
+    MAIL = (("mail_shirt", "iron"), ("helm", "iron"))
+    LEATHER = (("leather_armor", "leather"),)
+
+    def _wearing(self, gear=(), skill=0):
+        c = make_creature(RNG("worn"), "human", equip=False)
+        c.skills.set_level("armor_use", skill)
+        for iid, material in gear:
+            c.inventory.add(Item(iid, material))
+        c.inventory.auto_equip()
+        return c
+
+    def _swinger(self):
+        a = make_creature(RNG("swing"), "human", equip=False)
+        for s in ("fighter", "sword", "axe", "spear", "hammer", "mace",
+                  "misc_weapon", "dagger", "pick"):
+            a.skills.set_level(s, 7)
+        return a
+
+    def _attack(self, wid, name):
+        from ascii_warriors.data.items import ITEMS
+
+        return next(a for a in ITEMS[wid].weapon.attacks if a.name == name)
+
+    def _through(self, wid, name, target):
+        """What one named attack delivers to *target*'s chest."""
+        from ascii_warriors.game import combat
+
+        who = self._swinger()
+        it = Item(wid, "steel")
+        who.inventory.add(it)
+        who.inventory.auto_equip()
+        a = self._attack(wid, name)
+        kind = combat.effective_kind(it, a)
+        momentum = combat.compute_momentum(who, it, a)
+        absorbed, _o = combat.armor_protection(
+            target, "upper_body", kind, a.contact, momentum)
+        return momentum - absorbed
+
+    # -- the defect --------------------------------------------------------- #
+
+    def test_a_hammer_gets_through_the_plate_that_stops_every_edge(self):
+        """The hammerman's whole pitch at character creation, and it used to
+        be exactly inverted: steel's impact yield is three and a half times its
+        shear yield, so plate was three and a half times *better* against a
+        mace than against an axe."""
+        knight = self._wearing(self.PLATE)
+        for wid, name in (("warhammer", "bash"), ("mace", "bash"),
+                          ("maul", "bash"), ("morningstar", "bash")):
+            self.assertGreater(self._through(wid, name, knight), 0.0,
+                               "%s should get through plate" % wid)
+        for wid, name in (("axe", "hack"), ("sword", "slash"),
+                          ("great_axe", "hack"), ("dagger", "stab")):
+            self.assertLess(self._through(wid, name, knight), 0.0,
+                            "%s should not cut plate" % wid)
+
+    def test_an_edge_is_left_exactly_as_it_was(self):
+        """The cap is on blunt only. v3.27's calibration of every edged weapon
+        against every kind of armour must come through untouched."""
+        from ascii_warriors.game import combat
+
+        for gear in ((), self.LEATHER, self.MAIL, self.PLATE):
+            target = self._wearing(gear)
+            for contact_area in (5, 60, 25000, 90000):
+                capped, _a = combat.armor_protection(
+                    target, "upper_body", "edge", contact_area, 50000.0)
+                uncapped, _b = combat.armor_protection(
+                    target, "upper_body", "edge", contact_area)
+                self.assertEqual(capped, uncapped)
+
+    def test_plate_spreads_a_hammer_better_than_mail_does(self):
+        """Rigidity, which is geometry. Without it the cap binds on both and a
+        breastplate is worth exactly a mail shirt against a mace, which is not
+        what a breastplate is."""
+        plated = self._through("warhammer", "bash", self._wearing(self.PLATE))
+        mailed = self._through("warhammer", "bash", self._wearing(self.MAIL))
+        bare = self._through("warhammer", "bash", self._wearing())
+        self.assertGreater(bare, mailed)
+        self.assertGreater(mailed, plated)
+        self.assertGreater(plated, 0.0)
+
+    def test_cloth_and_leather_never_reach_the_cap(self):
+        """The cap is a ceiling on absorption, not a floor. A wool tunic's own
+        thinness is far below it, so the `min` never fires and a hammer goes
+        through a shirt exactly as it always did."""
+        from ascii_warriors.game import armour, combat
+
+        for gear in ((("tunic", "wool_cloth"),), self.LEATHER):
+            target = self._wearing(gear)
+            capped, _a = combat.armor_protection(
+                target, "upper_body", "blunt", 20, 50000.0)
+            uncapped, _b = combat.armor_protection(
+                target, "upper_body", "blunt", 20)
+            self.assertEqual(capped, uncapped)
+            self.assertFalse(armour.caps_blunt(
+                uncapped, 20, armour.rigidity(2, 2)))
+
+    def test_a_blunt_share_always_arrives(self):
+        from ascii_warriors.game import armour
+
+        for contact_area in (2, 10, 40, 400, 20000):
+            for skill in (0, 10, 20):
+                share = armour.transmit_share(contact_area, skill, 3.0)
+                self.assertGreater(share, 0.0)
+                self.assertLess(share, 1.0)
+        # A concentrated blow transmits more than a spread one.
+        self.assertGreater(armour.transmit_share(10, 0, 1.0),
+                           armour.transmit_share(20000, 0, 1.0))
+
+    # -- the skill ---------------------------------------------------------- #
+
+    def test_armour_skill_takes_a_hammer_off_the_ribs(self):
+        green = self._through("warhammer", "bash", self._wearing(self.PLATE, 0))
+        veteran = self._through(
+            "warhammer", "bash", self._wearing(self.PLATE, 20))
+        self.assertGreater(green, veteran * 1.25)
+        self.assertGreater(veteran, 0.0)
+
+    def test_armour_skill_takes_weight_off_the_shoulders(self):
+        green = self._wearing(self.PLATE, 0)
+        veteran = self._wearing(self.PLATE, 20)
+        self.assertLess(veteran.encumbrance(), green.encumbrance())
+        self.assertGreater(green.encumbrance() - veteran.encumbrance(), 0.1)
+
+    def test_the_relief_is_on_what_is_worn_and_not_what_is_carried(self):
+        """A breastplate in a sack is dead weight to anybody."""
+        carried = make_creature(RNG("worn"), "human", equip=False)
+        carried.skills.set_level("armor_use", 20)
+        carried.inventory.add(Item("breastplate", "steel"))
+        before = carried.encumbrance()
+        carried.inventory.auto_equip()
+        self.assertLess(carried.encumbrance(), before)
+
+    def test_a_veteran_dodges_better_in_the_same_steel(self):
+        from ascii_warriors.game import combat
+
+        green = combat.defense_power(self._wearing(self.PLATE, 0))
+        veteran = combat.defense_power(self._wearing(self.PLATE, 20))
+        self.assertGreater(veteran, green)
+
+    def test_every_level_of_the_skill_is_worth_something(self):
+        """A skill whose last five levels buy nothing lies to whoever trains
+        it. Both curves reach their limit at 20 and not before."""
+        from ascii_warriors.game import armour
+        from ascii_warriors.game.skills import MAX_LEVEL
+
+        self.assertGreater(armour.weight_relief(MAX_LEVEL),
+                           armour.weight_relief(MAX_LEVEL - 4))
+        rigid = armour.rigidity(5, 4)
+        self.assertLess(armour.transmit_share(40, MAX_LEVEL, rigid),
+                        armour.transmit_share(40, MAX_LEVEL - 4, rigid))
+
+    def test_a_knight_who_knows_his_armour_lasts_longer(self):
+        """All of it together, in blows."""
+        from ascii_warriors.game import combat
+
+        def blows(skill):
+            taken = []
+            for seed in range(10):
+                who = self._swinger()
+                w = Item("warhammer", "steel")
+                who.inventory.add(w)
+                who.inventory.auto_equip()
+                foe = self._wearing(self.PLATE, skill)
+                rng = RNG(8000 + seed)
+                for n in range(1, 121):
+                    combat.melee_attack(who, foe, weapon=w, rng=rng)
+                    if foe.body.dead or foe.body.unconscious > 0:
+                        taken.append(n)
+                        break
+                    foe.body.tick(rng, 1, 1.0, 1.0)
+            return sum(taken) / len(taken) if taken else 0.0
+
+        green, veteran = blows(0), blows(20)
+        self.assertGreater(green, 0.0)
+        self.assertGreater(veteran, green * 1.15)
+
+    # -- the choice it changes ------------------------------------------------ #
+
+    def test_a_spearman_facing_plate_clubs_him_with_the_shaft(self):
+        """Nobody wrote this. The armour model and the contact model compose:
+        a spear's stab is stopped dead by a breastplate and its bash is not,
+        and v3.27's judgement reads the difference off the same numbers."""
+        from ascii_warriors.game import combat
+
+        who = self._swinger()
+        who.skills.set_level("fighter", 9)
+        w = Item("spear", "steel")
+        who.inventory.add(w)
+        who.inventory.auto_equip()
+        knight = self._wearing(self.PLATE)
+        rng = RNG("shaft")
+        counts = {}
+        for _ in range(400):
+            name = combat.choose_attack(who, w, rng, knight).name
+            counts[name] = counts.get(name, 0) + 1
+        self.assertGreater(counts.get("bash", 0), counts.get("stab", 0) * 4)
+
+    def test_against_a_bare_man_the_spear_is_a_spear_again(self):
+        from ascii_warriors.game import combat
+
+        who = self._swinger()
+        who.skills.set_level("fighter", 9)
+        w = Item("spear", "steel")
+        who.inventory.add(w)
+        who.inventory.auto_equip()
+        rng = RNG("bare")
+        counts = {}
+        for _ in range(400):
+            name = combat.choose_attack(who, w, rng, self._wearing()).name
+            counts[name] = counts.get(name, 0) + 1
+        self.assertGreater(counts.get("stab", 0), 0.3 * sum(counts.values()))
+
+    # -- the traps ------------------------------------------------------------ #
+
+    def test_the_traps_that_cut_you_are_spelled_the_way_the_model_reads(self):
+        """`TRAP_STRIKES` was written with "edged" and "piercing"; the model
+        has only ever known "edge" and "blunt". Three traps fell through to the
+        blunt branch, which does not bleed and does not sever, so a weapon trap
+        that "slashes" you had never once cut anybody."""
+        from ascii_warriors.game import combat
+
+        for spec in combat.TRAP_STRIKES.values():
+            self.assertIn(spec[0], ("edge", "blunt"))
+        for trap in ("weapon_trap", "spike_trap", "dart"):
+            self.assertEqual(combat.TRAP_STRIKES[trap][0], "edge")
+
+    def test_a_dart_draws_blood(self):
+        from ascii_warriors.game import combat
+
+        bleeding = 0
+        for i in range(40):
+            victim = self._wearing()
+            combat.trap_strike(victim, "dart", "iron", rng=RNG(9000 + i))
+            if any(w.bleeding > 0 for p in victim.body.parts.values()
+                   for w in p.wounds):
+                bleeding += 1
+        self.assertGreater(bleeding, 30)
+
+    def test_mail_turns_a_dart_and_a_spike_goes_through_it(self):
+        """Both are points now, so the material test decides, and it decides
+        differently for nine thousand of momentum and twenty-four."""
+        from ascii_warriors.game import combat
+
+        mailed = self._wearing(self.MAIL)
+        for trap, expect_through in (("dart", False), ("spike_trap", True)):
+            kind, momentum, contact_area, _pen, _verb = \
+                combat.TRAP_STRIKES[trap]
+            absorbed, _o = combat.armor_protection(
+                mailed, "upper_body", kind, contact_area, momentum)
+            self.assertEqual(momentum - absorbed > 0, expect_through, trap)
+
+    def test_a_fall_still_lands_the_way_v3_26_calibrated_it(self):
+        """Armour halves a drop. The blunt cap must not have quietly undone a
+        milestone that was measured against unarmoured bone."""
+        from ascii_warriors.game import combat
+
+        def broke(gear):
+            hurt = 0
+            for i in range(60):
+                victim = self._wearing(gear)
+                combat.trap_strike(victim, "fall", rng=RNG(300 + i))
+                if any(p.broken for p in victim.body.parts.values()):
+                    hurt += 1
+            return hurt
+
+        bare, plated = broke(()), broke(self.PLATE)
+        self.assertGreater(bare, 40)
+        self.assertLess(plated, bare * 0.6)
+
+    # -- what the player is told ---------------------------------------------- #
+
+    def test_the_item_screen_says_what_a_breastplate_is_for(self):
+        lines = " ".join(Item("breastplate", "steel").full_description(None))
+        self.assertIn("Turns a cut of up to", lines)
+        self.assertIn("of a blunt blow through", lines)
+
+    def test_the_item_screen_does_not_promise_a_shirt_spreads_a_hammer(self):
+        lines = " ".join(Item("tunic", "wool_cloth").full_description(None))
+        self.assertIn("Too thin to spread a blunt blow", lines)
+        self.assertNotIn("of a blunt blow through", lines)
+
+    def test_the_skill_has_a_description_now(self):
+        from ascii_warriors.game import skills
+
+        self.assertTrue(skills.SKILLS["armor_use"].description.strip())

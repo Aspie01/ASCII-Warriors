@@ -65,7 +65,8 @@ _s("kicker", "Kicker", "combat", ("strength", "kinesthetic_sense"), "")
 _s("dodging", "Dodger", "combat", ("agility", "kinesthetic_sense"),
    "Getting out of the way.")
 _s("shield_use", "Shield User", "combat", ("strength", "agility"), "")
-_s("armor_use", "Armor User", "combat", ("strength", "endurance"), "")
+_s("armor_use", "Armor User", "combat", ("strength", "endurance"),
+   "Wearing armour well: less of its weight, and less of a hammer through it.")
 _s("throwing", "Thrower", "combat", _RANGED_ATTRS, "")
 
 # -- outdoor skills --------------------------------------------------------- #

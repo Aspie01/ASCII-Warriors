@@ -17,6 +17,7 @@ from ..engine import colors
 from ..engine.rng import RNG
 from ..engine.scheduler import ACTION_COST
 from ..engine.screen import Frag
+from . import armour
 from . import contact as contact_mod
 from .contact import spread
 from .item import Item, severed_part
@@ -328,7 +329,8 @@ def effective_kind(weapon: Optional[Item], attack_def: AttackDef) -> str:
 
 
 def armor_protection(
-    defender, part_id: str, kind: str, contact: int = int(contact_mod.REFERENCE)
+    defender, part_id: str, kind: str, contact: int = int(contact_mod.REFERENCE),
+    momentum: float = 0.0,
 ) -> Tuple[float, Optional[Item]]:
     """How much momentum a part's armour absorbs, and the outermost piece.
 
@@ -338,6 +340,13 @@ def armor_protection(
     takes almost all of it; a spear point hands it a few square millimetres and
     goes through. *contact* is that area, and defaults to the middle of the
     table so a caller that has no attack in hand gets the old behaviour.
+
+    *momentum* is what was swung, and it is only needed for blunt blows.
+    Stopping a cut is a material question -- either the edge shears the plate
+    or nothing at all gets through -- but stopping an impact is a question of
+    where the momentum goes, and a share of it always arrives inside. Pass 0
+    and no cap is applied, which is the old behaviour and wrong for anything
+    blunt; see :mod:`ascii_warriors.game.armour`.
     """
     part = defender.body.part(part_id)
     if part is None:
@@ -345,6 +354,9 @@ def armor_protection(
     pieces = defender.inventory.armor_on(part.defn.category)
     natural = defender.defn.natural_armor * 3000.0
     total = natural
+    # How much of a shell all of it makes, which is a separate question from
+    # how hard it is to cut and the one that matters to a hammer.
+    rigid = defender.defn.natural_armor * armour.REFERENCE_RIGIDITY * 0.25
     outer: Optional[Item] = pieces[0] if pieces else None
     for piece in pieces:
         adef = piece.defn.armor
@@ -356,9 +368,18 @@ def armor_protection(
         absorb *= 1.0 + adef.armor_level * 0.12
         absorb *= piece.quality_bonus() * piece.wear_factor()
         total += absorb
+        rigid += armour.rigidity(adef.armor_level, adef.thickness) \
+            * piece.wear_factor()
     # Natural armour spreads a blow for the same reason plate does: a hide is
     # thick, and a point goes between the scales of it either way.
-    return (total * spread(contact), outer)
+    total *= spread(contact)
+    if kind != "edge" and momentum > 0.0:
+        # An impact is not stopped by not being cut. However good the plate,
+        # it is driven into the man wearing it, and how well he wears it is
+        # what decides how much of that he feels.
+        total = min(total, armour.blunt_cap(
+            momentum, contact, defender.skills.level("armor_use"), rigid))
+    return (total, outer)
 
 
 def try_block(defender, rng: RNG) -> bool:
@@ -501,10 +522,10 @@ def _judge_attack(attacker, weapon: Optional[Item], attacks, defender,
     delivered = []
     for attack in attacks:
         kind = effective_kind(weapon, attack)
+        momentum = compute_momentum(attacker, weapon, attack)
         absorbed, _outer = armor_protection(
-            defender, part.id, kind, attack.contact)
-        delivered.append(
-            max(0.0, compute_momentum(attacker, weapon, attack) - absorbed))
+            defender, part.id, kind, attack.contact, momentum)
+        delivered.append(max(0.0, momentum - absorbed))
     best = max(delivered)
     if best <= 0.0:
         # Nothing he does reaches the man's chest. There is no judgement to
@@ -648,7 +669,8 @@ def melee_attack(
     momentum = compute_momentum(attacker, weapon, attack_def)
     if ambush:
         momentum *= stealth.AMBUSH_MOMENTUM
-    absorbed, outer = armor_protection(defender, part.id, kind, attack_def.contact)
+    absorbed, outer = armor_protection(
+        defender, part.id, kind, attack_def.contact, momentum)
     delivered = momentum - absorbed
     result.damage = max(0.0, delivered)
 
@@ -746,12 +768,17 @@ BITES = frozenset({"bite", "gore", "sting"})
 #: What each kind of trap does when something walks onto it.
 TRAP_STRIKES: Dict[str, Tuple[str, float, int, int, str]] = {
     # kind -> (damage kind, momentum, contact, penetration, verb)
-    "weapon_trap": ("edged", 30000.0, 60, 4000, "slashes"),
-    "spike_trap": ("piercing", 24000.0, 10, 8000, "impales"),
+    # "edge" and "blunt" are the only two kinds the model knows. This table
+    # was written with "edged" and "piercing", which are neither, so a weapon
+    # trap that slashes you has never once cut anybody: both the armour test
+    # and the tissue test fall through to their blunt branch, and the blunt
+    # branch does not bleed and does not sever.
+    "weapon_trap": ("edge", 30000.0, 60, 4000, "slashes"),
+    "spike_trap": ("edge", 24000.0, 10, 8000, "impales"),
     # The ones a tomb was sealed with. Same table so armour counts against
     # them exactly as it does against a fortress trap -- a second damage path
     # for the same idea is how the two quietly stop agreeing.
-    "dart": ("piercing", 9000.0, 5, 9000, "strikes"),
+    "dart": ("edge", 9000.0, 5, 9000, "strikes"),
     "pit": ("blunt", 26000.0, 400, 500, "slams"),
     "collapse": ("blunt", 42000.0, 600, 800, "crushes"),
     "snare": ("blunt", 3000.0, 200, 200, "catches"),
@@ -798,7 +825,7 @@ def trap_strike(
         return result
     result.part = part.id
     momentum *= rng.uniform(0.7, 1.25)
-    absorbed, outer = armor_protection(victim, part.id, kind, contact)
+    absorbed, outer = armor_protection(victim, part.id, kind, contact, momentum)
     delivered = max(0.0, momentum - absorbed)
     result.damage = delivered
 
@@ -943,7 +970,8 @@ def ranged_attack(
     momentum *= 1.0 + ammo.mat.shear_yield / 400000.0
     momentum *= max(0.4, 1.0 - dist * 0.012)
 
-    absorbed, outer = armor_protection(defender, part.id, kind, attack.contact)
+    absorbed, outer = armor_protection(
+        defender, part.id, kind, attack.contact, momentum)
     delivered = momentum - absorbed
     result.damage = max(0.0, delivered)
 
@@ -997,7 +1025,8 @@ def throw_item(attacker, defender, item: Item, *, rng: RNG, log=None) -> AttackR
         * (1.0 + attacker.skills.level("throwing") * 0.08)
         * (0.5 + min(3.0, item.unit_weight))
     )
-    absorbed, _outer = armor_protection(defender, part.id, kind, attack.contact)
+    absorbed, _outer = armor_protection(
+        defender, part.id, kind, attack.contact, momentum)
     delivered = momentum - absorbed
     result.damage = max(0.0, delivered)
 

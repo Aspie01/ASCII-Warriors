@@ -273,7 +273,14 @@ class Creature:
         return max(3.0, cap)
 
     def encumbrance(self) -> float:
-        """How overloaded the creature is, 0 = free, 1 = at capacity."""
+        """How overloaded the creature is, 0 = free, 1 = at capacity.
+
+        Worn armour weighs less to somebody who knows how to wear it. It is the
+        same steel either way -- the difference is where it sits, how it is
+        slung and how much of it the shoulders are taking, and that is what
+        `armor_use` is. The relief applies here and nowhere else, so it reaches
+        dodging and walking pace together and by the one route.
+        """
         cap = self.carry_capacity()
         if self.mount is not None:
             from . import mounts
@@ -281,7 +288,13 @@ class Creature:
             cap *= mounts.CARRY_SHARE
         if cap <= 0:
             return 0.0
-        return max(0.0, self.inventory.total_weight() / cap)
+        from . import armour
+
+        load = self.inventory.total_weight()
+        relief = armour.weight_relief(self.skills.level("armor_use"))
+        if relief > 0.0:
+            load -= self.inventory.worn_armor_weight() * relief
+        return max(0.0, load / cap)
 
     def effective_speed(self) -> int:
         """Movement speed after wounds, load and exhaustion.

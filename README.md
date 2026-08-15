@@ -519,6 +519,17 @@ thing you can dig. Standing in a fire hurts and armour helps little; it also
 throws light, so you are extremely visible next to one. In the fortress, magma
 sets light to anything flammable near it.
 
+**What armour is worth.** Stopping a cut and stopping a hammer are different
+questions, and armour is only good at one of them. Either an edge shears the
+plate or nothing at all comes through — nothing in the game cuts a steel
+breastplate — but an impact is not stopped by not being cut, and a share of it
+always arrives inside. Good armour spreads a great deal of that: a breastplate
+lets through about a seventh, mail about a fifth, and boiled leather does not
+spread a blunt blow at all. Against plate the five best weapons in the game are
+all blunt. Armor User is the skill for the other side of it, and worth
+training: less of your kit's weight on your shoulders, and nearly a third less
+of a hammer through it.
+
 **Point, edge and armour.** Every attack has a contact area, and armour works
 by spreading a blow over more of itself than the blow landed on — so the more
 you give it to spread, the more it takes. An axe hands a mail shirt the whole

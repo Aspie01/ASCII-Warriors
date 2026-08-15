@@ -2197,16 +2197,34 @@ class TestMilitary(unittest.TestCase):
         self.assertTrue(all(lv >= 3 for lv in levels),
                         "only some of the squad trained: %s" % levels)
 
-    def test_a_trained_squad_beats_a_siege(self):
-        """The point of a militia."""
-        fort = embark("defence")
-        squad = self._armed_squad(fort, size=3)
+    def _siege_losses(self, seed, trained):
+        """Dwarves lost and goblins left, for one embark and one raid."""
+        fort = embark(seed)
+        if trained:
+            self._armed_squad(fort, size=3)
         sim.run(fort, 9000)
         before = len(fort.dwarves())
         sim.spawn_attack(fort, 5)
         sim.run(fort, 2500)
-        self.assertEqual(len(fort.hostiles()), 0, "the goblins are still here")
-        self.assertGreaterEqual(len(fort.dwarves()), before - 2)
+        return (before - len(fort.dwarves()), len(fort.hostiles()))
+
+    def test_a_trained_squad_beats_a_siege(self):
+        """The point of a militia, measured against not having one.
+
+        This used to assert that no more than two dwarves died, which held on
+        this seed and on seven of ten others -- an absolute threshold on a
+        number that ranges from nought to seven depending on where the goblins
+        walk in. It was passing by luck, and it would have gone on passing by
+        luck. What a militia is actually worth is only visible next to a
+        fortress that did not raise one.
+        """
+        armed = [self._siege_losses(s, True) for s in ("defence", "d2")]
+        alone = [self._siege_losses(s, False) for s in ("defence", "d2")]
+        self.assertEqual(sum(left for _lost, left in armed), 0,
+                         "the goblins are still here")
+        self.assertLess(sum(lost for lost, _left in armed),
+                        sum(lost for lost, _left in alone),
+                        "the squad was no better than no squad at all")
 
     def test_the_alarm_raises_and_lifts_itself(self):
         """Somebody has to notice the goblins."""
