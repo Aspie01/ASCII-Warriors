@@ -654,6 +654,12 @@ TRAP_STRIKES: Dict[str, Tuple[str, float, int, int, str]] = {
     # breastplate — which is what the armour model already says, given the
     # chance to say it.
     "frostbite": ("blunt", 2600.0, 4, 150, "numbs"),
+    # The ground. A fall is the whole body arriving at once: an enormous
+    # contact area, so armour spreads it rather than stopping it, and very
+    # little penetration -- nothing is being driven through anything, it is
+    # all blunt trauma. A `pit` trap's numbers are a trap's, and a
+    # breastplate simply ate a six-storey drop.
+    "fall": ("blunt", 260000.0, 2000, 100, "slams"),
 }
 
 

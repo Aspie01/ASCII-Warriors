@@ -274,6 +274,19 @@ you are extremely visible next to one -- worth remembering if you are sneaking.
 In the fortress, magma sets fire to anything flammable near it. Keep the
 woodpile away from the forge.
 
+FALLING
+
+There is nothing under you but air, and the game now knows it. Step off a
+ledge and you go down until something stops you. One level is a step; further
+than that hurts, and how much depends on how far — five levels break bones,
+ten will usually finish an unarmoured person. Armour helps and does not save
+you. Deep water breaks a fall.
+
+Everything falls, not just you: creatures, items, and anybody standing on a
+floor that has just been dug out from under them. Channelling normally cuts a
+ramp into the level below and is safe; channelling into a space that is
+already open is not.
+
 WHAT A FIGHT LEAVES
 
 Cut hard enough and things come off. A severed arm lands where it was taken

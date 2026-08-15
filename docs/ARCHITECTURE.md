@@ -3065,7 +3065,44 @@ Blood marks any ground now. A mark on bare rock carries `printed = False`, and
 depth of a print that is not there. Inventing the missing half would be worse
 than the bug.
 
-## 86. Style
+## 86. Gravity (v3.26)
+
+`LocalMap.has_floor` has answered "is anything holding this creature up" since
+there were z-levels, and it was asked in **one place**: the player's own step,
+which quietly slid you down to the first solid thing and did nothing else about
+it. You could walk off a ten-level cliff and land unhurt. Nothing else in the
+game fell at all -- not other creatures, not items, and not a dwarf standing on
+a floor that had just been channelled away. The `chasm` tile has been in the
+table since the table was written, flagged `OPEN` and `CHASM`, and no generator
+ever placed one, because a hole in the floor could not do anything.
+
+`gravity.settle` is called from each mode's one funnel -- `Game.move_creature`
+in adventure, and the fortress's own step plus `Fortress.settle_above` wherever
+the ground is taken away -- so there is no second way to be standing in mid-air.
+Items settle too.
+
+**A fall needed its own row in the trap table, not the `pit` trap's.** Reusing
+`pit` looked like the right reuse and was measurably wrong: a breastplate ate a
+six-storey drop entirely, because a trap's numbers are a trap's. A fall is the
+whole body arriving at once -- an enormous contact area and almost no
+penetration -- and it needed roughly ten times the momentum. Calibrated against
+an unarmoured human: two levels bruises, five breaks something six times in
+ten, and ten levels breaks something *every* time and kills three in ten. Iron
+plate roughly halves all of it, which is the right shape: armour helps and does
+not save you.
+
+**Ordinary channelling is still safe**, and that is not an oversight. It cuts a
+ramp into the level below, so a dwarf steps down onto it. What is dangerous is
+cutting into a void that is already there, which is the case worth having and
+the case the test covers.
+
+Worth recording while it was found: `Body.apply_damage` takes `contact` and
+never reads it, and `penetration` only gates whether an organ can be hit. The
+comment above it describes force "delivered to the contact area". Both were
+left alone -- rebalancing every weapon in the game around a newly live
+parameter is a milestone of its own, not a footnote to this one.
+
+## 87. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

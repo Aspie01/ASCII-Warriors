@@ -4974,3 +4974,77 @@ class TestFishing(unittest.TestCase):
             live = max(live, sum(1 for j in fort.jobs.jobs.values()
                                  if j.kind == "fish"))
         self.assertLessEqual(live, sim_mod.MAX_ANGLERS)
+
+
+class TestFalling(unittest.TestCase):
+    """Channelling a floor away used to leave whoever was on it in mid-air."""
+
+    def _hole(self, fort, cell, depth=4):
+        """Open a shaft under a cell. Returns where a body comes to rest."""
+        lm = fort.local
+        x, y, z = cell
+        if z - depth - 1 < lm.zmin:
+            self.skipTest("not deep enough here")
+        for dz in range(0, depth + 1):
+            lm.set_tile(x, y, z - dz, "air")
+        lm.set_tile(x, y, z - depth - 1, "stone_floor")
+        return (x, y, z - depth)
+
+    def test_a_dwarf_left_in_mid_air_comes_down(self):
+        from ascii_warriors.world import gravity
+
+        fort = embark("falling")
+        dwarf = fort.dwarves()[0]
+        bottom = self._hole(fort, (dwarf.x, dwarf.y, dwarf.z))
+        self.assertIn(dwarf, gravity.unsupported_creatures(fort))
+        sim.step(fort)
+        self.assertEqual((dwarf.x, dwarf.y, dwarf.z), bottom)
+
+    def test_and_it_hurts(self):
+        from ascii_warriors.world import gravity
+
+        fort = embark("fallhurt")
+        dwarf = fort.dwarves()[0]
+        self._hole(fort, (dwarf.x, dwarf.y, dwarf.z), depth=6)
+        before = dwarf.body.health_fraction()
+        sim.step(fort)
+        self.assertLess(dwarf.body.health_fraction(), before)
+
+    def test_cutting_the_floor_out_from_under_somebody_drops_them(self):
+        """Ordinary channelling leaves a ramp and is safe. Cutting into a
+        void that is already there is not, and that is the case worth
+        testing."""
+        fort = embark("channelfall")
+        dwarf = fort.dwarves()[0]
+        cell = (dwarf.x, dwarf.y, dwarf.z)
+        bottom = self._hole(fort, cell, depth=4)
+        fort.settle_above(cell)
+        self.assertEqual((dwarf.x, dwarf.y, dwarf.z), bottom)
+
+    def test_and_ordinary_channelling_is_still_safe(self):
+        """It cuts a ramp into the level below; you step down onto it."""
+        fort = embark("channelsafe")
+        dwarf = fort.dwarves()[0]
+        cell = (dwarf.x, dwarf.y, dwarf.z)
+        below = (cell[0], cell[1], cell[2] - 1)
+        if not fort.local.in_bounds(*below):
+            self.skipTest("nothing under this dwarf")
+        fort.local.set_tile(cell[0], cell[1], cell[2], "air")
+        fort.local.set_tile(below[0], below[1], below[2], "ramp_up")
+        before = dwarf.body.health_fraction()
+        fort.settle_above(cell)
+        self.assertEqual(dwarf.body.health_fraction(), before)
+
+    def test_items_left_in_mid_air_come_down_too(self):
+        from ascii_warriors.game.item import Item
+        from ascii_warriors.world import gravity
+
+        fort = embark("fallitems")
+        dwarf = fort.dwarves()[0]
+        cell = (dwarf.x + 3, dwarf.y, dwarf.z)
+        if not fort.local.walkable(*cell):
+            self.skipTest("no room beside the dwarf")
+        bottom = self._hole(fort, cell, depth=3)
+        fort.drop_item(Item("boulder", "granite"), *cell)
+        self.assertEqual(gravity.settle_items(fort, cell), 1)
+        self.assertTrue(fort.items_at(*bottom))

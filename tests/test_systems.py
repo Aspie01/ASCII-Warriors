@@ -5564,3 +5564,161 @@ class TestAftermath(GameFixture):
         self.assertIsNotNone(mark)
         self.assertTrue(mark.blood)
         self.assertFalse(mark.printed)
+
+
+class TestGravity(GameFixture):
+    """`has_floor` was asked in one place and nothing ever fell."""
+
+    def setUp(self):
+        super().setUp()
+        from ascii_warriors.world import gravity
+
+        self.gravity = gravity
+        self.p = self.game.player
+
+    def _shaft(self, cell, depth):
+        """Open a hole under a cell with a floor at the bottom.
+
+        Returns where something dropped in comes to rest: the lowest *open*
+        cell, standing on the floor tile below it, not the floor tile itself.
+        """
+        lm = self.game.local
+        x, y, z = cell
+        if z - depth - 1 < lm.zmin:
+            self.skipTest("the map is not deep enough for that drop")
+        for dz in range(0, depth + 1):
+            lm.set_tile(x, y, z - dz, "air")
+        lm.set_tile(x, y, z - depth - 1, "stone_floor")
+        return (x, y, z - depth)
+
+    # -- the shape of a fall -------------------------------------------------- #
+
+    def test_a_step_down_is_free(self):
+        self.assertEqual(self.gravity.fall_force(1), 0.0)
+
+    def test_and_further_is_not(self):
+        self.assertGreater(self.gravity.fall_force(4),
+                           self.gravity.fall_force(2))
+
+    def test_but_it_stops_getting_worse_eventually(self):
+        self.assertEqual(self.gravity.fall_force(40),
+                         self.gravity.fall_force(400))
+        self.assertEqual(self.gravity.fall_force(400), self.gravity.MAX_FALL)
+
+    def test_a_fall_is_in_the_one_trap_table(self):
+        from ascii_warriors.game import combat
+
+        self.assertIn("fall", combat.TRAP_STRIKES)
+
+    def test_and_not_borrowing_the_pit_traps_numbers(self):
+        """A trap's numbers let a breastplate eat a six-storey drop."""
+        from ascii_warriors.game import combat
+
+        self.assertGreater(combat.TRAP_STRIKES["fall"][1],
+                           combat.TRAP_STRIKES["pit"][1])
+
+    # -- where things land ---------------------------------------------------- #
+
+    def test_landing_finds_the_first_solid_thing(self):
+        here = (self.p.x, self.p.y, self.p.z)
+        bottom = self._shaft(here, 4)
+        self.assertEqual(self.gravity.landing(self.game.local, here), bottom)
+        self.assertEqual(self.gravity.drop_distance(self.game.local, here), 4)
+
+    def test_solid_ground_is_no_drop_at_all(self):
+        here = (self.p.x, self.p.y, self.p.z)
+        self.assertTrue(self.gravity.supported(self.game.local, here))
+        self.assertEqual(self.gravity.drop_distance(self.game.local, here), 0)
+
+    # -- falling -------------------------------------------------------------- #
+
+    def test_a_long_fall_hurts(self):
+        here = (self.p.x, self.p.y, self.p.z)
+        self._shaft(here, 5)
+        before = self.p.body.health_fraction()
+        fell = self.gravity.settle(self.game, self.p, RNG("f"), log=self.game.log)
+        self.assertEqual(fell, 5)
+        self.assertLess(self.p.body.health_fraction(), before)
+
+    def test_and_puts_you_at_the_bottom(self):
+        here = (self.p.x, self.p.y, self.p.z)
+        bottom = self._shaft(here, 5)
+        self.gravity.settle(self.game, self.p, RNG("f"))
+        self.assertEqual((self.p.x, self.p.y, self.p.z), bottom)
+
+    def test_a_short_one_does_not(self):
+        here = (self.p.x, self.p.y, self.p.z)
+        self._shaft(here, 1)
+        before = self.p.body.health_fraction()
+        self.gravity.settle(self.game, self.p, RNG("f"))
+        self.assertEqual(self.p.body.health_fraction(), before)
+
+    def test_water_breaks_a_fall(self):
+        from ascii_warriors.game.entity import make_creature
+
+        deep = shallow = 0.0
+        for i in range(30):
+            for water, bucket in ((0, "dry"), (7, "wet")):
+                c = make_creature(RNG("c%d" % i), "human", equip=False)
+                self.gravity.hurt(c, 8, RNG("f%d" % i), water=water)
+                if water:
+                    deep += c.body.health_fraction()
+                else:
+                    shallow += c.body.health_fraction()
+        self.assertGreater(deep, shallow)
+
+    def test_everyone_falls_not_only_the_player(self):
+        from ascii_warriors.game.entity import make_creature
+
+        c = make_creature(RNG("c"), "human", equip=False)
+        c.x, c.y, c.z = self.p.x + 2, self.p.y, self.p.z
+        self.game.creatures[c.id] = c
+        bottom = self._shaft((c.x, c.y, c.z), 4)
+        self.gravity.settle(self.game, c, RNG("f"))
+        self.assertEqual((c.x, c.y, c.z), bottom)
+
+    def test_moving_into_thin_air_is_a_fall(self):
+        """`move_creature` is the funnel; walking off a cliff used to slide
+        you down for free."""
+        here = (self.p.x, self.p.y, self.p.z)
+        bottom = self._shaft(here, 5)
+        before = self.p.body.health_fraction()
+        self.game.move_creature(self.p, here[0], here[1], here[2])
+        self.assertEqual(self.p.z, bottom[2])
+        self.assertLess(self.p.body.health_fraction(), before)
+
+    # -- items ---------------------------------------------------------------- #
+
+    def test_items_in_mid_air_come_down(self):
+        from ascii_warriors.game.item import Item
+
+        cell = (self.p.x + 3, self.p.y, self.p.z)
+        bottom = self._shaft(cell, 3)
+        self.game.items_on_ground[cell] = [Item("sword", "iron")]
+        self.assertEqual(self.gravity.settle_items(self.game, cell), 1)
+        self.assertFalse(self.game.items_at(*cell))
+        self.assertTrue(self.game.items_at(*bottom))
+
+    def test_but_items_on_a_floor_stay_put(self):
+        from ascii_warriors.game.item import Item
+
+        cell = (self.p.x, self.p.y, self.p.z)
+        self.game.items_on_ground[cell] = [Item("sword", "iron")]
+        self.assertEqual(self.gravity.settle_items(self.game, cell), 0)
+
+    # -- the tile nobody ever placed ------------------------------------------ #
+
+    def test_a_chasm_is_a_hole(self):
+        from ascii_warriors.world import tiles
+
+        self.assertTrue(tiles.get("chasm").has("CHASM"))
+        self.assertFalse(tiles.get("chasm").walk)
+        cell = (self.p.x, self.p.y, self.p.z)
+        self.game.local.set_tile(cell[0], cell[1], cell[2], "chasm")
+        self.assertTrue(self.gravity.is_chasm(self.game.local, cell))
+
+    def test_finding_everyone_standing_on_nothing(self):
+        here = (self.p.x, self.p.y, self.p.z)
+        self.assertEqual(self.gravity.unsupported_creatures(self.game), [])
+        self._shaft(here, 3)
+        self.assertIn(self.p, self.gravity.unsupported_creatures(self.game))

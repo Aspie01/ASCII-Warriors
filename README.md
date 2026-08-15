@@ -519,6 +519,11 @@ thing you can dig. Standing in a fire hurts and armour helps little; it also
 throws light, so you are extremely visible next to one. In the fortress, magma
 sets light to anything flammable near it.
 
+**Gravity.** Step off a ledge and you go down until something stops you. One
+level is a step; five break bones and ten will usually finish an unarmoured
+person, with armour halving it and deep water breaking the fall. Creatures,
+items and anybody standing on a floor that has just been dug away all obey it.
+
 **What a fight leaves behind.** Cut hard enough and limbs come off, land where
 they were taken and say whose they were. Blood falls on anything — including
 the bare rock a footprint will not hold — and outlasts the prints, so a wounded

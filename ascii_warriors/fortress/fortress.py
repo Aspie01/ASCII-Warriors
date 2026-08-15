@@ -496,6 +496,20 @@ class Fortress:
             del self.items_on_ground[cell]
         return True
 
+    def settle_above(self, cell: Cell) -> None:
+        """Drop anything left standing on a floor that has just gone."""
+        from ..world import gravity
+
+        above = (cell[0], cell[1], cell[2] + 1)
+        for c in list(self.creatures.values()):
+            if c.body.dead or (c.x, c.y, c.z) not in (cell, above):
+                continue
+            if gravity.settle(self, c, self.rng, log=self.log) and c.body.dead:
+                self.kill_creature(c)
+        for spot in (cell, above):
+            gravity.settle_items(self, spot)
+        self._water_cache = None
+
     def item_cell(self, item: Item) -> Optional[Cell]:
         """Where an item is lying, or ``None`` if it is carried."""
         for cell, pile in self.items_on_ground.items():
@@ -1036,6 +1050,10 @@ class Fortress:
             if found is not None:
                 self.drop_item(found, *below)
         self._reveal_around(cell)
+        # The floor is gone. Whoever was standing on it goes with it, which
+        # is the one thing channelling has never done and the whole reason a
+        # dwarf is told to dig from below.
+        self.settle_above(cell)
 
     def _finish_stairs(self, dwarf, job: Job) -> None:
         cell = job.cell

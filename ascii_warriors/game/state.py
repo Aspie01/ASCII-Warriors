@@ -447,12 +447,23 @@ class Game:
         """
         from . import stealth, tracks
 
+        from ..world import gravity
+
         was = (c.x, c.y, c.z)
         c.x, c.y, c.z = x, y, z
+        # Nothing stands in mid-air. This is the funnel every move in
+        # adventure mode goes through, so it is the one place that has to
+        # know -- and `has_floor` was only ever asked by the player's own
+        # step, which slid you down a cliff for free.
+        gravity.settle(self, c, self.rng,
+                       log=self.log if (c.is_player or self.can_see_creature(c))
+                       else None)
         stealth.note_action(c, "move")
         tracks.leave(self, c, was)
         if c.is_player:
             self.update_fov()
+        if c.body.dead:
+            self.kill_creature(c)
 
     def hostiles_in_sight(self) -> bool:
         """Whether anything the player can see would like it dead.

@@ -129,6 +129,7 @@ def step(fort) -> None:
     _burn(fort, ticks)
     _chill(fort, ticks)
     _fray(fort)
+    _gravity(fort)
     _nerves(fort, ticks)
     _bodies(fort, ticks)
     _triage(fort)
@@ -573,6 +574,21 @@ def _nerves(fort, ticks: int) -> None:
     for c in fort.creatures.values():
         if c.shaken:
             morale_mod.steady(c, ticks)
+
+
+def _gravity(fort) -> None:
+    """Anybody standing on nothing goes down.
+
+    A backstop rather than the mechanism: `settle_above` catches the floor
+    being channelled away, and this catches every other way a fortress can
+    remove the ground -- a bridge retracting, a wall coming down, a save
+    loaded from a version that let it happen.
+    """
+    from ..world import gravity
+
+    for c in gravity.unsupported_creatures(fort):
+        if gravity.settle(fort, c, fort.rng, log=fort.log) and c.body.dead:
+            fort.kill_creature(c)
 
 
 def _traps(fort) -> None:

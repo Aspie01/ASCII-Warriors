@@ -318,13 +318,15 @@ def move_or_attack(game, dx: int, dy: int) -> int:
             game.log.info("You cannot go that way.")
         return FREE
 
-    # Step down where there is nothing to stand on.
-    while nz > game.local.zmin and not game.local.has_floor(nx, ny, nz):
-        nz -= 1
-
     from . import traps as traps_mod
 
+    # Stepping into thin air used to slide the player quietly down to the
+    # first solid thing, however far that was. `move_creature` settles it now,
+    # and charges for the drop.
     game.move_creature(p, nx, ny, nz)
+    nx, ny, nz = p.x, p.y, p.z
+    if p.body.dead:
+        return NORMAL
     if traps_mod.cross(game, p, (nx, ny, nz)):
         return NORMAL
     traps_mod.step_on(game, p, (nx, ny, nz))
