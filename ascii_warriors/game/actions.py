@@ -650,7 +650,8 @@ def fire(game, tx: int, ty: int) -> int:
             p.inventory.items.remove(ammo)
             p.inventory.unequip_item(ammo)
         return NORMAL
-    combat.ranged_attack(p, target, weapon, ammo, rng=game.rng, log=game.log)
+    combat.ranged_attack(p, target, weapon, ammo, rng=game.rng,
+                         log=game.log, ground=game)
     if target.body.dead:
         game.kill_creature(target)
     return NORMAL

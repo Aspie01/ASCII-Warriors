@@ -3591,7 +3591,39 @@ that fails to survive breaks the suite until somebody either serialises it or
 comes and writes down why it should not be. Verified by breaking the
 serialisation again and watching two tests fail.
 
-## 95. Style
+## 95. Spent ammunition (v3.35)
+
+Throwing a dagger and firing an arrow are the same act with different tackle,
+and the game treated them as different kinds of event. `actions.throw` walks
+the flight path, works out where the thing came down and drops it there, so a
+thrown dagger is lying in the grass afterwards. `combat.ranged_attack` did
+`ammo.count -= 1` and that was the end of the arrow. **Every shot fired in the
+history of this project annihilated its own ammunition**, and the asymmetry was
+inside one file.
+
+It matters most where ammunition is hardest to come by: an archer forty tiles
+from anywhere runs dry with nothing to do about it, and a fortress that forges
+twenty bolts from a bar of iron watches a siege drain the stock with nothing to
+sweep up. Stockpiles already accept ammunition, so the hauling half needed
+nothing -- there was simply never anything on the floor to haul.
+
+**Some of it has to break or an archer never runs out at all.** A shot that
+struck something breaks more often than one that went into the turf, and the
+material decides the rest. Measured over 250 shots each: obsidian 36% recovered,
+oak 41%, copper 54%, iron 64%, steel 78%. Toughness is bounded at both ends,
+so no material makes ammunition permanent and none makes it single-use.
+
+**`spend` splits the stack.** Dropping the ammunition object itself would have
+put the whole quiver on the floor and left the archer holding nothing --
+`Item.split` has known how to do this since throwing needed it, and firing
+simply never asked.
+
+The `ground` parameter is the same one, for the same reason, as the one v3.25
+added to the melee path for severed limbs: combat is called from two modes and
+from tests that have no world at all, so the caller says where the floor is or
+there is no floor.
+
+## 96. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

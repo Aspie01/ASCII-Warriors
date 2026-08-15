@@ -377,7 +377,8 @@ def take_turn(creature, game) -> int:
             and 2 <= dist <= 12 and can_see(creature, target, game)
         ):
             visible = game.can_see_creature(creature) or target.is_player
-            combat.ranged_attack(creature, target, weapon, ammo, rng=game.rng,
+            combat.ranged_attack(creature, target, weapon, ammo,
+                                 ground=game, rng=game.rng,
                                  log=game.log if visible else None)
             return _spent(creature)
         _step_toward(creature, game, target.x, target.y, target.z)

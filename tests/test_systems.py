@@ -7344,3 +7344,190 @@ class TestWhatAnAdventureSaveKeeps(GameFixture):
         self.assertAlmostEqual(getattr(bp, "swing_bank", 0.0), 33.0, places=3)
         self.assertEqual(bp.skills.level("discipline"), 4)
         self.assertEqual(bp.skills.level("swimming"), 6)
+
+
+class TestSpentAmmunition(GameFixture):
+    """Every shot fired in the history of this project annihilated its own
+    arrow. Throwing a dagger left the dagger on the ground; firing did
+    `ammo.count -= 1` and that was the end of it."""
+
+    def _archer(self, material="iron", count=30):
+        p = self.game.player
+        for item in list(p.inventory.items):
+            p.inventory.remove(item, item.count)
+        bow = Item("bow", "oak")
+        p.inventory.add(bow)
+        p.inventory.add(Item("arrow", material, count=count))
+        p.inventory.auto_equip()
+        return p, bow
+
+    def _target(self, gear=()):
+        from ascii_warriors.game.entity import make_creature
+
+        p = self.game.player
+        foe = make_creature(RNG("mark"), "goblin", faction="hostile")
+        foe.x, foe.y, foe.z = p.x + 4, p.y, p.z
+        for iid, material in gear:
+            foe.inventory.add(Item(iid, material))
+        foe.inventory.auto_equip()
+        self.game.add_creature(foe)
+        return foe
+
+    def _arrows_at(self, cell):
+        return sum(i.count for i in self.game.items_at(*cell)
+                   if i.def_id == "arrow")
+
+    def _volley(self, shots=60, material="iron", gear=()):
+        from ascii_warriors.game import combat
+
+        p, bow = self._archer(material, count=shots)
+        landed = 0
+        fired = 0
+        for i in range(shots):
+            ammo = p.inventory.ammo()
+            if ammo is None or ammo.count <= 0:
+                break
+            foe = self._target(gear)
+            cell = (foe.x, foe.y, foe.z)
+            combat.ranged_attack(p, foe, bow, ammo, rng=RNG(700 + i),
+                                 ground=self.game)
+            fired += 1
+            landed += self._arrows_at(cell)
+            for item in list(self.game.items_at(*cell)):
+                self.game.take_item(item, *cell)
+            self.game.creatures.pop(foe.id, None)
+        return fired, landed
+
+    # -- the defect ----------------------------------------------------------- #
+
+    def test_a_fired_arrow_exists_afterwards(self):
+        fired, landed = self._volley(shots=40)
+        self.assertEqual(fired, 40)
+        self.assertGreater(landed, 0, "every arrow fired vanished")
+
+    def test_not_every_arrow_survives_being_fired(self):
+        """Otherwise an archer never runs out and the quiver is decorative."""
+        fired, landed = self._volley(shots=60)
+        self.assertLess(landed, fired)
+
+    def test_the_quiver_still_empties(self):
+        from ascii_warriors.game import combat
+
+        p, bow = self._archer(count=8)
+        for i in range(8):
+            ammo = p.inventory.ammo()
+            self.assertIsNotNone(ammo, "the quiver refilled itself")
+            foe = self._target()
+            combat.ranged_attack(p, foe, bow, ammo, rng=RNG(30 + i),
+                                 ground=self.game)
+            self.game.creatures.pop(foe.id, None)
+        self.assertIsNone(p.inventory.ammo())
+
+    def test_what_lands_is_one_arrow_and_not_the_quiver(self):
+        """`spend` has to split the stack. Dropping the stack itself would put
+        thirty arrows on the floor and leave the archer with none."""
+        from ascii_warriors.game import combat
+
+        p, bow = self._archer(count=30)
+        foe = self._target()
+        cell = (foe.x, foe.y, foe.z)
+        combat.ranged_attack(p, foe, bow, p.inventory.ammo(), rng=RNG(3),
+                             ground=self.game)
+        on_floor = [i for i in self.game.items_at(*cell) if i.def_id == "arrow"]
+        for item in on_floor:
+            self.assertEqual(item.count, 1)
+        left = p.inventory.ammo()
+        self.assertIsNotNone(left)
+        self.assertEqual(left.count, 29, "the quiver lost more than one arrow")
+        # Nought or one on the floor: the round either survived or it broke,
+        # and a broken one is gone rather than lying about in pieces.
+        self.assertLessEqual(len(on_floor), 1)
+
+    # -- what it is made of ---------------------------------------------------- #
+
+    def test_a_steel_arrow_survives_where_an_obsidian_one_shatters(self):
+        from ascii_warriors.game import ammo as ammo_mod
+
+        self.assertGreater(ammo_mod.toughness(Item("arrow", "steel")),
+                           ammo_mod.toughness(Item("arrow", "iron")))
+        self.assertGreater(ammo_mod.toughness(Item("arrow", "iron")),
+                           ammo_mod.toughness(Item("arrow", "obsidian")))
+        tough, _l = self._volley(shots=60, material="steel")
+        _f, tough_back = self._volley(shots=60, material="steel")
+        _f2, brittle_back = self._volley(shots=60, material="obsidian")
+        self.assertGreater(tough_back, brittle_back)
+
+    def test_toughness_is_bounded_at_both_ends(self):
+        from ascii_warriors.game import ammo as ammo_mod
+        from ascii_warriors.data import materials as mat_data
+
+        for mid in mat_data.MATERIALS:
+            value = ammo_mod.toughness(Item("arrow", mid))
+            self.assertGreaterEqual(value, ammo_mod.MIN_TOUGHNESS, mid)
+            self.assertLessEqual(value, ammo_mod.MAX_TOUGHNESS, mid)
+
+    # -- every way a shot can end ---------------------------------------------- #
+
+    def test_a_missed_shot_lands_too(self):
+        """Missing is the cheap case: the arrow is in the grass, not a rib."""
+        from ascii_warriors.game import ammo as ammo_mod
+
+        self.assertGreater(ammo_mod.MISS_SURVIVES, ammo_mod.HIT_SURVIVES)
+        fired, landed = self._volley(shots=60, gear=(("mail_shirt", "iron"),))
+        self.assertGreater(landed, 0)
+
+    def test_firing_with_no_world_to_drop_into_does_not_crash(self):
+        """Combat is called from two modes and from tests that have neither,
+        which is the same reason v3.25 gave the melee path a `ground`."""
+        from ascii_warriors.game import combat
+
+        p, bow = self._archer(count=4)
+        foe = self._target()
+        result = combat.ranged_attack(p, foe, bow, p.inventory.ammo(),
+                                      rng=RNG(11))
+        self.assertIsNotNone(result)
+        self.assertEqual(p.inventory.ammo().count, 3)
+
+    def test_an_archer_can_shoot_dry_and_pick_them_back_up(self):
+        """The whole point: forty tiles from anywhere, this is the difference
+        between a bow and a stick."""
+        from ascii_warriors.game import combat
+
+        p, bow = self._archer(count=12)
+        foe = self._target()
+        cell = (foe.x, foe.y, foe.z)
+        for i in range(12):
+            ammo = p.inventory.ammo()
+            if ammo is None:
+                break
+            combat.ranged_attack(p, foe, bow, ammo, rng=RNG(60 + i),
+                                 ground=self.game)
+            if foe.body.dead:
+                self.game.creatures.pop(foe.id, None)
+                foe = self._target()
+                cell = (foe.x, foe.y, foe.z)
+        self.assertIsNone(p.inventory.ammo(), "the quiver never emptied")
+        recovered = 0
+        for item in list(self.game.items_at(*cell)):
+            if item.def_id == "arrow":
+                recovered += item.count
+                self.game.take_item(item, *cell)
+                p.inventory.add(item)
+        self.assertGreater(recovered, 0, "nothing to pick up")
+        p.inventory.auto_equip()
+        self.assertIsNotNone(p.inventory.ammo(), "could not rearm")
+
+    def test_a_thrown_dagger_still_lands(self):
+        """This half always worked. It is what made the other half obvious."""
+        from ascii_warriors.game import actions
+
+        p = self.game.player
+        knife = Item("dagger", "iron")
+        p.inventory.add(knife)
+        actions.throw(self.game, knife, p.x + 3, p.y)
+        found = False
+        for dx in range(0, 5):
+            if any(i.def_id == "dagger"
+                   for i in self.game.items_at(p.x + dx, p.y, p.z)):
+                found = True
+        self.assertTrue(found, "the dagger vanished")

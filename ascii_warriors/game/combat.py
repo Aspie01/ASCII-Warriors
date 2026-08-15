@@ -915,9 +915,16 @@ def wrestle(attacker, defender, move: str, *, rng: RNG, log=None) -> AttackResul
 
 
 def ranged_attack(
-    attacker, defender, weapon: Item, ammo: Optional[Item], *, rng: RNG, log=None
+    attacker, defender, weapon: Item, ammo: Optional[Item], *, rng: RNG,
+    log=None, ground=None
 ) -> AttackResult:
-    """Resolve a shot from a bow, crossbow or sling."""
+    """Resolve a shot from a bow, crossbow or sling.
+
+    *ground* is where the spent round lands, and is the same parameter and the
+    same reason as the one v3.25 added for severed limbs: combat is called
+    from two modes and from tests that have no world at all, so the caller
+    says where the floor is or there is no floor.
+    """
     result = AttackResult()
     wdef = weapon.defn.weapon
     if wdef is None or not wdef.ranged:
@@ -938,15 +945,17 @@ def ranged_attack(
     obj = _object(defender)
     ammo_name = ammo.base_name(False)
 
-    ammo.count -= 1
-    if ammo.count <= 0:
-        attacker.inventory.remove(ammo, 1)
+    from . import ammo as ammo_mod
+
+    spent = ammo_mod.spend(attacker, ammo)
 
     if not rng.chance(chance):
         result.add("%s fire%s at %s and miss%s." % (
             subject, "" if attacker.is_player else "s", obj,
             "" if attacker.is_player else "es"), colors.UI["dim"])
         attacker.add_exp(skill_id, 6)
+        ammo_mod.land(ground, spent,
+                      (defender.x, defender.y, defender.z), rng, hit=False)
         _emit(log, result)
         return result
 
@@ -956,6 +965,8 @@ def ranged_attack(
             subject, "" if attacker.is_player else "s", obj, ammo_name),
             colors.UI["dim"])
         defender.add_exp("shield_use", 12)
+        ammo_mod.land(ground, spent,
+                      (defender.x, defender.y, defender.z), rng, hit=True)
         _emit(log, result)
         return result
 
@@ -984,6 +995,8 @@ def ranged_attack(
             head, " %s" % outer.name(article=True) if outer else ""),
             colors.UI["dim"])
         attacker.add_exp(skill_id, 8)
+        ammo_mod.land(ground, spent,
+                      (defender.x, defender.y, defender.z), rng, hit=True)
         _emit(log, result)
         return result
 
@@ -994,6 +1007,8 @@ def ranged_attack(
     result.add("%s, %s!" % (head, ", ".join(clauses) if clauses else "drawing blood"),
                colors.UI["fg"])
     attacker.add_exp(skill_id, 22)
+    ammo_mod.land(ground, spent,
+                  (defender.x, defender.y, defender.z), rng, hit=True)
     if defender.body.dead:
         result.killed = True
         result.add(_slain_line(defender), colors.UI["danger"])

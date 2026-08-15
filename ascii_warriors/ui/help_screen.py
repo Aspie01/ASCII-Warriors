@@ -761,6 +761,11 @@ is what tells you to thrust at the man in mail instead of swinging at him.
 Aim at a body part with 'a' if you want a leg broken or an arm taken off. Aimed
 strikes are harder to land.
 
+Arrows and bolts you fire land where they go — in the grass if you missed, or
+under whatever you hit — and can be picked up and fired again. Not all of them
+survive it: a steel arrow usually does and an obsidian one usually does not, so
+walk the ground after a fight before you walk away from it.
+
 Bleeding is what will actually kill you. Carry bandages and use 'A' to bind a
 wound the moment the Blood gauge starts dropping; 'D' tells you how many turns
 you have left. Splints set broken bones.
