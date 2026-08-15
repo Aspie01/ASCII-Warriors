@@ -3275,7 +3275,77 @@ every one of the twenty armour pieces in the table. Unlike `contact` this is
 not data waiting to be read -- there is no data. Authoring what may be worn
 over what is a design decision, not a wiring job, and it is left alone.
 
-## 89. Style
+## 89. Swimming (v3.29)
+
+`TileDef.swim` has been on the water tiles since the tile table was written --
+`water` and `deep_water` carry it, `shallow_water` does not -- and no code had
+ever read it. What decided whether water could be entered was `TileDef.walk`,
+and both deep tiles are `walk=False`, so a river was a wall. `Game.is_passable`
+even had a branch letting a `SWIMMER` or an `AQUATIC` creature into deep water;
+it sat below the `walk` test and had never once been reached. The `swimming`
+skill was in the table with a blank description, was awarded experience in
+three places, and outside the fortress's drowning loop was read by nothing.
+
+**The two modes had drifted, which is usually why a thing like this survives.**
+The fortress models water as a fluid layer of depth 0 to 7 over the terrain and
+has drowned people since v2.5. Adventure mode has no fluid layer at all -- its
+water is terrain -- so it had no depth to consult and no drowning to do.
+`swimming.TILE_DEPTH` is what lets one rule serve both: it says what depth each
+water tile stands for, and `stroke_chance` is now the single answer to "does
+this creature keep its head up", asked by both. The fortress's own
+`0.25 + skill * 0.06` is gone.
+
+**One clock each, and no pretending otherwise.** The fortress steps ten ticks
+at a time and rolls per step; adventure advances by however long the last
+creature's action took. Rolling per call would make drowning depend on how many
+goblins happened to be awake, so adventure integrates the odds instead of
+rolling them, and holds breath as a float. The first version rounded each slice
+to an int and treated a zero as "head above water", which threw the entire held
+breath away every time the world advanced by a tick or two -- on a busy map,
+most of the time. Nothing would ever have drowned.
+
+**The unit was wrong by a factor of thirty.** An actor gains its speed in
+energy each tick and acts at `ACTION_COST`, so at the baseline speed one
+standard action is *one tick*. `DROWN_TICKS` was first written as 800 -- most
+of a minute of continuous drowning. It is 24.
+
+**A hard threshold rather than a steep slope.** Load was a subtraction from the
+stroke chance, and at legendary swimming a man in full plate still came out at
+even odds. "You cannot swim in a steel breastplate" is worth more as a rule
+than as a slope, so `SINK_LOAD` is a floor: above it no skill is any use.
+Strokes before drowning, unencumbered: 17 untrained, 52 at fifteen, safe at
+twenty. In mail: 13 to 37 -- dangerous at every level. In plate: 11, at every
+level, for ever. `armor_use` helps in mail and cannot save anybody in plate,
+which is exactly right and was not arranged.
+
+**Three tiles, three named cases.** `water` is the base, `deep_water` is worse,
+and water to the ceiling is a flooded room and not a lake -- interpolating
+would have been inventing detail the data does not have.
+
+**A deer does not swim a lake for the sake of it.** Once water could be entered
+at all, every wandering animal could walk into one and hold its breath until it
+stopped. `swimming.avoids`, called from the AI's one movement funnel
+`ai._move_to`, refuses it -- unless the creature is already swimming, which it
+must be able to do to reach the bank, or is fleeing, which is what water is
+for. Measured: 0 of 400 wandering steps in, 400 of 400 fleeing ones. The player
+does not go through `_move_to` and keeps the freedom to drown themselves.
+
+## 89.1. The river that was never a biome
+
+`river` is a biome in the table. Five species live in it. `biomes.classify`
+cannot return it and no other code assigns it, so no world tile has ever been
+one -- and carp and pike list `lake` and `river` and nowhere else, so in a game
+that draws a river across half its local maps, neither fish had ever existed.
+`lake` is assigned, once in about four thousand tiles.
+
+The world tile knows it has a river running through it, which is enough:
+`spawn_wildlife` now adds the river dwellers to what a river tile offers. A
+fish also needs putting somewhere it can be -- `random_open` deliberately
+avoids water, so a carp placed by it landed on the bank, where `is_passable`
+would not let it move and it flapped for ever. `LocalMap.random_water` is the
+third place `swim` is now read.
+
+## 90. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

@@ -72,7 +72,8 @@ _s("throwing", "Thrower", "combat", _RANGED_ATTRS, "")
 # -- outdoor skills --------------------------------------------------------- #
 _s("observer", "Observer", "outdoor", ("intuition", "focus"),
    "Noticing what others miss.")
-_s("swimming", "Swimmer", "outdoor", ("strength", "endurance"), "")
+_s("swimming", "Swimmer", "outdoor", ("strength", "endurance"),
+   "Keeping your head above water. What you are carrying decides the rest.")
 _s("climbing", "Climber", "outdoor", ("strength", "agility"), "")
 _s("ambusher", "Ambusher", "outdoor", ("agility", "spatial_sense"), "")
 _s("sneak", "Sneak", "outdoor", ("agility", "spatial_sense"), "")

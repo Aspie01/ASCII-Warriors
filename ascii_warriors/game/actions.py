@@ -12,7 +12,7 @@ from ..data.calendar import TICKS_PER_HOUR
 from ..engine.fov import line_of_fire
 from ..engine.scheduler import ACTION_COST
 from ..world import tiles as tile_data
-from . import combat, crafting, medical
+from . import combat, crafting, medical, swimming
 from .item import Item
 
 FREE = 0
@@ -280,6 +280,7 @@ def move_or_attack(game, dx: int, dy: int) -> int:
         if said:
             game.log.warn(said)
         return NORMAL
+    was = (p.x, p.y, p.z)
     nx, ny, nz = p.x + dx, p.y + dy, p.z
     if not game.local.in_bounds(nx, ny, nz):
         game.log.warn("You have reached the edge of the area. Travel to move on.")
@@ -313,7 +314,7 @@ def move_or_attack(game, dx: int, dy: int) -> int:
         if tile.has("WALL"):
             game.log.info("There is %s in the way." % tile.name)
         elif tile.has("WATER"):
-            game.log.warn("The water is too deep to wade.")
+            game.log.warn("You are in no state to swim that.")
         else:
             game.log.info("You cannot go that way.")
         return FREE
@@ -340,6 +341,15 @@ def move_or_attack(game, dx: int, dy: int) -> int:
     site_tile = tile_data.get(game.local.tile(nx, ny, nz))
     if site_tile.has("WATER"):
         p.add_exp("swimming", 8)
+    depth = swimming.depth_of(game.local.tile(nx, ny, nz))
+    if swimming.is_swimming(depth):
+        p.needs.exert(swimming.SWIM_EXERTION)
+        if not swimming.is_swimming(
+                swimming.depth_of(game.local.tile(*was))):
+            game.log.warn("You wade off the bottom and start swimming.")
+        return int(ACTION_COST / swimming.SWIM_SPEED)
+    if swimming.is_swimming(swimming.depth_of(game.local.tile(*was))):
+        game.log.good("You pull yourself out of the water.")
     p.needs.exert(2)
     return NORMAL
 

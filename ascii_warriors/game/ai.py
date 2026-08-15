@@ -289,6 +289,17 @@ def _move_to(creature, game, cell: Tuple[int, int, int]) -> bool:
         return False
     if not game.is_passable(x, y, z, creature):
         return False
+    if game.local is not None:
+        from . import swimming
+
+        mode = getattr(creature.ai, "mode", "") if creature.ai else ""
+        if swimming.avoids(
+            creature,
+            swimming.depth_of(game.local.tile(creature.x, creature.y, creature.z)),
+            swimming.depth_of(game.local.tile(x, y, z)),
+            desperate=(mode == "flee"),
+        ):
+            return False
     game.move_creature(creature, x, y, z)
     return True
 

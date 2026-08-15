@@ -804,6 +804,22 @@ off the fight.
 Carrying too much slows you down. Your pack capacity depends on your strength,
 and a backpack helps.
 
+Water is water and not a wall. Walk into a river and you swim it: slower than
+walking, twice as tiring, and only for as long as your breath lasts. The status
+bar says SWIMMING while your head is up and counts down from UNDER 100% once it
+is not, and when it reaches nothing you drown. Get to a bank, or to water
+shallow enough to stand in, and it all comes back.
+
+What decides how long you have is the Swimmer skill and what you are carrying.
+Unencumbered you can cross most things; in a mail shirt you had better be
+close to the far side; and in a steel breastplate you cannot swim at all, at
+any skill, ever. Take it off or go round. Deep water is worse than ordinary
+water, and water to the ceiling -- a flooded room, not a lake -- is nearly
+hopeless.
+
+Things live in there. Carp and pike are in the rivers now, and a hippo in one
+is not a joke.
+
 Press 'c' to make camp: butcher a corpse for meat, bone and hide, build a fire
 and cook the meat. Raw meat feeds you far less than a roast.
 

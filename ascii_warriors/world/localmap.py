@@ -174,6 +174,30 @@ class LocalMap:
                 cost *= 2.5
             yield (n, cost)
 
+    def random_water(
+        self, rng: RNG, *, tries: int = 400
+    ) -> Optional[Tuple[int, int, int]]:
+        """A random cell of water deep enough to live in, or ``None``.
+
+        `swim` rather than the WATER flag, because a fish cannot live in the
+        inch of it that laps the bank.
+        """
+        found: List[Tuple[int, int, int]] = []
+        for _ in range(tries):
+            x = rng.randint(0, self.width - 1)
+            y = rng.randint(0, self.height - 1)
+            z = self.surface_z(x, y)
+            if tile_data.get(self.tile(x, y, z)).swim:
+                return (x, y, z)
+        for z in range(self.zmax, self.zmin - 1, -1):
+            for y in range(self.height):
+                for x in range(self.width):
+                    if tile_data.get(self.tile(x, y, z)).swim:
+                        found.append((x, y, z))
+            if found:
+                return rng.choice(found)
+        return None
+
     def random_open(
         self, rng: RNG, z: Optional[int] = None, *, tries: int = 400
     ) -> Tuple[int, int, int]:

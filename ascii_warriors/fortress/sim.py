@@ -176,6 +176,7 @@ def _weather(fort, ticks: int) -> None:
 def _flow(fort, ticks: int) -> None:
     """Move the water, and drown whatever is standing in it."""
     from ..world import fluids
+    from ..game import swimming as swimming_mod
 
     water = fort.water
     water.step(fort.local)
@@ -193,11 +194,10 @@ def _flow(fort, ticks: int) -> None:
         if c.defn.has("AQUATIC"):
             continue
         # A dwarf can swim, badly, for a while. Full water over its head is
-        # another matter.
-        skill = c.skills.level("swimming")
-        if depth < fluids.MAX_DEPTH and skill > 0 and fort.rng.chance(
-                min(0.9, 0.25 + skill * 0.06)):
-            c.add_exp("swimming", 4)
+        # another matter. The odds are `swimming.stroke_chance`, which is also
+        # what adventure mode asks -- the two modes used to disagree about
+        # what water was, and one of them had never heard of drowning at all.
+        if swimming_mod.stays_up(c, depth, fort.rng):
             fort.drowning.pop(c.id, None)
             continue
         held = fort.drowning.get(c.id, 0) + 1

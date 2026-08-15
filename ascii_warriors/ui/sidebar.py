@@ -165,6 +165,25 @@ def draw_log(scr: Screen, x: int, y: int, w: int, h: int, game) -> None:
         row += 1
 
 
+def _swim_status(game) -> list:
+    """SWIMMING, and how much breath is left once your head goes under."""
+    from ..game import swimming
+
+    p = game.player
+    if game.local is None:
+        return []
+    depth = swimming.depth_of(game.local.tile(p.x, p.y, p.z))
+    if not swimming.is_swimming(depth):
+        return []
+    held = game.drowning.get(p.id, 0.0)
+    left = max(0.0, 1.0 - held / float(swimming.DROWN_TICKS))
+    if held <= 0.0:
+        return [Frag("SWIMMING ", colors.UI["accent"]),
+                Frag("| ", colors.UI["frame"])]
+    return [Frag("UNDER %d%% " % int(round(left * 100)), colors.UI["danger"]),
+            Frag("| ", colors.UI["frame"])]
+
+
 def draw_status_line(scr: Screen, x: int, y: int, w: int, game) -> None:
     """Draw the single-line status bar at the top."""
     p = game.player
@@ -192,6 +211,7 @@ def draw_status_line(scr: Screen, x: int, y: int, w: int, game) -> None:
     enc = p.encumbrance()
     if enc > 1.0:
         parts.append(Frag("overloaded ", colors.UI["danger"]))
+    parts.extend(_swim_status(game))
     mood = p.needs.mood()
     parts.append(Frag(mood + " ", colors.UI["dim"]))
     if game.weather.is_severe():

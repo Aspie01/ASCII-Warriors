@@ -65,6 +65,10 @@ class Game:
         self.visible: Dict[Tuple[int, int, int], float] = {}
         self.game_over = False
         self.death_message = ""
+        #: Creature id -> ticks of breath already spent under water. Kept the
+        #: same shape as the fortress's `Fortress.drowning` so the two modes
+        #: are recognisably doing one thing.
+        self.drowning: Dict[int, float] = {}
         self.travel_target: Optional[Tuple[int, int]] = None
         self.weather = Weather()
         #: Everything currently alight on this map.
@@ -368,10 +372,22 @@ class Game:
             return
         tile = self.world.tile(self.local.wx, self.local.wy)
         underground = False
+        max_tier = 3 if tile.savagery < 60 else 5
         options = creature_data.spawnable(
-            tile.biome, underground=underground,
-            max_tier=3 if tile.savagery < 60 else 5,
+            tile.biome, underground=underground, max_tier=max_tier,
         )
+        # `river` is a biome in the table, five species live in it, and
+        # `biomes.classify` cannot return it: no world tile has ever been one.
+        # Carp and pike list nowhere else and so had never once existed, in a
+        # game that draws a river across half its maps. The tile knows it has
+        # a river; that is enough to ask for the things that live in one.
+        if tile.river:
+            have = {c.id for c in options}
+            options = options + [
+                c for c in creature_data.spawnable(
+                    "river", underground=underground, max_tier=max_tier)
+                if c.id not in have
+            ]
         options = [c for c in options if not c.intelligent or c.has("EVIL")]
         if not options:
             return
@@ -389,7 +405,15 @@ class Game:
             defn = creature_data.get(cid)
             lo, hi = defn.group
             group = self.rng.randint(lo, hi)
-            ox, oy, oz = self.local.random_open(self.rng)
+            if defn.has("AQUATIC"):
+                # A fish placed by `random_open` lands on the bank, where
+                # `is_passable` will not let it move and it flaps for ever.
+                spot = self.local.random_water(self.rng)
+                if spot is None:
+                    continue
+                ox, oy, oz = spot
+            else:
+                ox, oy, oz = self.local.random_open(self.rng)
             leader_id: Optional[int] = None
             for i in range(group):
                 c = make_creature(self.rng, cid, faction=(
@@ -398,7 +422,7 @@ class Game:
                 x = max(0, min(self.local.width - 1, ox + self.rng.randint(-2, 2)))
                 y = max(0, min(self.local.height - 1, oy + self.rng.randint(-2, 2)))
                 z = self.local.surface_z(x, y)
-                if not self.local.walkable(x, y, z):
+                if not self.is_passable(x, y, z, c):
                     x, y, z = ox, oy, oz
                 c.x, c.y, c.z = x, y, z
                 c.wx, c.wy = self.local.wx, self.local.wy
@@ -522,11 +546,15 @@ class Game:
         tid = self.local.tile(x, y, z)
         t = tile_data.get(tid)
         if not t.walk:
-            return False
-        if t.has("WATER") and t.has("DEEP"):
-            if creature is not None and not (
-                creature.defn.has("SWIMMER") or creature.defn.has("AQUATIC")
-            ):
+            # `swim` is what says a tile can be entered without standing on
+            # it. Both deep tiles carry it and both are `walk=False`, so until
+            # it was read a river was a wall -- and the SWIMMER branch that
+            # used to live below this line could never be reached.
+            if not t.swim:
+                return False
+            from . import swimming
+
+            if not swimming.can_enter(creature, swimming.depth_of(tid)):
                 return False
         if creature is not None and creature.defn.has("AQUATIC") and not t.has("WATER"):
             return False
@@ -778,11 +806,56 @@ class Game:
             if c.body.dead:
                 self.kill_creature(c)
 
+    def _swim(self, ticks: int) -> None:
+        """Spend the breath of everything with its head under water.
+
+        The fortress has drowned people since v2.5 and adventure mode never
+        has, because adventure mode had no water anybody could be in. Now that
+        it does, this is the other half of that: one rule, in
+        :mod:`ascii_warriors.game.swimming`, asked on each mode's own clock.
+        """
+        from . import swimming
+
+        if self.local is None or ticks <= 0:
+            return
+        for c in list(self.creatures.values()):
+            if c.body.dead or c.defn.has("AQUATIC"):
+                continue
+            depth = swimming.depth_of(self.local.tile(c.x, c.y, c.z))
+            # Breath comes back for being out of the water, and for nothing
+            # else. Resting the counter whenever one slice happened to round
+            # down to zero meant a creature on a busy map never drowned.
+            if not swimming.is_swimming(depth):
+                if self.drowning.pop(c.id, None) and c.is_player:
+                    self.log.good("You get your head above water.")
+                continue
+            lost = swimming.breath_lost(c, depth, ticks)
+            if lost <= 0.0:
+                continue
+            before = self.drowning.get(c.id, 0.0)
+            held = before + lost
+            self.drowning[c.id] = held
+            if c.is_player and before <= 0.0:
+                self.log.warn("The water closes over your head.")
+            elif c.is_player and before < swimming.DROWN_TICKS * 0.5 <= held:
+                self.log.bad("You are going under!")
+            if held >= swimming.DROWN_TICKS:
+                self.drowning.pop(c.id, None)
+                c.body.dead = True
+                c.body.death_cause = "drowned"
+                if c.is_player:
+                    self.end_game("drowned")
+                else:
+                    if self.can_see_creature(c):
+                        self.log.info("%s drowns." % c.name)
+                    self.kill_creature(c)
+
     def _tick_world(self, ticks: int) -> None:
         """Advance the clock, weather, needs, wounds and item state."""
         self.time.advance(ticks)
         self._world_season()
         self._moon()
+        self._swim(ticks)
         p = self.player
 
         tile = self.world.tile(p.wx, p.wy)
@@ -1070,6 +1143,7 @@ class Game:
             "scheduler": self.scheduler.to_dict(),
             "turn": self.turn,
             "mode": self.mode,
+            "drowning": {str(k): v for k, v in self.drowning.items()},
             "seen": ["%d,%d,%d" % k for k in self.seen],
             "game_over": self.game_over,
             "death_message": self.death_message,
@@ -1103,6 +1177,9 @@ class Game:
         game.scheduler = Scheduler.from_dict(d.get("scheduler") or {})
         game.turn = int(d.get("turn", 0))
         game.mode = str(d.get("mode", "local"))
+        game.drowning = {
+            int(k): float(v) for k, v in (d.get("drowning") or {}).items()
+        }
         game.game_over = bool(d.get("game_over", False))
         game.death_message = str(d.get("death_message", ""))
         game.weather = Weather.from_dict(d.get("weather") or {})

@@ -519,6 +519,15 @@ thing you can dig. Standing in a fire hurts and armour helps little; it also
 throws light, so you are extremely visible next to one. In the fortress, magma
 sets light to anything flammable near it.
 
+**Swimming.** A river is water, not a wall. Walk in and you swim — slower,
+twice as tiring, and only while your breath holds. What decides how long you
+have is the Swimmer skill and what you are carrying: unencumbered you can cross
+most things, in mail you had better be close to the far side, and in a steel
+breastplate you cannot swim at all at any skill. Take it off or go round. Deep
+water is worse than ordinary water, and a room flooded to the ceiling is worse
+than either. Carp and pike live in the rivers, and so does the occasional
+hippopotamus.
+
 **What armour is worth.** Stopping a cut and stopping a hammer are different
 questions, and armour is only good at one of them. Either an edge shears the
 plate or nothing at all comes through — nothing in the game cuts a steel

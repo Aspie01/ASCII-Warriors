@@ -6362,3 +6362,354 @@ class TestWhatArmourIsWorth(unittest.TestCase):
         from ascii_warriors.game import skills
 
         self.assertTrue(skills.SKILLS["armor_use"].description.strip())
+
+
+class TestSwimming(GameFixture):
+    """`TileDef.swim`, on the water tiles since the tile table was written and
+    read by nothing, so that a river was a wall."""
+
+    def _pool(self, tile_id="water", w=5):
+        """Carve a pool of *tile_id* with a dry bank, and stand the player on it."""
+        lm = self.game.local
+        p = self.game.player
+        z = p.z
+        x0, y0 = p.x + 2, p.y
+        for dx in range(w):
+            for dy in range(-1, 2):
+                lm.set_tile(x0 + dx, y0 + dy, z, tile_id)
+        for dy in range(-1, 2):
+            lm.set_tile(x0 - 1, y0 + dy, z, "grass")
+        p.x, p.y, p.z = x0 - 1, y0, z
+        self.game.drowning.clear()
+        return (x0, y0, z)
+
+    def _strip(self, creature=None):
+        """Nothing carried, so the load term is not what is being measured."""
+        c = creature or self.game.player
+        for item in list(c.inventory.items):
+            c.inventory.remove(item, item.count)
+        return c
+
+    # -- the flag ----------------------------------------------------------- #
+
+    def test_the_water_tiles_say_they_can_be_swum(self):
+        from ascii_warriors.world import tiles as tile_data
+
+        self.assertFalse(tile_data.get("shallow_water").swim)
+        for tid in ("water", "deep_water"):
+            t = tile_data.get(tid)
+            self.assertTrue(t.swim)
+            self.assertFalse(t.walk, "%s is meant to need swimming" % tid)
+
+    def test_a_river_is_no_longer_a_wall(self):
+        x, y, z = self._pool()
+        self._strip()
+        self.assertTrue(self.game.is_passable(x, y, z, self.game.player))
+
+    def test_you_cannot_walk_on_water_you_can_only_swim_it(self):
+        """The tile is still not walkable. Everything that has no business in
+        deep water -- pathing, gravity, a cart -- must keep seeing that."""
+        x, y, z = self._pool()
+        self.assertFalse(self.game.local.walkable(x, y, z))
+
+    def test_walking_in_is_slower_and_costlier_than_walking(self):
+        from ascii_warriors.game import actions
+        from ascii_warriors.engine.scheduler import ACTION_COST
+
+        self._pool()
+        self._strip()
+        before = self.game.player.needs.fatigue
+        cost = actions.move_or_attack(self.game, 1, 0)
+        self.assertGreater(cost, ACTION_COST)
+        self.assertGreater(self.game.player.needs.fatigue, before + 2)
+
+    # -- the depth ---------------------------------------------------------- #
+
+    def test_the_three_water_tiles_are_three_different_places(self):
+        from ascii_warriors.game import swimming
+
+        shallow = swimming.depth_of("shallow_water")
+        mid = swimming.depth_of("water")
+        deep = swimming.depth_of("deep_water")
+        self.assertLess(shallow, mid)
+        self.assertLess(mid, deep)
+        self.assertFalse(swimming.is_swimming(shallow))
+        self.assertTrue(swimming.is_swimming(mid))
+        who = self._strip()
+        self.assertGreater(swimming.stroke_chance(who, mid),
+                           swimming.stroke_chance(who, deep))
+
+    def test_a_flooded_room_is_not_a_lake(self):
+        """Water to the ceiling is what the fortress drowns people in, and it
+        has to stay far worse than a river."""
+        from ascii_warriors.game import swimming
+        from ascii_warriors.world import fluids
+
+        who = self._strip()
+        who.skills.set_level("swimming", 10)
+        lake = swimming.stroke_chance(who, swimming.depth_of("deep_water"))
+        room = swimming.stroke_chance(who, fluids.MAX_DEPTH)
+        self.assertGreater(lake, room * 3.0)
+
+    # -- drowning ----------------------------------------------------------- #
+
+    def test_treading_water_spends_breath_and_reaching_the_bank_returns_it(self):
+        from ascii_warriors.game import swimming
+
+        x, y, z = self._pool()
+        p = self._strip()
+        p.x, p.y, p.z = x, y, z
+        self.game._swim(10)
+        held = self.game.drowning.get(p.id, 0.0)
+        self.assertGreater(held, 0.0)
+        self.game._swim(10)
+        self.assertGreater(self.game.drowning.get(p.id, 0.0), held)
+        p.x = x - 1
+        self.game._swim(10)
+        self.assertNotIn(p.id, self.game.drowning)
+
+    def test_a_tick_at_a_time_still_drowns_you(self):
+        """Breath is a float on purpose. Rounding each slice and calling a
+        zero "head above water" threw the whole count away every time the
+        world advanced by a tick, which on a busy map is most of the time."""
+        from ascii_warriors.game import swimming
+
+        x, y, z = self._pool()
+        p = self._strip()
+        p.x, p.y, p.z = x, y, z
+        for _ in range(swimming.DROWN_TICKS * 3):
+            self.game._swim(1)
+            if self.game.game_over:
+                break
+        self.assertTrue(self.game.game_over)
+        self.assertEqual(self.game.death_message, "drowned")
+
+    def test_shallow_water_never_drowns_anybody(self):
+        x, y, z = self._pool("shallow_water")
+        p = self._strip()
+        p.x, p.y, p.z = x, y, z
+        for _ in range(200):
+            self.game._swim(5)
+        self.assertFalse(self.game.game_over)
+        self.assertNotIn(p.id, self.game.drowning)
+
+    def test_a_fish_does_not_drown(self):
+        from ascii_warriors.game.entity import make_creature
+
+        x, y, z = self._pool()
+        carp = make_creature(RNG("carp"), "carp")
+        carp.x, carp.y, carp.z = x, y, z
+        self.game.add_creature(carp)
+        for _ in range(200):
+            self.game._swim(5)
+        self.assertFalse(carp.body.dead)
+        self.assertNotIn(carp.id, self.game.drowning)
+
+    # -- what you are carrying ------------------------------------------------ #
+
+    def test_you_cannot_swim_in_a_steel_breastplate(self):
+        from ascii_warriors.game import swimming
+
+        p = self._strip()
+        bare = swimming.stroke_chance(p, swimming.depth_of("water"))
+        self.assertGreater(bare, 0.0)
+        for iid, material in (("breastplate", "steel"), ("mail_shirt", "iron"),
+                              ("greaves", "steel"), ("helm", "iron")):
+            p.inventory.add(Item(iid, material))
+        p.inventory.auto_equip()
+        self.assertEqual(swimming.stroke_chance(p, swimming.depth_of("water")), 0.0)
+
+    def test_no_amount_of_skill_saves_a_man_in_plate(self):
+        from ascii_warriors.game import swimming
+        from ascii_warriors.game.skills import MAX_LEVEL
+
+        p = self._strip()
+        for iid, material in (("breastplate", "steel"), ("mail_shirt", "iron"),
+                              ("greaves", "steel"), ("helm", "iron")):
+            p.inventory.add(Item(iid, material))
+        p.inventory.auto_equip()
+        p.skills.set_level("swimming", MAX_LEVEL)
+        p.skills.set_level("armor_use", MAX_LEVEL)
+        self.assertEqual(swimming.stroke_chance(p, swimming.depth_of("water")), 0.0)
+
+    def test_taking_the_armour_off_is_what_saves_him(self):
+        from ascii_warriors.game import swimming
+
+        p = self._strip()
+        for iid, material in (("breastplate", "steel"), ("mail_shirt", "iron")):
+            p.inventory.add(Item(iid, material))
+        p.inventory.auto_equip()
+        self.assertEqual(swimming.stroke_chance(p, 5), 0.0)
+        self._strip()
+        self.assertGreater(swimming.stroke_chance(p, 5), 0.0)
+
+    def test_armour_skill_helps_you_swim_in_mail(self):
+        """Not because swimming knows about armour, but because v3.28 made
+        `armor_use` decide what a kit weighs and this reads the weight."""
+        from ascii_warriors.game import swimming
+        from ascii_warriors.game.skills import MAX_LEVEL
+
+        def chance(armour_skill):
+            c = make_creature(RNG("mailed"), "human", equip=False)
+            c.skills.set_level("armor_use", armour_skill)
+            for iid, material in (("mail_shirt", "iron"), ("helm", "iron")):
+                c.inventory.add(Item(iid, material))
+            c.inventory.auto_equip()
+            return swimming.stroke_chance(c, 5)
+
+        self.assertGreater(chance(MAX_LEVEL), chance(0))
+
+    # -- the skill ------------------------------------------------------------ #
+
+    def test_the_skill_is_worth_training_all_the_way(self):
+        from ascii_warriors.game import swimming
+        from ascii_warriors.game.skills import MAX_LEVEL
+
+        p = self._strip()
+        seen = []
+        for level in (0, 5, 10, 15, MAX_LEVEL):
+            p.skills.set_level("swimming", level)
+            seen.append(swimming.stroke_chance(p, 5))
+        self.assertEqual(seen, sorted(seen))
+        self.assertGreater(seen[-1], seen[-2], "the last levels buy nothing")
+        self.assertGreater(seen[-1], seen[0] * 2.0)
+
+    def test_the_skill_has_a_description_now(self):
+        from ascii_warriors.game import skills
+
+        self.assertTrue(skills.SKILLS["swimming"].description.strip())
+
+    def test_swimming_trains_by_swimming(self):
+        from ascii_warriors.game import swimming
+
+        p = self._strip()
+        p.skills.set_level("swimming", 3)
+        before = p.skills.exp_of("swimming") if hasattr(
+            p.skills, "exp_of") else None
+        gained = 0
+        rng = RNG("train")
+        for _ in range(200):
+            if swimming.stays_up(p, 5, rng):
+                gained += 1
+        self.assertGreater(gained, 0)
+        self.assertGreater(p.skills.level("swimming"), 0)
+
+    # -- what lives in it ------------------------------------------------------ #
+
+    def test_a_river_tile_offers_the_things_that_live_in_rivers(self):
+        """`biomes.classify` cannot return "river" -- no world tile has ever
+        been one -- and carp and pike list nowhere else, so neither had ever
+        existed. The tile knows it has a river running through it."""
+        from ascii_warriors.data import biomes as biome_data
+        from ascii_warriors.data import creatures as creature_data
+
+        reachable = set()
+        for elev in [i / 10.0 for i in range(11)]:
+            for rain in [i / 5.0 for i in range(6)]:
+                for temp in range(-40, 60, 10):
+                    for drain in [i / 5.0 for i in range(6)]:
+                        reachable.add(biome_data.classify(
+                            elev, rain, temp, drain, is_water=False))
+        self.assertNotIn("river", reachable)
+        river_only = [
+            c.id for c in creature_data.spawnable("river")
+            if not (set(creature_data.get(c.id).biomes) - {"river", "lake"})
+        ]
+        self.assertIn("carp", river_only)
+        self.assertIn("pike", river_only)
+
+    def test_a_fish_is_put_in_the_water_and_can_move_in_it(self):
+        from ascii_warriors.game.entity import make_creature
+
+        x, y, z = self._pool(w=6)
+        spot = self.game.local.random_water(RNG("where"))
+        self.assertIsNotNone(spot, "a pool was carved and nothing found it")
+        carp = make_creature(RNG("carp"), "carp")
+        carp.x, carp.y, carp.z = spot
+        self.assertTrue(self.game.is_passable(*spot, carp))
+        moves = [
+            (spot[0] + dx, spot[1] + dy, spot[2])
+            for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))
+            if self.game.is_passable(spot[0] + dx, spot[1] + dy, spot[2], carp)
+        ]
+        self.assertTrue(moves, "the fish cannot go anywhere")
+
+    def test_a_fish_still_cannot_leave_the_water(self):
+        from ascii_warriors.game.entity import make_creature
+
+        x, y, z = self._pool()
+        carp = make_creature(RNG("carp"), "carp")
+        self.assertFalse(self.game.is_passable(x - 1, y, z, carp))
+
+    # -- the two modes agree --------------------------------------------------- #
+
+    def test_both_modes_ask_the_same_rule(self):
+        """The fortress has drowned people since v2.5 with its own formula and
+        adventure mode had never heard of drowning. One rule now."""
+        import inspect
+
+        from ascii_warriors.fortress import sim
+
+        source = inspect.getsource(sim._flow)
+        self.assertIn("stays_up", source)
+        self.assertNotIn("0.25 + skill", source)
+
+    # -- what walks into it ---------------------------------------------------- #
+
+    def _cow_at(self, cell, mode="wander"):
+        from ascii_warriors.game.ai import AIState
+        from ascii_warriors.game.entity import make_creature
+
+        cow = make_creature(RNG("cow"), "cow")
+        cow.x, cow.y, cow.z = cell
+        cow.ai = AIState(mode)
+        cow.ai.home = cell
+        self.game.add_creature(cow)
+        return cow
+
+    def test_a_wandering_animal_will_not_walk_into_a_lake(self):
+        """Water being enterable at all meant every animal on the map could
+        walk into one and hold its breath until it stopped. That is not
+        wildlife behaviour, it is a bug with legs."""
+        from ascii_warriors.game import ai, swimming
+
+        x, y, z = self._pool()
+        entered = 0
+        for _ in range(40):
+            cow = self._cow_at((x - 1, y, z))
+            if ai._move_to(cow, self.game, (x, y, z)) and swimming.is_swimming(
+                    swimming.depth_of(self.game.local.tile(*(cow.x, cow.y, cow.z)))):
+                entered += 1
+            self.game.creatures.pop(cow.id, None)
+        self.assertEqual(entered, 0)
+
+    def test_a_fleeing_animal_takes_to_the_water(self):
+        """Which is what water is for."""
+        from ascii_warriors.game import ai, swimming
+
+        x, y, z = self._pool()
+        cow = self._cow_at((x - 1, y, z), mode="flee")
+        self.assertTrue(ai._move_to(cow, self.game, (x, y, z)))
+        self.assertTrue(swimming.is_swimming(
+            swimming.depth_of(self.game.local.tile(cow.x, cow.y, cow.z))))
+
+    def test_something_already_swimming_can_still_reach_the_bank(self):
+        """Refusing water it is standing in would strand it there to drown."""
+        from ascii_warriors.game import ai
+
+        x, y, z = self._pool()
+        cow = self._cow_at((x + 1, y, z))
+        self.assertTrue(ai._move_to(cow, self.game, (x - 1, y, z))
+                        or ai._move_to(cow, self.game, (x, y, z)))
+
+    def test_the_swim_state_survives_a_save(self):
+        x, y, z = self._pool()
+        p = self._strip()
+        p.x, p.y, p.z = x, y, z
+        self.game._swim(6)
+        held = self.game.drowning.get(p.id, 0.0)
+        self.assertGreater(held, 0.0)
+        from ascii_warriors.game.state import Game
+
+        restored = Game.from_dict(self.game.to_dict())
+        self.assertAlmostEqual(restored.drowning.get(p.id, 0.0), held, places=3)
