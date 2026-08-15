@@ -17,6 +17,7 @@ from ..data.descriptors import list_join, wound_severity
 from ..engine import colors
 from ..engine.rng import RNG
 from ..engine.screen import Frag
+from .contact import bite, organ_chance, spread
 
 #: Blood volume as a fraction of body volume, in litres per cm^3.
 BLOOD_PER_VOLUME = 0.00007
@@ -343,6 +344,11 @@ class Body:
 
         *force* is in kilopascals delivered to the contact area; each tissue
         layer resists with its material's shear (edged) or impact (blunt) yield.
+
+        *contact* decides how that force is spent. A broad edge chews away more
+        of every layer it meets and burns itself out doing so; a point takes
+        little from each layer and keeps what it came in with, which is how it
+        arrives at the far side of the ribs still carrying something.
         """
         part = self.parts.get(part_id)
         if part is None or part.gone:
@@ -351,6 +357,8 @@ class Body:
         remaining = force
         depth = 0
         edged = kind == "edge"
+        width = spread(contact)
+        cost = bite(contact)
         layers = list(part.defn.tissues)
 
         for tid in layers:
@@ -371,7 +379,7 @@ class Body:
                 break
 
             ratio = remaining / max(1.0, float(resist))
-            hurt = max(0.05, min(1.0, ratio * 0.25))
+            hurt = max(0.05, min(1.0, ratio * 0.25 * width))
             new_frac = max(0.0, frac - hurt)
             part.tissues[tid] = new_frac
             depth += 1
@@ -398,8 +406,9 @@ class Body:
             if new_frac <= 0.0 and tissue.has("FUNCTIONAL"):
                 part.destroyed = True
 
-            # Force bleeds off as it passes through each layer.
-            remaining -= resist * (0.55 + 0.45 * frac)
+            # Force bleeds off as it passes through each layer, by as much of
+            # that layer as the blow actually had to pay for.
+            remaining -= resist * (0.55 + 0.45 * frac) * cost
             if remaining <= 0:
                 break
             if remaining > fracture * 1.4 and depth >= len(layers):
@@ -444,7 +453,7 @@ class Body:
             p for p in self.parts.values()
             if p.defn.parent == part.id and p.defn.has("INTERNAL") and not p.gone
         ]
-        if not organs or not rng.chance(0.45):
+        if not organs or not rng.chance(organ_chance(contact)):
             return
         organ = rng.choice(organs)
         before = organ.damage_fraction()

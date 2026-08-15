@@ -5722,3 +5722,350 @@ class TestGravity(GameFixture):
         self.assertEqual(self.gravity.unsupported_creatures(self.game), [])
         self._shaft(here, 3)
         self.assertIn(self.p, self.gravity.unsupported_creatures(self.game))
+
+
+class TestContactArea(unittest.TestCase):
+    """Contact area -- on every attack in the game since the weapon table was
+    written, and until now read by nothing at all."""
+
+    def _who(self, race="human", fighter=0):
+        c = make_creature(RNG("contact"), race, equip=False)
+        c.skills.set_level("fighter", fighter)
+        for s in ("sword", "axe", "spear", "hammer", "mace", "misc_weapon",
+                  "dagger", "pick", "striker", "kicker", "biter"):
+            c.skills.set_level(s, 7)
+        return c
+
+    def _armed(self, wid, material="steel", fighter=0):
+        c = self._who(fighter=fighter)
+        it = Item(wid, material)
+        c.inventory.add(it)
+        c.inventory.auto_equip()
+        return c, it
+
+    def _wearing(self, *gear):
+        c = make_creature(RNG("target"), "human", equip=False)
+        for iid, material in gear:
+            c.inventory.add(Item(iid, material))
+        c.inventory.auto_equip()
+        return c
+
+    def _attack(self, wid, name):
+        from ascii_warriors.data.items import ITEMS
+
+        return next(a for a in ITEMS[wid].weapon.attacks if a.name == name)
+
+    def _through(self, wid, name, target):
+        """Momentum left after armour, for one named attack of one weapon."""
+        from ascii_warriors.game import combat
+
+        who, it = self._armed(wid)
+        a = self._attack(wid, name)
+        kind = combat.effective_kind(it, a)
+        absorbed, _outer = combat.armor_protection(
+            target, "upper_body", kind, a.contact)
+        return combat.compute_momentum(who, it, a) - absorbed
+
+    # -- the curve ---------------------------------------------------------- #
+
+    def test_spread_rises_with_contact_area_and_stays_bounded(self):
+        from ascii_warriors.game import contact
+
+        seen = [contact.spread(c) for c in
+                (1, 5, 10, 20, 40, 60, 120, 400, 20000, 90000)]
+        self.assertEqual(seen, sorted(seen))
+        self.assertGreaterEqual(min(seen), contact.MIN_SPREAD)
+        self.assertLessEqual(max(seen), contact.MAX_SPREAD)
+        # A point and a chopping edge are genuinely different weapons.
+        self.assertGreater(contact.spread(90000) / contact.spread(5), 2.5)
+
+    def test_the_middle_of_the_natural_attacks_is_left_alone(self):
+        """The bestiary was balanced before contact area was read. A kick is
+        the reference, so a kick behaves exactly as it always did."""
+        from ascii_warriors.data.items import KICK
+        from ascii_warriors.game import contact
+
+        self.assertAlmostEqual(contact.spread(KICK.contact), 1.0, places=2)
+        self.assertAlmostEqual(contact.bite(KICK.contact), 1.0, places=2)
+
+    def test_a_broad_edge_never_pays_twice_for_its_width(self):
+        """`bite` is capped at 1.0 on purpose. Charging an edge for its width
+        in the layer above *and* in the depth below cost the great axe a third
+        of its reach and gave it nothing back, which was measurably wrong."""
+        from ascii_warriors.game import contact
+
+        for c in (400, 20000, 90000):
+            self.assertGreater(contact.spread(c), 1.0)
+            self.assertEqual(contact.bite(c), 1.0)
+        self.assertLess(contact.bite(5), contact.spread(5))
+
+    # -- the weapon triangle ------------------------------------------------ #
+
+    def test_a_point_gets_through_mail_that_turns_an_edge(self):
+        mailed = self._wearing(("mail_shirt", "iron"))
+        stab = self._through("sword", "stab", mailed)
+        slash = self._through("sword", "slash", mailed)
+        self.assertGreater(stab, 0.0)
+        self.assertLessEqual(slash, 0.0)
+
+    def test_a_hammer_gets_through_mail_that_turns_an_axe(self):
+        mailed = self._wearing(("mail_shirt", "iron"))
+        self.assertGreater(self._through("maul", "bash", mailed), 0.0)
+        self.assertLessEqual(self._through("axe", "hack", mailed), 0.0)
+
+    def test_a_picks_point_goes_where_its_own_flat_cannot(self):
+        """The cleanest statement the model makes: one weapon, one weight, one
+        strength, the same momentum in both hands -- and mail stops the flat
+        of it dead while the spike goes through."""
+        from ascii_warriors.game import combat
+
+        who, it = self._armed("pick")
+        stab = self._attack("pick", "stab")
+        bash = self._attack("pick", "bash")
+        self.assertAlmostEqual(combat.compute_momentum(who, it, stab),
+                               combat.compute_momentum(who, it, bash), places=5)
+        mailed = self._wearing(("mail_shirt", "iron"))
+        self.assertGreater(self._through("pick", "stab", mailed), 0.0)
+        self.assertLess(self._through("pick", "bash", mailed), 0.0)
+
+    def test_mail_takes_three_times_as_much_from_a_broad_blow(self):
+        """Contact alone, with the damage kind held still."""
+        from ascii_warriors.game import combat
+
+        mailed = self._wearing(("mail_shirt", "iron"))
+        for kind in ("edge", "blunt"):
+            fine, _f = combat.armor_protection(mailed, "upper_body", kind, 5)
+            broad, _b = combat.armor_protection(mailed, "upper_body", kind, 60000)
+            self.assertGreater(broad, fine * 3.0)
+
+    def test_bare_skin_does_not_care_how_wide_the_blow_was(self):
+        """Contact area is read by armour. A man with none on is hit exactly
+        as hard as he was before any of this."""
+        from ascii_warriors.game import combat
+
+        bare = self._wearing()
+        for wid, name in (("sword", "stab"), ("sword", "slash"),
+                          ("great_axe", "hack"), ("dagger", "stab")):
+            who, it = self._armed(wid)
+            a = self._attack(wid, name)
+            absorbed, _o = combat.armor_protection(
+                bare, "upper_body", combat.effective_kind(it, a), a.contact)
+            self.assertEqual(absorbed, 0.0)
+
+    def test_a_hide_spreads_a_slash_and_not_a_point(self):
+        """Natural armour is armour: it spreads by contact area too."""
+        from ascii_warriors.game import combat
+
+        beast = make_creature(RNG("hide"), "elephant", equip=False)
+        if beast.defn.natural_armor <= 0:
+            beast = make_creature(RNG("hide"), "dragon", equip=False)
+        self.assertGreater(beast.defn.natural_armor, 0)
+        part = next(p for p in beast.body.parts.values()
+                    if p.defn.category == "torso")
+        fine, _a = combat.armor_protection(beast, part.id, "edge", 5)
+        broad, _b = combat.armor_protection(beast, part.id, "edge", 60000)
+        self.assertGreater(broad, fine * 2.0)
+
+    # -- what the wound looks like ------------------------------------------ #
+
+    def _chew(self, contact_area, force=48000.0, kind="edge"):
+        """Drive one blow into a fresh torso and report depth and damage."""
+        c = make_creature(RNG("chew"), "human", equip=False)
+        clauses = c.body.apply_damage(
+            "upper_body", kind, force, contact_area, 4000, RNG("blow"))
+        part = c.body.part("upper_body")
+        worst = min(part.tissues.values()) if part.tissues else 1.0
+        touched = sum(1 for f in part.tissues.values() if f < 1.0)
+        return len(clauses), touched, 1.0 - worst
+
+    def test_an_edge_chews_a_wider_wound_than_a_point(self):
+        _dc, _dt, point = self._chew(5)
+        _ec, _et, edge = self._chew(60000)
+        self.assertGreater(edge, point * 1.5)
+
+    def test_a_point_reaches_layers_an_edge_stops_short_of(self):
+        """A torso is skin, fat, muscle, bone. At the force that puts a point
+        into the muscle, the edge is still in the fat; at the force that puts
+        a point on the bone, the edge has taken the skin and the fat off and
+        stopped."""
+        for force in (32000.0, 70000.0):
+            _pc, point_deep, _pd = self._chew(5, force)
+            _ec, edge_deep, _ed = self._chew(60000, force)
+            self.assertGreater(point_deep, edge_deep, "at force %.0f" % force)
+
+    def test_the_edge_takes_the_layers_it_does_reach_apart(self):
+        """The other half of the same trade. The edge stops sooner because it
+        spent everything on width, and the width is what shows."""
+        c = make_creature(RNG("chew"), "human", equip=False)
+        c.body.apply_damage("upper_body", "edge", 70000.0, 60000, 4000,
+                            RNG("blow"))
+        edge = c.body.part("upper_body").tissues
+        d = make_creature(RNG("chew"), "human", equip=False)
+        d.body.apply_damage("upper_body", "edge", 70000.0, 5, 4000, RNG("blow"))
+        point = d.body.part("upper_body").tissues
+        self.assertEqual(edge["skin"], 0.0)
+        self.assertEqual(edge["fat"], 0.0)
+        self.assertGreater(point["skin"], 0.0)
+        self.assertLess(edge["muscle"], point["muscle"])
+        self.assertEqual(edge["bone"], 1.0)
+        self.assertLess(point["bone"], 1.0)
+
+    def test_a_narrow_wound_is_likelier_to_find_an_organ(self):
+        from ascii_warriors.game import contact
+
+        chances = [contact.organ_chance(c) for c in (5, 20, 60, 400, 60000)]
+        self.assertEqual(chances, sorted(chances, reverse=True))
+        self.assertGreater(chances[0], chances[-1] * 2.0)
+        self.assertGreaterEqual(min(chances), contact.MIN_ORGAN)
+        self.assertLessEqual(max(chances), contact.MAX_ORGAN)
+
+    def test_an_axe_takes_an_arm_off_and_a_spear_does_not(self):
+        from ascii_warriors.game import combat
+
+        def blows_to_lose(wid, name, gear=()):
+            taken = []
+            for i in range(12):
+                target = self._wearing(*gear)
+                who, it = self._armed(wid)
+                a = self._attack(wid, name)
+                rng = RNG(4000 + i)
+                for blow in range(1, 31):
+                    combat.melee_attack(who, target, weapon=it, attack_def=a,
+                                        target_part="left_arm_lower", rng=rng)
+                    part = target.body.part("left_arm_lower")
+                    if part.gone or part.destroyed:
+                        taken.append(blow)
+                        break
+            return len(taken), (sum(taken) / len(taken) if taken else 0.0)
+
+        axes, axe_blows = blows_to_lose("great_axe", "hack")
+        spears, _sb = blows_to_lose("spear", "stab")
+        self.assertGreaterEqual(axes, 10)
+        self.assertLess(axe_blows, 12.0)
+        self.assertLess(spears, axes)
+
+    # -- the choice ---------------------------------------------------------- #
+
+    def _choices(self, wid, target, fighter, rolls=400):
+        from ascii_warriors.game import combat
+
+        who, it = self._armed(wid, fighter=fighter)
+        rng = RNG("choose")
+        counts = {}
+        for _ in range(rolls):
+            a = combat.choose_attack(who, it, rng, target)
+            counts[a.name] = counts.get(a.name, 0) + 1
+        return counts
+
+    def test_a_trained_fighter_thrusts_at_the_man_in_mail(self):
+        mailed = self._wearing(("mail_shirt", "iron"))
+        counts = self._choices("sword", mailed, fighter=9)
+        self.assertGreater(counts.get("stab", 0), counts.get("slash", 0) * 4)
+
+    def test_an_untrained_fighter_swings_whatever_is_in_his_hand(self):
+        mailed = self._wearing(("mail_shirt", "iron"))
+        counts = self._choices("sword", mailed, fighter=0)
+        self.assertGreater(counts.get("slash", 0), 0.3 * sum(counts.values()))
+
+    def test_judgement_grows_with_skill(self):
+        mailed = self._wearing(("mail_shirt", "iron"))
+        share = []
+        for level in (0, 3, 9):
+            counts = self._choices("sword", mailed, fighter=level)
+            share.append(counts.get("stab", 0) / float(sum(counts.values())))
+        self.assertEqual(share, sorted(share))
+        self.assertGreater(share[-1] - share[0], 0.3)
+
+    def test_against_a_bare_target_both_attacks_stay_in_use(self):
+        """Nothing to judge means nothing to force: a swordsman facing a man
+        in a shirt still cuts as often as he thrusts."""
+        bare = self._wearing()
+        counts = self._choices("sword", bare, fighter=9)
+        for name in ("stab", "slash"):
+            self.assertGreater(counts.get(name, 0), 0.25 * sum(counts.values()))
+
+    def test_with_nobody_in_front_of_him_the_choice_is_a_coin_toss(self):
+        from ascii_warriors.game import combat
+
+        who, it = self._armed("sword", fighter=15)
+        rng = RNG("nobody")
+        counts = {}
+        for _ in range(400):
+            a = combat.choose_attack(who, it, rng)
+            counts[a.name] = counts.get(a.name, 0) + 1
+        self.assertGreater(min(counts.values()), 120)
+
+    def test_teeth_and_claws_are_judged_too(self):
+        """`fighter` is on most of the bestiary and it buys the same judgement
+        it buys a swordsman."""
+        from ascii_warriors.game import combat
+
+        beast = make_creature(RNG("beast"), "dragon", equip=False)
+        # Asserted rather than skipped: a dragon that lost its claws would
+        # make this test measure nothing, and it should say so.
+        self.assertGreaterEqual(len(beast.defn.attacks), 2)
+        self.assertGreater(beast.skills.level("fighter"), 0)
+        mailed = self._wearing(("mail_shirt", "iron"), ("helm", "iron"))
+        rng = RNG("teeth")
+        counts = {}
+        for _ in range(400):
+            a = combat.choose_attack(beast, None, rng, mailed)
+            counts[a.name] = counts.get(a.name, 0) + 1
+        best = max(counts, key=lambda k: counts[k])
+        flat = sum(counts.values()) / float(len(counts))
+        self.assertGreater(counts[best], flat * 1.2)
+
+    # -- the rest of the game ------------------------------------------------ #
+
+    def test_a_fall_is_spread_by_armour_and_a_dart_is_not(self):
+        """Both comments were written into the trap table long before
+        anything read `contact`. They are true now."""
+        from ascii_warriors.game import combat
+
+        plated = self._wearing(("breastplate", "steel"))
+        fall = combat.TRAP_STRIKES["fall"]
+        dart = combat.TRAP_STRIKES["dart"]
+        spread_fall, _f = combat.armor_protection(
+            plated, "upper_body", fall[0], fall[2])
+        spread_dart, _d = combat.armor_protection(
+            plated, "upper_body", dart[0], dart[2])
+        self.assertGreater(spread_fall, spread_dart * 1.5)
+
+    def test_a_trap_with_no_contact_area_does_not_crash(self):
+        from ascii_warriors.game import combat, contact
+
+        self.assertEqual(contact.spread(0), contact.MIN_SPREAD)
+        victim = self._wearing()
+        result = combat.trap_strike(victim, "alarm", rng=RNG("alarm"))
+        self.assertFalse(result.hit)
+
+    def test_the_item_screen_says_which_attack_gets_through(self):
+        lines = " ".join(Item("sword", "steel").full_description(None))
+        self.assertIn("cleaving", lines)
+        self.assertIn("Armour spreads its slash", lines)
+        self.assertIn("the stab is what gets through", lines)
+
+    def test_a_single_edged_weapon_is_described_as_one(self):
+        lines = " ".join(Item("great_axe", "steel").full_description(None))
+        self.assertIn("armour has a great deal to spread", lines)
+        point = " ".join(Item("dagger", "steel").full_description(None))
+        self.assertIn("armour has little to spread", point)
+
+    def test_a_whole_fight_still_ends(self):
+        """The model changed under every blow in the game; fights must still
+        finish, and finish in a sane number of them."""
+        from ascii_warriors.game import combat
+
+        lengths = []
+        for seed in range(6):
+            who, it = self._armed("sword", fighter=6)
+            foe = self._wearing(("mail_shirt", "iron"), ("helm", "iron"))
+            rng = RNG(600 + seed)
+            for blow in range(1, 201):
+                combat.melee_attack(who, foe, weapon=it, rng=rng)
+                if foe.body.dead:
+                    lengths.append(blow)
+                    break
+                foe.body.tick(rng, 1, 1.0, 1.0)
+        self.assertEqual(len(lengths), 6)
+        self.assertLess(sum(lengths) / len(lengths), 90.0)

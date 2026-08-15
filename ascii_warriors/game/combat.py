@@ -17,6 +17,8 @@ from ..engine import colors
 from ..engine.rng import RNG
 from ..engine.scheduler import ACTION_COST
 from ..engine.screen import Frag
+from . import contact as contact_mod
+from .contact import spread
 from .item import Item, severed_part
 from .skills import skill_bonus
 
@@ -257,7 +259,7 @@ def timed_strike(attacker, defender, *, rng: RNG, log=None,
     # Chosen once and handed on: pricing one attack and then swinging
     # whichever the next roll picks would charge for a swing nobody made,
     # and would spend a draw doing it.
-    attack_def = choose_attack(attacker, weapon, rng)
+    attack_def = choose_attack(attacker, weapon, rng, defender)
 
     bank = getattr(attacker, "swing_bank", 0.0) + ACTION_COST
     cost = attack_cost(attacker, weapon, attack_def)
@@ -325,8 +327,18 @@ def effective_kind(weapon: Optional[Item], attack_def: AttackDef) -> str:
 # --------------------------------------------------------------------------- #
 
 
-def armor_protection(defender, part_id: str, kind: str) -> Tuple[float, Optional[Item]]:
-    """How much momentum a part's armour absorbs, and the outermost piece."""
+def armor_protection(
+    defender, part_id: str, kind: str, contact: int = int(contact_mod.REFERENCE)
+) -> Tuple[float, Optional[Item]]:
+    """How much momentum a part's armour absorbs, and the outermost piece.
+
+    Armour works by spreading a blow over more of itself than the blow arrived
+    on, so how much it absorbs depends on how much it was given to spread. A
+    great axe hands a breastplate the whole length of its edge and the plate
+    takes almost all of it; a spear point hands it a few square millimetres and
+    goes through. *contact* is that area, and defaults to the middle of the
+    table so a caller that has no attack in hand gets the old behaviour.
+    """
     part = defender.body.part(part_id)
     if part is None:
         return (0.0, None)
@@ -344,7 +356,9 @@ def armor_protection(defender, part_id: str, kind: str) -> Tuple[float, Optional
         absorb *= 1.0 + adef.armor_level * 0.12
         absorb *= piece.quality_bonus() * piece.wear_factor()
         total += absorb
-    return (total, outer)
+    # Natural armour spreads a blow for the same reason plate does: a hide is
+    # thick, and a point goes between the scales of it either way.
+    return (total * spread(contact), outer)
 
 
 def try_block(defender, rng: RNG) -> bool:
@@ -415,12 +429,106 @@ def _weapon_phrase(weapon: Optional[Item]) -> str:
     return " with %s" % weapon.name(article=True)
 
 
-def choose_attack(attacker, weapon: Optional[Item], rng: RNG) -> AttackDef:
-    """Pick which attack to use this swing."""
+#: How sharply each level of the `fighter` skill inclines a creature towards
+#: the attack that will actually get through. At zero it is a coin toss -- a
+#: farmhand with a sword swings the sword -- and a trained soldier thrusts at
+#: the plate and cuts at the man without one.
+ATTACK_JUDGEMENT = 0.42
+#: Nobody is so good that the wrong choice never happens.
+MAX_JUDGEMENT = 5.0
+
+
+#: Body plan -> the part a fighter judges it by. A property of the plan, not
+#: of the individual, so it is worked out once per species rather than walked
+#: out of forty parts on every swing in the game.
+_JUDGED_PART: Dict[str, str] = {}
+
+
+def _judged_part(defender):
+    """The part a fighter sizes up before deciding how to strike.
+
+    The chest, when there is one. It is the single likeliest thing a blow
+    lands on, and the piece everybody armours first, so it is what tells him
+    whether his edge is any use today. Judging by the least armoured part
+    instead was tried and is worse: a blow lands where it lands, and a fighter
+    who reasons about a bare thigh he cannot aim at is not reasoning.
+    """
+    known = _JUDGED_PART.get(defender.body.plan_id)
+    if known is not None:
+        part = defender.body.part(known)
+        if part is not None and not part.gone:
+            return part
+    best = None
+    for part in defender.body.parts.values():
+        if part.gone or part.defn.has("INTERNAL"):
+            continue
+        if part.defn.category == "torso":
+            if best is None or best.defn.category != "torso" \
+                    or part.defn.rel_size > best.defn.rel_size:
+                best = part
+        elif best is None or (best.defn.category != "torso"
+                              and part.defn.rel_size > best.defn.rel_size):
+            best = part
+    if best is not None:
+        _JUDGED_PART[defender.body.plan_id] = best.id
+    return best
+
+
+def _judge_attack(attacker, weapon: Optional[Item], attacks, defender,
+                  rng: RNG) -> AttackDef:
+    """Choose among *attacks* by what each would deliver to *defender*.
+
+    Weapons in this game carry two attacks apiece and they stopped being
+    interchangeable the moment contact area was read: against an iron mail
+    shirt a sword's point gets through and its edge does not. The choice was a
+    flat coin toss, which threw the whole of that away as variance. Skill at
+    arms is what buys the judgement -- the roll is still a roll, it is only
+    weighted.
+    """
+    part = _judged_part(defender)
+    judgement = min(MAX_JUDGEMENT,
+                    attacker.skills.level("fighter") * ATTACK_JUDGEMENT)
+    if part is None or judgement <= 0.0:
+        return rng.choice(attacks)
+    # Nothing to judge against a man in a shirt: with no armour to spread the
+    # blow, every attack lands with the momentum it was swung with and the
+    # ranking collapses to which one is quickest. Scoring it anyway cost a
+    # third of the time every strike in the game takes, for a preference of
+    # three blows in five.
+    if defender.defn.natural_armor <= 0 \
+            and not defender.inventory.armor_on(part.defn.category):
+        return rng.choice(attacks)
+    delivered = []
+    for attack in attacks:
+        kind = effective_kind(weapon, attack)
+        absorbed, _outer = armor_protection(
+            defender, part.id, kind, attack.contact)
+        delivered.append(
+            max(0.0, compute_momentum(attacker, weapon, attack) - absorbed))
+    best = max(delivered)
+    if best <= 0.0:
+        # Nothing he does reaches the man's chest. There is no judgement to
+        # make against a target like that; swing, and hope for a limb.
+        return rng.choice(attacks)
+    weights = [(d / best) ** judgement for d in delivered]
+    index = rng.pick_index(weights)
+    return attacks[index] if index >= 0 else rng.choice(attacks)
+
+
+def choose_attack(attacker, weapon: Optional[Item], rng: RNG,
+                  defender=None) -> AttackDef:
+    """Pick which attack to use this swing.
+
+    With a defender in view the choice is judged rather than rolled flat; see
+    :func:`_judge_attack`. Without one -- pricing a swing, or a test asking
+    what a weapon does -- it stays the coin toss it always was.
+    """
     if weapon is not None:
         attacks = weapon.attacks()
         if attacks:
-            return rng.choice(attacks)
+            if defender is None or len(attacks) < 2:
+                return rng.choice(attacks)
+            return _judge_attack(attacker, weapon, attacks, defender, rng)
     natural = attacker.defn.attacks
     usable = []
     for na in natural:
@@ -431,7 +539,9 @@ def choose_attack(attacker, weapon: Optional[Item], rng: RNG) -> AttackDef:
         if part is not None and part.functional():
             usable.append(na.attack)
     if usable:
-        return rng.choice(usable)
+        if defender is None or len(usable) < 2:
+            return rng.choice(usable)
+        return _judge_attack(attacker, None, usable, defender, rng)
     return PUNCH
 
 
@@ -472,7 +582,7 @@ def melee_attack(
         if weapon is not None and weapon.is_ranged:
             weapon = None
     if attack_def is None:
-        attack_def = choose_attack(attacker, weapon, rng)
+        attack_def = choose_attack(attacker, weapon, rng, defender)
     result.cost = attack_cost(attacker, weapon, attack_def)
 
     skill_id = skill_for_attack(attacker, weapon, attack_def)
@@ -538,7 +648,7 @@ def melee_attack(
     momentum = compute_momentum(attacker, weapon, attack_def)
     if ambush:
         momentum *= stealth.AMBUSH_MOMENTUM
-    absorbed, outer = armor_protection(defender, part.id, kind)
+    absorbed, outer = armor_protection(defender, part.id, kind, attack_def.contact)
     delivered = momentum - absorbed
     result.damage = max(0.0, delivered)
 
@@ -688,7 +798,7 @@ def trap_strike(
         return result
     result.part = part.id
     momentum *= rng.uniform(0.7, 1.25)
-    absorbed, outer = armor_protection(victim, part.id, kind)
+    absorbed, outer = armor_protection(victim, part.id, kind, contact)
     delivered = max(0.0, momentum - absorbed)
     result.damage = delivered
 
@@ -833,7 +943,7 @@ def ranged_attack(
     momentum *= 1.0 + ammo.mat.shear_yield / 400000.0
     momentum *= max(0.4, 1.0 - dist * 0.012)
 
-    absorbed, outer = armor_protection(defender, part.id, kind)
+    absorbed, outer = armor_protection(defender, part.id, kind, attack.contact)
     delivered = momentum - absorbed
     result.damage = max(0.0, delivered)
 
@@ -887,7 +997,7 @@ def throw_item(attacker, defender, item: Item, *, rng: RNG, log=None) -> AttackR
         * (1.0 + attacker.skills.level("throwing") * 0.08)
         * (0.5 + min(3.0, item.unit_weight))
     )
-    absorbed, _outer = armor_protection(defender, part.id, kind)
+    absorbed, _outer = armor_protection(defender, part.id, kind, attack.contact)
     delivered = momentum - absorbed
     result.damage = max(0.0, delivered)
 

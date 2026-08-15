@@ -708,13 +708,29 @@ is severed, or when it bleeds out. That last one is the most common. A deep cut
 to a limb will kill a goblin in a minute or two of fighting even if you never
 land another blow.
 
-Armour subtracts from the force of a blow according to the material and the
-thickness. A steel breastplate will stop a dagger completely. It will not stop
-a war hammer, because a hammer does not need to cut you: it crushes the bone
-underneath the plate.
+Armour subtracts from the force of a blow according to its material and its
+thickness -- and according to how widely the blow arrived. Armour works by
+spreading a strike over more of itself than the strike landed on, so the more
+you give it to spread, the more it takes. Every attack has a contact area, and
+you can read it on the item screen.
 
-Edged weapons cut and cause bleeding. Blunt weapons break bones, stun, and work
-through armour. Choose accordingly.
+An axe hands a mail shirt the whole length of its edge and the mail turns it. A
+spear point, a pick or a war hammer hand it a few square millimetres and go
+through. That is the whole of the weapon triangle: the edge is for the man with
+no armour, the point is for the man who has some.
+
+Against a steel breastplate none of it matters. Nothing in the weapon table
+gets through the front of one, so do not try -- his arms and legs are not
+plated, and a man cannot fight on a broken leg.
+
+A point also keeps its force through the tissues instead of spending it, which
+is how it reaches a lung behind the ribs. An edge spends everything opening the
+width of the wound, which is how it takes an arm off. Neither can do the
+other's work.
+
+Edged weapons cut and cause bleeding. Blunt weapons break bones and stun.
+Choose accordingly -- or rather, train Fighter and let it choose: skill at arms
+is what tells you to thrust at the man in mail instead of swinging at him.
 
 Aim at a body part with 'a' if you want a leg broken or an arm taken off. Aimed
 strikes are harder to land.

@@ -15,6 +15,7 @@ from ..engine import colors
 from ..engine.rng import RNG
 from ..engine.scheduler import ACTION_COST
 from ..engine.screen import Frag
+from . import contact
 
 QUALITY_NAMES = (
     "", "well-crafted", "finely-crafted", "superior", "exceptional",
@@ -34,6 +35,15 @@ QUALITY_BONUS = (1.0, 1.05, 1.10, 1.15, 1.20, 1.30, 1.50)
 SWING_WORDS: Sequence[tuple] = (
     (4.0, "fast"), (6.0, "average"), (99.0, "slow"),
 )
+
+
+#: How far apart two of a weapon's attacks must sit before it is worth telling
+#: the player that one of them beats armour and the other does not.
+CONTACT_GAP = 0.25
+#: Below this a lone attack is a point; above it, an edge. Between the two
+#: there is nothing useful to say and nothing is said.
+CONTACT_FINE = 0.85
+CONTACT_BROAD = 1.60
 
 
 def speed_word(swing: float) -> str:
@@ -218,9 +228,11 @@ class Item:
             lines.append("Weapon skill: %s" % d.weapon.skill)
             for a in d.weapon.attacks:
                 lines.append(
-                    "  %s (%s), contact %d, penetration %d"
-                    % (a.name, a.kind, a.contact, a.penetration)
+                    "  %s (%s), %s: contact %d, penetration %d"
+                    % (a.name, a.kind, contact.word(a.contact),
+                       a.contact, a.penetration)
                 )
+            lines.extend(self._contact_lines())
             lines.extend(self._swing_lines(owner))
             if d.weapon.two_handed_size:
                 lines.append(
@@ -239,6 +251,32 @@ class Item:
         if d.hydration:
             lines.append("Hydration: %d" % d.hydration)
         return lines
+
+    def _contact_lines(self) -> List[str]:
+        """What armour does to this weapon, in a sentence.
+
+        The contact and penetration numbers have been on the inspect screen
+        since the item table was written, and they meant nothing to read
+        because nothing read them either. Now that armour spreads a blow by
+        how wide it arrived, the numbers decide fights, so they are worth
+        saying out loud.
+        """
+        d = self.defn
+        attacks = d.weapon.attacks if d.weapon else ()
+        if not attacks:
+            return []
+        fine = min(attacks, key=lambda a: a.contact)
+        broad = max(attacks, key=lambda a: a.contact)
+        gap = contact.spread(broad.contact) - contact.spread(fine.contact)
+        if gap >= CONTACT_GAP:
+            return ["  Armour spreads its %s; the %s is what gets through."
+                    % (broad.name, fine.name)]
+        factor = contact.spread(fine.contact)
+        if factor <= CONTACT_FINE:
+            return ["  Narrow enough that armour has little to spread."]
+        if factor >= CONTACT_BROAD:
+            return ["  Broad enough that armour has a great deal to spread."]
+        return []
 
     def _swing_lines(self, owner) -> List[str]:
         """How quick this weapon is, and how quick it is in these hands."""

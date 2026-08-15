@@ -3102,7 +3102,101 @@ comment above it describes force "delivered to the contact area". Both were
 left alone -- rebalancing every weapon in the game around a newly live
 parameter is a milestone of its own, not a footnote to this one.
 
-## 87. Style
+## 87. Contact area (v3.27)
+
+Every attack in the game has carried a contact area since the weapon table was
+written -- a dagger's point is 5, a mace's head 20, a great axe's edge 90000 --
+and the number reached exactly one place: `Body.apply_damage`, which passed it
+recursively to `_maybe_hit_organ`, which did not read it either. A thrust and a
+chop with the same weapon behaved identically. `contact` was the last dead
+parameter at the heart of the combat model, and v3.26's own commit message said
+so.
+
+`game/contact.py` is one function and three readers. `spread(contact)` is how
+widely a blow spends its force, `(contact / 40) ** 0.13` clamped to 0.75..2.60.
+Armour absorption multiplies by it, tissue damage per layer multiplies by it,
+and organ reach divides by it.
+
+**The reference is a kick, not a sword.** The bestiary was balanced when
+nothing read contact, so putting the neutral point in the middle of the
+*natural* attacks -- kick 40, gore 40, claw 30, bite 20 -- leaves every beast
+in the game fighting as it always did and makes the weapon table carry the
+whole deviation. That is the difference between a rebalance and a bug report.
+
+**Armour spreads a blow, which is what armour is for.** A great axe hands a
+mail shirt the length of its edge and the mail takes 3.4x what it takes from a
+spear point. Measured through an iron mail shirt, against v3.26: a pick's
+thrust +10%, a dagger's +33%, a war hammer and a morningstar from stopped to
+through -- and a sword's cut, an axe's hack and a short sword's cut from
+through to stopped. A great axe still cuts mail; nothing smaller does. That is
+the weapon triangle, and it was in the data the whole time.
+
+**The tissue trade is real and it cost two attempts to get right.** A torso is
+skin, fat, muscle, bone. At the force that puts a point into the muscle, an
+edge is still in the fat; at the force that puts a point on the bone, the edge
+has taken the skin and the fat off entirely and stopped in the muscle. Blows
+to take a bare forearm off, v3.26 -> v3.27: axe 19.2 -> 10.8, two-handed sword
+11.3 -> 6.9, great axe 9.5 -> 6.3. Through mail, a two-hander's chance of
+taking that arm off goes 60.8% -> 13.3%.
+
+**`bite()` is capped at 1.0 and `spread()` is not.** The first version charged
+an edge for its width twice -- once in the layer it was cutting and again in
+the force it had left -- and measurably wrecked the heavy edged weapons: a
+great axe's organ hits went 25.6% -> 0% and a sword's cut lost half its depth,
+because `hurt` was already saturated at the top of the range so the widening
+bought nothing while the cost was charged in full. The width an edge buys comes
+out of the layer above, not the depth below. A point's cost falls off faster
+than its width (`PIERCE_POWER = 2`), which is what lets a thin blade arrive at
+the far side of the ribs still carrying something.
+
+**A weapon with two attacks is two weapons, so somebody has to choose.**
+`choose_attack` rolled a flat die between a sword's edge and its point, which
+threw the whole triangle away as variance. It now weights the roll by what each
+attack would actually deliver to the defender's chest, sharpened by the
+attacker's `fighter` level. Against leather, where both attacks work, the
+preference is a gradient -- 50/50 untrained, 62/38 at `fighter` 15. Against
+mail it is absolute from `fighter` 2 upwards, because there the cut delivers
+literally nothing and a weight of zero is never drawn; skill only decides
+whether he notices. A farmhand still swings whatever is in his hand. Natural
+attacks are judged the same way, which is worth something now that v3.21 gave
+nine species real `biter` and `striker` levels.
+
+**Judging by the chest, not by the least armoured part.** Scoring against a bare
+thigh as well was tried and is worse: a blow lands where it lands, and a fighter
+who reasons about a target he cannot aim at is not reasoning. When nothing at
+all reaches the chest the choice falls back to a coin toss, which is honest --
+there is no judgement to make against a man in full plate.
+
+**Two short-circuits, both bought by measurement.** Judging cost 0.024 ms on a
+0.078 ms strike -- a third of every blow struck in the game. Walking forty body
+parts to find the chest is now memoised per body plan rather than per swing,
+and a defender with no armour on the judged part and no natural armour skips
+the scoring entirely, because with nothing to spread the blow every attack
+lands with the momentum it was swung with and the ranking collapses to which
+one is quickest. Judging is down to 0.017 ms against an armoured target and
+0.003 ms against a bare one. A siege step measured 2.19 ms against v3.26's
+2.15 ms, and the same fourteen embarks held 13 times against 12 with the mean
+survivors identical at 3.1 -- the model is more lethal per blow and the
+fortress is exactly as safe.
+
+**Found and deliberately not fixed: a steel breastplate stops every melee
+weapon in the game.** Absorption is roughly 3.5x the heaviest blow the weapon
+table can throw, so plate is not hard to beat, it is impossible, and it was
+impossible before this change too. The help screen used to promise the opposite
+in as many words and now says what is true. Recalibrating what armour is worth
+is a milestone of its own; doing it inside this one would have confounded every
+measurement above.
+
+## 87.1. What the contact numbers already said
+
+Three comments in `TRAP_STRIKES` were written to explain contact areas back
+when nothing read them -- fire at 2 ("armour helps a great deal less against
+burning, which is what the low contact area buys"), frostbite at 4, and a fall
+at 2000 ("an enormous contact area, so armour spreads it rather than stopping
+it"). All three are true statements about the running game now, and none of
+them needed a line changed.
+
+## 88. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

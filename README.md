@@ -519,6 +519,16 @@ thing you can dig. Standing in a fire hurts and armour helps little; it also
 throws light, so you are extremely visible next to one. In the fortress, magma
 sets light to anything flammable near it.
 
+**Point, edge and armour.** Every attack has a contact area, and armour works
+by spreading a blow over more of itself than the blow landed on — so the more
+you give it to spread, the more it takes. An axe hands a mail shirt the whole
+length of its edge and the mail turns it; a spear point, a pick or a war hammer
+hand it a few square millimetres and go straight through. The trade runs the
+other way in the flesh: a point keeps its force and reaches a lung behind the
+ribs, an edge spends everything opening the width of the wound and takes an arm
+off. A weapon with two attacks is two weapons, and a trained fighter picks the
+right one — an untrained one swings whatever is in his hand.
+
 **Gravity.** Step off a ledge and you go down until something stops you. One
 level is a step; five break bones and ten will usually finish an unarmoured
 person, with armour halving it and deep water breaking the fall. Creatures,
