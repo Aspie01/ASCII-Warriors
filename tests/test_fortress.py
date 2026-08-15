@@ -3041,6 +3041,182 @@ class TestLegacy(unittest.TestCase):
         self.assertTrue(legacy.describe(payload))
 
 
+class TestWhatAFortressLeaves(unittest.TestCase):
+    """The workshops you raised, and nothing the map already records."""
+
+    #: Kinds the helper puts up: three workshops, then four things whose own
+    #: tile is the whole of what they are.
+    RAISED = ("smith", "still", "hospital", "statue", "door", "lever", "bed")
+
+    def _raise(self, fort, kind):
+        """Put a finished building up, exactly as ``_finish_build`` leaves it."""
+        spot = _open_spot(fort, kind)
+        if spot is None:
+            return None
+        b = Building(kind, *spot)
+        b.material_name = "granite"
+        b.built = True
+        for cell in b.cells():
+            fort.dig_out(cell, b.defn.tile)
+        fort.buildings.append(b)
+        return b
+
+    def _ruined_fortress(self, seed="leaves", plan=None):
+        """A fortress with workshops standing, goods on the floor, and dead.
+
+        ``plan`` puts one building up unfinished -- while there are still
+        dwarves alive to site it, since ``_open_spot`` works from where they
+        are standing and by the end of this nobody is standing anywhere.
+        """
+        fort = embark(seed)
+        dig_room(fort, 5)
+        raised = {}
+        for kind in self.RAISED:
+            b = self._raise(fort, kind)
+            if b is not None:
+                raised[kind] = b
+        self.planned = None
+        if plan is not None:
+            spot = _open_spot(fort, plan)
+            if spot is not None:
+                self.planned = Building(plan, *spot)
+                fort.buildings.append(self.planned)
+        d = fort.dwarves()[0]
+        self.goods = (d.x, d.y, d.z)
+        for def_id in ("sword", "barrel", "bar"):
+            fort.drop_item(item_for(fort, def_id), *self.goods)
+        self.goods_count = len(fort.items_at(*self.goods))
+        for other in fort.dwarves():
+            other.body.dead = True
+            other.body.death_cause = "the test"
+        fort.lost = True
+        fort.loss_reason = "the test"
+        return fort, raised
+
+    def _adventurer_in(self, fort):
+        """Roll a character and walk them into the ruins."""
+        from ascii_warriors.engine.rng import RNG
+        from ascii_warriors.fortress import legacy
+        from ascii_warriors.game.entity import make_creature
+        from ascii_warriors.game.state import Game
+
+        legacy.record(fort, abandoned=False)
+        player = make_creature(RNG("p"), "dwarf", faction="player")
+        player.is_player = True
+        game = Game(fort.world, player, RNG("adventure"))
+        player.wx, player.wy = fort.wx, fort.wy
+        game.enter_world_tile(fort.wx, fort.wy)
+        return game
+
+    def test_the_workshops_you_raised_are_still_standing(self):
+        """The clause of the README promise that was not true."""
+        from ascii_warriors.game import ruins
+
+        fort, raised = self._ruined_fortress()
+        shops = [b for k, b in raised.items() if k in ("smith", "still")]
+        self.assertTrue(shops, "the test put up no workshops")
+        game = self._adventurer_in(fort)
+        for b in shops:
+            self.assertIsNotNone(
+                ruins.at(game, *b.center),
+                "the %s an adventurer walked back into is bare floor" % b.kind)
+
+    def test_a_ruin_covers_the_footprint_the_workshop_did(self):
+        """All nine cells of a 3x3 forge, corners included."""
+        from ascii_warriors.game import ruins
+
+        fort, raised = self._ruined_fortress("footprint")
+        forge = raised.get("smith")
+        self.assertIsNotNone(forge)
+        game = self._adventurer_in(fort)
+        for cell in forge.cells():
+            self.assertIsNotNone(ruins.at(game, *cell),
+                                 "%s is not covered" % (cell,))
+        self.assertEqual(len(ruins.cells(game.ruins[0])), 9)
+
+    def test_a_ruin_is_named_for_what_it_was_made_of(self):
+        """The look cursor says what the fortress called it."""
+        from ascii_warriors.game import ruins
+
+        fort, raised = self._ruined_fortress("named")
+        forge = raised.get("smith")
+        self.assertIsNotNone(forge)
+        game = self._adventurer_in(fort)
+        said = ruins.describe(ruins.at(game, *forge.center))
+        self.assertIn("granite", said)
+        self.assertIn("forge", said)
+        self.assertIn("abandoned", said)
+        texts = [f.text for f in game.describe_tile(*forge.center)]
+        self.assertIn(said, texts, "the look cursor does not mention it")
+
+    def test_what_the_map_already_records_is_not_carried_twice(self):
+        """A statue stamped a statue tile: it does not also need a ruin."""
+        from ascii_warriors.game import ruins
+
+        fort, raised = self._ruined_fortress("doubled")
+        game = self._adventurer_in(fort)
+        for kind in ("statue", "door", "lever", "bed"):
+            b = raised.get(kind)
+            if b is None:
+                continue
+            self.assertIsNone(
+                ruins.at(game, *b.center),
+                "a %s is its own tile and is being reported twice" % kind)
+            said = " ".join(f.text for f in game.describe_tile(*b.center))
+            self.assertNotIn("abandoned", said)
+
+    def test_a_plan_nobody_finished_leaves_nothing(self):
+        """An unbuilt workshop is a decision, not a building."""
+        from ascii_warriors.game import ruins
+
+        fort, _raised = self._ruined_fortress("unbuilt", plan="kitchen")
+        self.assertIsNotNone(self.planned, "the test planned nothing")
+        game = self._adventurer_in(fort)
+        self.assertIsNone(ruins.at(game, *self.planned.center))
+
+    def test_a_ruined_workshop_is_still_floor_to_walk_on(self):
+        """A ruin is scenery. Passability belongs to the tile, as it always did."""
+        fort, raised = self._ruined_fortress("walk")
+        forge = raised.get("smith")
+        self.assertIsNotNone(forge)
+        game = self._adventurer_in(fort)
+        self.assertTrue(game.local.walkable(*forge.center))
+        self.assertTrue(game.is_passable(*forge.center))
+
+    def test_ruins_survive_leaving_and_coming_back(self):
+        """Walking out of the ruins and back in must not clear them."""
+        fort, _raised = self._ruined_fortress("return")
+        game = self._adventurer_in(fort)
+        before = len(game.ruins)
+        self.assertTrue(before)
+        away = fort.wx - 1 if fort.wx else fort.wx + 1
+        game.enter_world_tile(away, fort.wy)
+        game.enter_world_tile(fort.wx, fort.wy)
+        self.assertEqual(len(game.ruins), before)
+
+    def test_all_four_clauses_of_the_promise(self):
+        """"The corridors you dug, the workshops you raised, the goods still on
+        the floor, and your dwarves lying where they fell." All of it, at once.
+        """
+        from ascii_warriors.game import ruins
+
+        fort, raised = self._ruined_fortress("promise")
+        dug = sum(1 for z in fort.local.levels
+                  for t in fort.local.levels[z] if t == "floor")
+        names = {c.name for c in fort.creatures.values()}
+        game = self._adventurer_in(fort)
+
+        found = sum(1 for z in game.local.levels
+                    for t in game.local.levels[z] if t == "floor")
+        self.assertEqual(found, dug, "the corridors are not the ones you dug")
+        self.assertTrue(game.ruins, "no workshop is left standing")
+        self.assertEqual(len(game.items_at(*self.goods)), self.goods_count,
+                         "the goods are not on the floor")
+        self.assertTrue(names & {c.name for c in game.creatures.values()},
+                        "the dead are not where they fell")
+        self.assertTrue(any(c.body.dead for c in game.creatures.values()))
+
+
 class TestWater(unittest.TestCase):
     """Water that moves, and the engineering that controls it."""
 

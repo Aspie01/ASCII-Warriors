@@ -23,6 +23,7 @@ from .log import MessageLog
 from .quests import QuestLog
 from ..world.fire import Fire as FireLayer
 from ..world.heat import Frost
+from . import ruins as ruins_mod
 from . import standing as standing_mod
 from . import traps as traps_mod
 from . import venom as venom_mod
@@ -69,6 +70,10 @@ class Game:
         #: same shape as the fortress's `Fortress.drowning` so the two modes
         #: are recognisably doing one thing.
         self.drowning: Dict[int, float] = {}
+        #: Workshops left standing in a fortress somebody played and lost --
+        #: the only buildings whose own tile does not record them. Read-only
+        #: here: scenery in a ruin, not things to queue work at.
+        self.ruins: List[Dict[str, Any]] = []
         self.travel_target: Optional[Tuple[int, int]] = None
         self.weather = Weather()
         #: Everything currently alight on this map.
@@ -191,6 +196,7 @@ class Game:
                 c = Creature.from_dict(cd)
                 self.creatures[c.id] = c
             self._restore_layers(cached.get("layers") or {})
+            self.ruins = ruins_mod.left_standing(cached.get("buildings"))
         else:
             lm_rng = self.rng.sub("local-%d-%d" % (wx, wy))
             self.local, population = generate_local(
@@ -199,6 +205,7 @@ class Game:
             self.creatures = {}
             self.items_on_ground = {}
             self._restore_layers({})
+            self.ruins = []
             self._populate(population, lm_rng, site)
             # Traps belong to a floor plan, and floor plans are made here
             # rather than at worldgen, so this is where they go in.
@@ -329,6 +336,7 @@ class Game:
                 for k, v in self.items_on_ground.items() if v
             },
             "layers": self._store_layers(),
+            "buildings": list(self.ruins),
         }
         # Keep the cache from growing without bound on long journeys, dropping
         # the tiles the player has not seen for longest.
@@ -709,6 +717,9 @@ class Game:
             out.append(Frag("The water here has frozen over.", colors.ICE))
         if self.fire.burning(x, y, z):
             out.append(Frag("It is on fire.", colors.EMBER))
+        ruin = ruins_mod.at(self, x, y, z)
+        if ruin is not None:
+            out.append(Frag(ruins_mod.describe(ruin), colors.UI["accent2"]))
         for c in self.creatures_at(x, y, z):
             out.append(Frag("", colors.UI["fg"]))
             out.extend(c.describe())
@@ -1154,6 +1165,7 @@ class Game:
             "turn": self.turn,
             "mode": self.mode,
             "drowning": {str(k): v for k, v in self.drowning.items()},
+            "ruins": list(self.ruins),
             "seen": ["%d,%d,%d" % k for k in self.seen],
             "game_over": self.game_over,
             "death_message": self.death_message,
@@ -1190,6 +1202,7 @@ class Game:
         game.drowning = {
             int(k): float(v) for k, v in (d.get("drowning") or {}).items()
         }
+        game.ruins = list(d.get("ruins") or [])
         game.game_over = bool(d.get("game_over", False))
         game.death_message = str(d.get("death_message", ""))
         game.weather = Weather.from_dict(d.get("weather") or {})

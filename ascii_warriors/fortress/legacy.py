@@ -144,4 +144,9 @@ def restore(payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         "map": payload["map"],
         "creatures": payload.get("creatures", []),
         "items": payload.get("items", {}),
+        # `preserve` has frozen these since it was written and `restore` threw
+        # them away, so an adventurer walking into their own fortress found
+        # the corridors, the goods and the dead, and bare floor where every
+        # workshop had stood. The README has promised otherwise all along.
+        "buildings": payload.get("buildings", []),
     }

@@ -3623,7 +3623,62 @@ added to the melee path for severed limbs: combat is called from two modes and
 from tests that have no world at all, so the caller says where the floor is or
 there is no floor.
 
-## 96. Style
+## 96. The workshops you raised (v3.36)
+
+The README's headline promise, and the reason fortress mode and adventure mode
+are one program rather than two, is this: *"Travel to your own fortress and walk
+into it: the corridors you dug, the workshops you raised, the goods still on the
+floor, and your dwarves lying where they fell."*
+
+Measured through the real `legacy.record` path, three of those four clauses were
+true. `preserve` had frozen `buildings` since the day it was written; `restore`
+handed back `map`, `creatures` and `items` and dropped them on the floor. An
+adventurer who walked into the fortress they had spent a year digging found the
+corridors, the goods and the dead exactly as promised, and **bare smooth floor
+where every workshop had stood**.
+
+**They come back as ruins, not as buildings.** `game/ruins.py` reads
+`Building.to_dict`'s shape as plain data: neither mode imports the other's
+classes to do it. A ruin stands there, takes up its footprint, draws itself and
+answers the look cursor. It does not take orders. Carrying the job board across
+would mean dragging production, hauling and labour into adventure mode to serve
+one screen nobody would open.
+
+**Most buildings did not need carrying, and the data says which.** A building
+stamps a tile when it goes up, and the map is frozen too -- so a statue already
+*is* a `statue` tile, a lever a `lever` tile, a constructed wall a
+`wall_constructed`. Carrying those would draw an identical glyph on top of
+itself and make the look cursor say "Statue" and then "granite statue, long
+abandoned." Of 36 building kinds, exactly 12 draw a glyph their tile does not:
+the eleven workshops, which stand on plain smooth floor, and the hospital, which
+stands on a bed. That is precisely the set whose identity the map cannot record,
+and precisely the clause of the promise that was broken.
+
+`marks_the_ground` therefore compares the kind's glyph to its tile's glyph
+rather than keeping a list. A workshop added later is carried without anybody
+remembering to come back here, and a workshop given its own distinctive tile
+some day stops being carried, correctly.
+
+**Passability was never the ruin's business.** A wall building sets an
+impassable tile, and the tile is in the frozen map, so an adventurer already
+could not walk through a ruined wall. A ruin is scenery over terrain that
+already knows what it is.
+
+`cells()` derives the footprint from `BuildingKind.width`/`height` the way
+`Building.cells` does, rather than storing a second copy of the rectangle.
+`_local_cache` is the adventurer's own store and separate from
+`world.preserved_map`, so filtering on load never rewrites the world's payload;
+the full building list stays frozen there for whatever wants it later.
+
+**v3.34's round-trip guard did not catch this one, and that is worth recording.**
+`Game.ruins` was serialised correctly, but deleting the line from `to_dict`
+left both guard tests green: the fixture is ordinary wilderness, `ruins` is `[]`
+on both sides, and a shape-only diff cannot tell an empty list from a field that
+was never written. The guard now seeds a ruin before saving. A guard that cannot
+fail is worth nothing, and the only way to know is to break the thing on purpose
+and watch.
+
+## 97. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

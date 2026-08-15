@@ -9,6 +9,7 @@ from ..engine.colors import Color
 from ..engine.screen import Frag, Screen
 from ..engine.widgets import MenuItem, choose
 from ..game import actions, crafting
+from ..game import ruins as ruins_mod
 from ..world import tiles as tile_data
 from .app import Scene
 from .sidebar import LOG_HEIGHT, SIDEBAR_WIDTH, draw_log, draw_sidebar, draw_status_line
@@ -86,6 +87,23 @@ class PlayScene(Scene):
                     continue
                 glyph, fg, bg = self._cell(lm, game, wx, wy, z)
                 scr.put(ox + sx, oy + sy, glyph, fg, bg)
+
+        # Whatever a fortress left standing here, under the loose goods. Only
+        # the workshops: everything else it built stamped a tile of its own,
+        # which the pass above has already drawn.
+        for ruin in getattr(game, "ruins", ()):
+            glyph, colour, cells = ruins_mod.appearance(ruin)
+            if glyph is None:
+                continue
+            for rx, ry, rz in cells:
+                if rz != z or (rx, ry, rz) not in game.seen:
+                    continue
+                sx, sy = rx - self.cam_x, ry - self.cam_y
+                if not (0 <= sx < w and 0 <= sy < h):
+                    continue
+                shade = colour if (rx, ry, rz) in game.visible else colors.darken(
+                    colour, MEMORY_FADE)
+                scr.put(ox + sx, oy + sy, glyph, shade)
 
         # Creatures and items on top.
         for pile_key, pile in game.items_on_ground.items():

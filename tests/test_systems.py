@@ -7315,6 +7315,11 @@ class TestWhatAnAdventureSaveKeeps(GameFixture):
         player.exposure = -0.4
         player.skills.set_level("discipline", 4)
         player.add_exp("swimming", 200)
+        # An ordinary map has no ruins on it, so leaving this empty would let
+        # the diff below pass on a field that was never written to the save at
+        # all: nought and nought are the same shape.
+        game.ruins = [{"kind": "smith", "x": 4, "y": 5, "z": player.z,
+                       "material_name": "granite", "built": True}]
 
         back = Game.from_dict(game.to_dict())
         lost = self._diff(game, back, "game")
@@ -7336,6 +7341,9 @@ class TestWhatAnAdventureSaveKeeps(GameFixture):
         p.swing_bank = 33.0
         p.skills.set_level("discipline", 4)
         p.skills.set_level("swimming", 6)
+        ruin = {"kind": "smith", "x": 4, "y": 5, "z": p.z,
+                "material_name": "granite", "built": True}
+        game.ruins = [ruin]
 
         back = Game.from_dict(game.to_dict())
         bp = back.player
@@ -7344,6 +7352,7 @@ class TestWhatAnAdventureSaveKeeps(GameFixture):
         self.assertAlmostEqual(getattr(bp, "swing_bank", 0.0), 33.0, places=3)
         self.assertEqual(bp.skills.level("discipline"), 4)
         self.assertEqual(bp.skills.level("swimming"), 6)
+        self.assertEqual(back.ruins, [ruin])
 
 
 class TestSpentAmmunition(GameFixture):

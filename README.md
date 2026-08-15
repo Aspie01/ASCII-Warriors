@@ -72,7 +72,8 @@ its fall, and any artifacts made in it.
 Press `a` on the ending screen and you roll an adventurer in the same world.
 Travel to your own fortress and walk into it: the corridors you dug, the
 workshops you raised, the goods still on the floor, and your dwarves lying
-where they fell.
+where they fell. The forge and the still are ruins now — you can stand in
+them and read what they were, but nobody is taking orders.
 
 Losing is fun.
 

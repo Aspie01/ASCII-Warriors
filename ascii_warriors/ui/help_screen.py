@@ -691,6 +691,9 @@ Press a on the ending screen to roll an adventurer in the same world and walk
 back into your own fortress: the corridors you dug, the workshops you raised,
 the goods on the floor and your dwarves lying where they fell.
 
+Your workshops are ruins by then. Look at one and it tells you what it was and
+what it was built out of, but a forge with nobody at it is furniture.
+
 WHAT WILL GO WRONG
 
 Migrants arrive each spring and autumn if word of your wealth has spread, and
