@@ -3409,7 +3409,44 @@ has that it helps, best first, and every skill line says whether it comes
 easily or is a struggle. Only trained skills: telling a peasant that willpower
 governs Leadership is a manual, not a sheet.
 
-## 91. Style
+## 91. An industry that can arm its own soldiers (v3.31)
+
+Found by asking a question the dead-data audit does not: not "is this field
+read" but "can this ever appear in a game at all". Every weapon and armour
+piece in the item table was checked against every production recipe, every
+crafting recipe, every starting kit and every uniform.
+
+**Sixteen of the thirty-two weapons and ten of the twenty armour pieces had no
+maker anywhere.** No recipe, no kit, no loot table, nothing. Among them: the
+sword, the mace, the pick, the battle axe, the long sword, the crossbow, the
+breastplate, the gauntlets, the chain leggings and the great helm. The
+two-handed sword was worse than unmakeable -- outside its own line in the item
+table it was not mentioned by a single line of code in the project, and every
+combat milestone from v3.27 onwards has been measuring a weapon nobody could
+ever hold.
+
+**Every one of the five uniforms in `military.UNIFORMS` asked for equipment no
+fortress could produce.** The swordsdwarf's uniform lists the long sword, the
+sword and the scimitar; the forge managed a short sword. The marksdwarf's asks
+for a crossbow, which nothing anywhere made. All five want a breastplate. The
+equip step worked perfectly and always had -- a squad handed the kit puts it
+on, 3 of 3, five to seven pieces each -- so the militia was never broken. It
+was starved.
+
+Thirty-two recipes close it: nineteen at the forge, eight at the clothier, and
+the crossbow at the carpenter beside the bow that was already there. Costs run
+with weight and reach, and a test asserts the ordering rather than the numbers
+-- a great axe above a battle axe above a mace -- because an industry whose
+prices invert is telling the player something false about what they are
+choosing between. The magma-forge duplication at the bottom of the module picks
+the new forge recipes up without being written twice.
+
+**Adventure-mode crafting was deliberately left alone.** Its table is field
+work -- torches, bandages, arrows, rope, a bone dagger, and two forge recipes
+for when you are standing at one. A lone adventurer hammering out a breastplate
+in a wood is not the same game.
+
+## 92. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

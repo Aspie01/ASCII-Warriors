@@ -200,6 +200,13 @@ Goblins come once you have something worth taking. Raise a squad with m, pick
 a uniform, and enlist somebody; they will find their own weapons and armour
 out of your stockpiles and then train at a barracks until they are dangerous.
 
+Your forge can make every piece of it. Each uniform names the weapons and
+armour it wants, best first, and there is a recipe for all of them -- swords
+and long swords, battle axes and great axes, maces and mauls and morningstars,
+pikes and halberds, crossbows, and the breastplates, gauntlets, chain leggings
+and great helms to go over the top. Costs run with weight: a mace is two bars,
+a great axe is five. The clothier does the caps, boots, mittens and socks.
+
 A squad ordered to train is a squad taken off the labour force. Order it to
 defend instead if you need the hands back.
 

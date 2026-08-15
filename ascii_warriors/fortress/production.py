@@ -51,6 +51,9 @@ _r("wood_shield", "Wooden shield", "carpenter", "carpentry", (("WOOD", 1),),
 _r("wood_bolts", "Wooden bolts", "carpenter", "bowyer", (("WOOD", 1),),
    "bolt", 15, 200)
 _r("wood_bow", "Bow", "carpenter", "bowyer", (("WOOD", 1),), "bow", 1, 280)
+_r("wood_crossbow", "Crossbow", "carpenter", "bowyer",
+   (("WOOD", 2), ("BAR", 1)), "crossbow", 1, 400,
+   "The marksdwarf uniform has asked for one of these since it was written.")
 _r("wood_crutch", "Crutch", "carpenter", "carpentry", (("WOOD", 1),), "crutch")
 # Instruments. A tavern with nothing to play in it is a room with barrels,
 # and a musical form asks for a particular instrument by name.
@@ -105,6 +108,22 @@ _r("sew_hood", "Hood", "craftsdwarf", "leatherwork", (("CLOTH", 1),),
    "hood", 1, 140, out_material="wool_cloth")
 _r("make_shoes", "Shoes", "craftsdwarf", "leatherwork", (("hide", 1),),
    "shoes", 1, 180)
+_r("make_boots", "High boots", "craftsdwarf", "leatherwork", (("hide", 2),),
+   "high_boots", 1, 260, "What the uniforms have been asking for.")
+_r("make_cap", "Leather cap", "craftsdwarf", "leatherwork", (("hide", 1),),
+   "cap", 1, 200)
+_r("sew_socks", "Socks", "craftsdwarf", "leatherwork", (("CLOTH", 1),),
+   "socks", 2, 120, out_material="wool_cloth")
+_r("sew_mittens", "Mittens", "craftsdwarf", "leatherwork", (("CLOTH", 1),),
+   "mittens", 2, 120,
+   "Frostbite takes fingers first, and a mitten is worth more against it "
+   "than a breastplate.", out_material="wool_cloth")
+_r("sew_robe", "Robe", "craftsdwarf", "leatherwork", (("CLOTH", 2),),
+   "robe", 1, 220, out_material="wool_cloth")
+_r("make_whip", "Whip", "craftsdwarf", "leatherwork", (("hide", 1),),
+   "whip", 1, 240)
+_r("make_sling", "Sling", "craftsdwarf", "leatherwork", (("CLOTH", 1),),
+   "sling", 1, 160, out_material="leather")
 _r("hide_drum", "Drum", "craftsdwarf", "leatherwork", (("hide", 1), ("WOOD", 1)),
    "drum", 1, 240)
 _r("bone_flute", "Bone flute", "craftsdwarf", "crafting",
@@ -159,6 +178,56 @@ _r("iron_bolts", "Forge bolts", "smith", "weaponsmithing",
 _r("metal_mechanisms", "Forge mechanisms", "smith", "mechanics",
    (("BAR", 1), ("FUEL", 1)), "mechanism", 4, 320,
    "Metal ones, for when the stone ones keep jamming.")
+
+# -- arming the militia ------------------------------------------------------- #
+# Every uniform in `military.UNIFORMS` asked for equipment no fortress could
+# make. A swordsdwarf's uniform lists the long sword, the sword and the
+# scimitar and the forge could only manage a short sword; the marksdwarf's
+# asked for a crossbow, which nothing anywhere produced; and all five wanted a
+# breastplate. Sixteen of the thirty-two weapons in the table and ten of the
+# twenty armour pieces had no maker at all. Costs run with weight and reach:
+# a bar is a bar, and a great axe is five of them.
+_r("iron_longsword", "Forge sword", "smith", "weaponsmithing",
+   (("BAR", 3), ("FUEL", 1)), "sword", 1, 460,
+   "The one the swordsdwarf uniform has always asked for.")
+_r("iron_greatsword", "Forge long sword", "smith", "weaponsmithing",
+   (("BAR", 4), ("FUEL", 1)), "long_sword", 1, 520)
+_r("iron_scimitar", "Forge scimitar", "smith", "weaponsmithing",
+   (("BAR", 3), ("FUEL", 1)), "scimitar", 1, 470)
+_r("iron_twohander", "Forge two-handed sword", "smith", "weaponsmithing",
+   (("BAR", 5), ("FUEL", 2)), "two_handed_sword", 1, 640,
+   "Five bars of steel and both hands to lift it.")
+_r("iron_battleaxe", "Forge battle axe", "smith", "weaponsmithing",
+   (("BAR", 3), ("FUEL", 1)), "battle_axe", 1, 480)
+_r("iron_greataxe", "Forge great axe", "smith", "weaponsmithing",
+   (("BAR", 5), ("FUEL", 2)), "great_axe", 1, 620)
+_r("iron_mace", "Forge mace", "smith", "weaponsmithing",
+   (("BAR", 2), ("FUEL", 1)), "mace", 1, 400)
+_r("iron_maul", "Forge maul", "smith", "weaponsmithing",
+   (("BAR", 4), ("FUEL", 1)), "maul", 1, 540)
+_r("iron_morningstar", "Forge morningstar", "smith", "weaponsmithing",
+   (("BAR", 3), ("FUEL", 1)), "morningstar", 1, 450)
+_r("iron_flail", "Forge flail", "smith", "weaponsmithing",
+   (("BAR", 2), ("FUEL", 1)), "flail", 1, 440)
+_r("iron_pick", "Forge pick", "smith", "weaponsmithing",
+   (("BAR", 2), ("FUEL", 1)), "pick", 1, 420,
+   "A mining tool, and the reason a fortress that loses one is in trouble.")
+_r("iron_pike", "Forge pike", "smith", "weaponsmithing",
+   (("BAR", 2), ("FUEL", 1)), "pike", 1, 450)
+_r("iron_halberd", "Forge halberd", "smith", "weaponsmithing",
+   (("BAR", 3), ("WOOD", 1), ("FUEL", 1)), "halberd", 1, 510,
+   "A blade, a spike and a shaft to swing them on.")
+_r("iron_breastplate", "Forge breastplate", "smith", "armorsmithing",
+   (("BAR", 4), ("FUEL", 2)), "breastplate", 1, 580,
+   "Nothing in the weapon table can cut one. Bring a hammer.")
+_r("iron_greathelm", "Forge great helm", "smith", "armorsmithing",
+   (("BAR", 2), ("FUEL", 1)), "great_helm", 1, 430)
+_r("iron_leggings", "Forge chain leggings", "smith", "armorsmithing",
+   (("BAR", 3), ("FUEL", 1)), "chain_leggings", 1, 490)
+_r("iron_gauntlets", "Forge gauntlets", "smith", "armorsmithing",
+   (("BAR", 2), ("FUEL", 1)), "gauntlets", 1, 410)
+_r("iron_buckler", "Forge buckler", "smith", "armorsmithing",
+   (("BAR", 1), ("FUEL", 1)), "buckler", 1, 320)
 
 # -- still ------------------------------------------------------------------- #
 _r("brew_ale", "Brew dwarven ale", "still", "brewing", (("PLANT", 2),),

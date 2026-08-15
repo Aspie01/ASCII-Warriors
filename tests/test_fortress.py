@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import unittest
 
+from ascii_warriors.data import items as item_data
 from ascii_warriors.data.calendar import TICKS_PER_DAY
 from ascii_warriors.engine.rng import RNG
 from ascii_warriors.fortress import buildings as building_mod
@@ -864,6 +865,86 @@ class TestIndustry(unittest.TestCase):
         axes = [i for i in fort.all_items() if i.def_id == "axe"]
         self.assertGreater(len(axes), before, "the forge made nothing")
         self.assertTrue(any(a.mat.is_metal for a in axes))
+
+    def test_every_uniform_can_be_supplied_by_the_fortress(self):
+        """The defect this milestone was: all five uniforms in
+        `military.UNIFORMS` asked for equipment no fortress could make. The
+        swordsdwarf wanted a sword and the forge managed a short sword; the
+        marksdwarf wanted a crossbow, which nothing anywhere produced; and
+        every one of them wanted a breastplate."""
+        from ascii_warriors.fortress import military
+
+        made = {r.output for r in production.RECIPES.values()}
+        for uid, uniform in military.UNIFORMS.items():
+            for wid in uniform.weapons:
+                self.assertIn(wid, made, "%s uniform: no way to make %s"
+                              % (uid, wid))
+            for aid in uniform.armor:
+                self.assertIn(aid, made, "%s uniform: no way to make %s"
+                              % (uid, aid))
+
+    def test_nothing_wearable_or_wieldable_has_no_maker(self):
+        """Sixteen of thirty-two weapons and ten of twenty armour pieces had
+        no recipe anywhere -- including the two-handed sword, which every
+        combat milestone since v3.27 has measured and nobody could obtain."""
+        made = {r.output for r in production.RECIPES.values()}
+        for defn in item_data.melee_weapons() + item_data.ranged_weapons():
+            self.assertIn(defn.id, made, "no way to make %s" % defn.id)
+        for defn in item_data.armor_pieces():
+            self.assertIn(defn.id, made, "no way to make %s" % defn.id)
+
+    def test_the_new_recipes_ask_for_things_that_exist(self):
+        """A recipe naming an item id that is not in the table is a workshop
+        order that can never be filled and never says why."""
+        classes = set(production.CLASS_ITEMS)
+        for recipe in production.RECIPES.values():
+            self.assertTrue(item_data.exists(recipe.output), recipe.id)
+            for req, count in recipe.inputs:
+                self.assertGreater(count, 0, recipe.id)
+                if req in classes or req.startswith("bar:"):
+                    continue
+                self.assertTrue(item_data.exists(req),
+                                "%s wants %s" % (recipe.id, req))
+
+    def test_a_magma_forge_can_make_the_new_things_too(self):
+        """The magma duplication runs over the smith's recipe list, so a new
+        forge recipe has to appear there without being written twice."""
+        magma = {r.output for r in production.RECIPES.values()
+                 if r.workshop == "magma_forge"}
+        for iid in ("breastplate", "sword", "great_axe", "pick"):
+            self.assertIn(iid, magma)
+
+    def test_the_costs_run_with_the_weight(self):
+        """A great axe is five bars and a mace is two. If that ordering ever
+        inverts, the industry is telling the player something false about
+        what they are choosing between."""
+        def bars(rid):
+            return dict(production.RECIPES[rid].inputs).get("BAR", 0)
+
+        self.assertGreater(bars("iron_greataxe"), bars("iron_battleaxe"))
+        self.assertGreater(bars("iron_battleaxe"), bars("iron_mace"))
+        self.assertGreater(bars("iron_twohander"), bars("iron_longsword"))
+        self.assertGreater(bars("iron_breastplate"), bars("iron_gauntlets"))
+        self.assertGreaterEqual(bars("iron_mail"), bars("iron_greaves"))
+
+    def test_the_forge_actually_turns_bars_into_a_breastplate(self):
+        """End to end, in a running fortress: the piece every uniform in the
+        game asks for and none could make."""
+        fort = embark("plate")
+        for d in fort.dwarves():
+            d.fort.labors.enabled.update({"smithing", "armorsmithing"})
+        forge = self._shop(fort, "smith")
+        fort.drop_item(self.Item("bar", "steel", count=8), *forge.center)
+        fort.drop_item(self.Item("charcoal", "charcoal", count=6), *forge.center)
+        forge.orders.append(
+            {"recipe": "iron_breastplate", "count": 1, "repeat": False})
+        before = sum(1 for i in fort.all_items() if i.def_id == "breastplate")
+
+        sim.run(fort, 1200)
+
+        plate = [i for i in fort.all_items() if i.def_id == "breastplate"]
+        self.assertGreater(len(plate), before, "the forge made no breastplate")
+        self.assertTrue(any(p.mat.is_metal for p in plate))
 
     def test_a_workshop_nobody_will_staff_says_so(self):
         """A job no dwarf accepts must not sit on the board in silence."""

@@ -519,6 +519,12 @@ thing you can dig. Standing in a fire hurts and armour helps little; it also
 throws light, so you are extremely visible next to one. In the fortress, magma
 sets light to anything flammable near it.
 
+**An industry that can arm its own soldiers.** Every uniform names the weapons
+and armour it wants, and your forge can make all of it — swords and long
+swords, battle axes and great axes, maces and mauls, pikes and halberds,
+crossbows, and the breastplates and gauntlets to go over the top. Costs run
+with weight: a mace is two bars, a great axe is five.
+
 **The attributes you were rolled.** Every skill is governed by two or three of
 your nineteen attributes, and they decide how well the work comes out. A
 creative smith forges better goods, a patient angler catches more, a
