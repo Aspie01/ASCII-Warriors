@@ -3503,7 +3503,51 @@ watching somebody die wears off. Both awards are small on purpose, because both
 are clocks and a long one would otherwise hand out a legendary skill for
 standing still.
 
-## 93. Style
+## 93. A siege with wings (v3.33)
+
+v3.32 built flight and left the fortress out of it, on the grounds that
+`Fortress.is_passable` is documented as "true if a dwarf could stand there",
+takes no creature, and threading one through looked like a refactor of the
+whole route planner. That was half right. The structure was contained --
+`path_neighbours` has exactly two callers, one for dwarves and one for
+hostiles -- and the trouble was somewhere else entirely.
+
+**`LocalMap.flier_neighbours` is the walking graph's superset.** A walker's
+edges are built from `walkable`, which means floors, because a walker needs
+something under its feet. A flier needs the cell to be *open*, which is a
+different set: air, a chasm, the space over a river. It also changes level
+anywhere rather than only on stairs and ramps, which is the whole of what
+wings buy inside a fortress. Measured over three embarks: 11,097 air cells
+reachable that a walker cannot reach, 165 cells of deep water, and **zero**
+cells lost -- if the flying graph ever drops an edge the walking one has, a
+roc is worse at getting about than a goblin, so there is a test for it.
+
+**Pathing a flier with A* was built, measured and thrown away.** The flying
+graph has seven and a half times the edges (17,071 against 2,257 on one map).
+Six rocs took the fortress step from 1.5 ms to **100 ms**, and the routes were
+*worse*: the roc ended thirty-eight cells from the dwarves where a goblin
+walking ended fifteen. `_flier_step` replaced it with a greedy step straight at
+the target through any open cell -- which is what wings actually mean, costs
+nothing, and is more direct by construction. Six rocs now cost 3.4 ms against
+2.6 ms for six goblins: flight is worth about a third more than walking, not
+seventy times.
+
+It falls back to the walking planner when no neighbour improves its position,
+so a greedy flier boxed into a corner still moves.
+
+**One line nearly shipped the whole thing broken.** The step that follows a
+route tested `local.walkable(nxt)` before moving. A flier's route runs through
+air, which is never walkable, so every flying path would have been discarded
+the instant it was followed: A* would have burned the hundred milliseconds and
+the roc would have stood still. It is the shape of bug that a change looks
+finished without.
+
+**The test measured the wrong thing first, too.** Final distance to the first
+dwarf: a roc that had killed five and chased the sixth into a corner scored 65,
+and a goblin that killed one and stopped beside the body scored 1. Closest
+approach at any point is the honest measure of "did the terrain stop it".
+
+## 94. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

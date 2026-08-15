@@ -628,6 +628,19 @@ class Fortress:
                 continue
             yield (cell, cost + water * 0.8)
 
+    def flier_neighbours(self, node: Cell):
+        """Pathing neighbours for something that flies over the fortress.
+
+        The walking graph refuses deep water and magma because a hauler
+        carrying a rock drowns in one and dies in the other. A roc does
+        neither, and a wall it can go over is not a wall.
+        """
+        magma = self.magma.depth
+        for cell, cost in self.local.flier_neighbours(node):
+            if magma.get(cell, 0) > 0:
+                continue
+            yield (cell, cost)
+
     def water_sources(self) -> List[Cell]:
         """Every cell a dwarf could drink from: open water and built wells.
 

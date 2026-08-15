@@ -519,6 +519,11 @@ thing you can dig. Standing in a fire hurts and armour helps little; it also
 throws light, so you are extremely visible next to one. In the fortress, magma
 sets light to anything flammable near it.
 
+**A siege with wings.** In the fortress too: a roc or a demon comes at you
+straight, over the moat and the wall and the chasm you dug, while the goblins
+walk round to the entrance you left them. Terrain is your defence against
+things with feet and no defence at all against things without.
+
 **Things that fly.** Ravens, eagles, bats, rocs, dragons and demons are in the
 air, not on the ground. They do not fall down shafts, they cross lakes and
 chasms without a thought, and a walker has to go round. Rock, magma and fire

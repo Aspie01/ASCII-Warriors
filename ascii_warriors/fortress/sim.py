@@ -363,8 +363,47 @@ def _hostiles(fort, ticks: int) -> None:
         _hostile_step(fort, foe, (prey.x, prey.y, prey.z))
 
 
+def _flier_step(fort, foe, goal: Cell) -> bool:
+    """One step of a flying enemy's approach: straight at it, over whatever.
+
+    Deliberately not A*. Wings mean the obstacle course is not a problem that
+    needs solving, and a greedy step says that in one line and costs nothing.
+    Pathing a flier properly was tried and measured: the flying graph has
+    seven times the edges of the walking one, six rocs on a map took the
+    fortress step from 1.5 ms to 100 ms, and the routes it found were *worse*
+    -- the roc ended up further from the dwarves than a goblin walking.
+
+    Returns False if it could not improve its position, so the caller can fall
+    back to the walking planner and a flier boxed into a corner still moves.
+    """
+    pos = (foe.x, foe.y, foe.z)
+    best: Optional[Cell] = None
+    best_d = _flier_distance(pos, goal)
+    for cell, _cost in fort.flier_neighbours(pos):
+        if fort.creature_at(*cell) is not None:
+            continue
+        d = _flier_distance(cell, goal)
+        if d < best_d:
+            best, best_d = cell, d
+    if best is None:
+        return False
+    foe.x, foe.y, foe.z = best
+    return True
+
+
+def _flier_distance(a: Cell, b: Cell) -> float:
+    """How far a flier still has to go. Levels cost a little more than steps."""
+    return (geometry.chebyshev(a[0], a[1], b[0], b[1])
+            + abs(a[2] - b[2]) * 1.5)
+
+
 def _hostile_step(fort, foe, goal: Cell) -> None:
     """One step of an enemy's approach."""
+    from ..game import flight
+
+    if flight.can_fly(foe) and _flier_step(fort, foe, goal):
+        return
+
     state = fort.hostile_state.setdefault(foe.id, {"path": [], "goal": None})
     pos = (foe.x, foe.y, foe.z)
     path = state["path"]

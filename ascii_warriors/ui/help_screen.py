@@ -213,6 +213,11 @@ defend instead if you need the hands back.
 Weapon traps do not miss and cannot be parried, and cost you nothing but a
 weapon and a mechanic. They are the cheapest defence in the game.
 
+None of that stops a flier. A roc or a demon comes at you in a straight line,
+over the moat and the wall and the chasm, and arrives wherever your dwarves
+actually are. Terrain is a defence against things with feet. Against wings you
+need a roof, or soldiers.
+
 When something hostile appears the alarm raises itself and your civilians run
 for the burrow you painted with w. Your soldiers do not.
 

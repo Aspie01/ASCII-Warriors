@@ -174,6 +174,39 @@ class LocalMap:
                 cost *= 2.5
             yield (n, cost)
 
+    def flier_neighbours(self, node: Tuple[int, int, int]):
+        """Neighbours for something with wings, in the ``(node, cost)`` form.
+
+        A walker's graph is built out of `walkable`, which is floors: it has
+        to be, because a walker needs something under its feet. A flier needs
+        the cell to be *open*, and open is a different set -- air, a chasm, the
+        space over a river. It also moves between levels anywhere rather than
+        only on stairs and ramps, which is the whole of what wings buy inside a
+        fortress.
+
+        Rock, magma and fire are excluded here for the same reason
+        `Game.is_passable` excludes them: a creature occupies a whole cell, so
+        "over the lava" is not a place there is any way to be.
+        """
+        x, y, z = node
+        for dz in (0, 1, -1):
+            for dx in range(-1, 2):
+                for dy in range(-1, 2):
+                    if dx == 0 and dy == 0 and dz == 0:
+                        continue
+                    n = (x + dx, y + dy, z + dz)
+                    if not self.in_bounds(*n):
+                        continue
+                    t = tile_data.get(self.tile(*n))
+                    if t.has("WALL") or t.has("LAVA") or t.has("FIRE"):
+                        continue
+                    if not (t.walk or t.has("OPEN") or t.swim):
+                        continue
+                    cost = 1.41 if (dx and dy) else 1.0
+                    if dz:
+                        cost += 1.0
+                    yield (n, cost)
+
     def random_water(
         self, rng: RNG, *, tries: int = 400
     ) -> Optional[Tuple[int, int, int]]:

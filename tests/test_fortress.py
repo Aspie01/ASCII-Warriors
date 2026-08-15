@@ -2307,6 +2307,95 @@ class TestMilitary(unittest.TestCase):
                         sum(lost for lost, _left in alone),
                         "the squad was no better than no squad at all")
 
+    def test_a_fliers_routes_are_a_superset_of_a_walkers(self):
+        """Wings take nothing away. If the flying graph ever loses an edge the
+        walking one has, a roc is worse at getting about than a goblin."""
+        fort = embark("flygraph")
+        lm = fort.local
+        d0 = fort.dwarves()[0]
+        lost = 0
+        gained = 0
+        for dx in range(-8, 9, 2):
+            for dy in range(-8, 9, 2):
+                node = (d0.x + dx, d0.y + dy, d0.z)
+                if not lm.in_bounds(*node):
+                    continue
+                walk = {c for c, _cost in fort.path_neighbours(node)}
+                fly = {c for c, _cost in fort.flier_neighbours(node)}
+                lost += len(walk - fly)
+                gained += len(fly - walk)
+        self.assertEqual(lost, 0)
+        self.assertGreater(gained, 0)
+
+    def test_a_flier_can_be_in_the_air_and_a_walker_cannot(self):
+        fort = embark("flyair")
+        lm = fort.local
+        d0 = fort.dwarves()[0]
+        node = (d0.x, d0.y, d0.z)
+        fly = {c for c, _cost in fort.flier_neighbours(node)}
+        walk = {c for c, _cost in fort.path_neighbours(node)}
+        from ascii_warriors.world import tiles as tile_data
+
+        air = [c for c in fly - walk
+               if tile_data.get(lm.tile(*c)).has("OPEN")]
+        self.assertTrue(air, "nothing above the dwarves is open sky")
+        for cell in air:
+            self.assertNotIn(cell, walk)
+
+    def test_rock_and_magma_and_fire_are_not_flown_through(self):
+        """Flight is a set of exemptions and these are not among them: a
+        creature occupies a whole cell, so "over the lava" is nowhere."""
+        fort = embark("flysolid")
+        lm = fort.local
+        d0 = fort.dwarves()[0]
+        node = (d0.x, d0.y, d0.z)
+        for dx, dy, tile_id in ((1, 0, "rock_wall"), (-1, 0, "lava"),
+                                (0, 1, "fire")):
+            cell = (node[0] + dx, node[1] + dy, node[2])
+            lm.set_tile(*cell, tile_id)
+            self.assertNotIn(
+                cell, {c for c, _cost in fort.flier_neighbours(node)}, tile_id)
+
+    def test_a_flier_crosses_the_map_faster_than_a_walker(self):
+        """Closest approach, not final position: the first version of this
+        measured where the chase ended, and a roc that had killed five dwarves
+        and run the sixth into a corner scored worse than a goblin that had
+        killed one and stopped next to it."""
+        def closest(cid):
+            fort = embark("flyapproach")
+            entry = fort.local.edge_entry(fort.rng, "north")
+            foe = make_creature(fort.rng, cid, faction="hostile", level=3)
+            foe.x, foe.y, foe.z = fort._free_spot(entry, 0)
+            foe.wx, foe.wy = fort.wx, fort.wy
+            fort.add_creature(foe)
+            best = 10 ** 6
+            steps = 0
+            for steps in range(1, 121):
+                if foe.body.dead or fort.lost or not fort.dwarves():
+                    break
+                sim.step(fort)
+                for d in fort.dwarves():
+                    best = min(best, abs(foe.x - d.x) + abs(foe.y - d.y)
+                               + abs(foe.z - d.z))
+            return best, steps
+
+        flier, flier_steps = closest("roc")
+        walker, walker_steps = closest("goblin")
+        self.assertLessEqual(flier, walker,
+                             "the roc got no closer than the goblin")
+        self.assertLessEqual(flier, 2, "the roc never reached anybody")
+
+    def test_a_flier_with_nowhere_better_to_go_still_moves(self):
+        """`_flier_step` is greedy, so it has to hand back to the walking
+        planner rather than stand still in a corner."""
+        fort = embark("flystuck")
+        d0 = fort.dwarves()[0]
+        foe = make_creature(fort.rng, "roc", faction="hostile", level=3)
+        foe.x, foe.y, foe.z = d0.x, d0.y, d0.z
+        goal = (d0.x, d0.y, d0.z)
+        self.assertFalse(sim._flier_step(fort, foe, goal),
+                         "standing on the goal is not an improvement")
+
     def test_the_alarm_raises_and_lifts_itself(self):
         """Somebody has to notice the goblins."""
         fort = embark("alarm")
