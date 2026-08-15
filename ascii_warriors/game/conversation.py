@@ -14,6 +14,7 @@ from ..engine.screen import Frag
 from . import companions as companion_mod
 from . import quests as quest_mod
 from . import trade as trade_mod
+from . import skills as skills_mod
 
 TOPICS: Tuple[str, ...] = (
     "greet", "ask_directions", "ask_rumors", "ask_troubles", "ask_self",
@@ -423,7 +424,8 @@ def say(speaker, listener, topic: str, game) -> List[Frag]:
 
     if topic == "threaten":
         speaker.add_exp("intimidation", 20)
-        power = speaker.skills.level("intimidation") + speaker.skills.level("fighter")
+        power = (skills_mod.ability(speaker, "intimidation")
+                 + skills_mod.ability(speaker, "fighter"))
         will = listener.personality.facet("bravery") // 10
         if power > will + rng.randint(0, 6):
             out.extend(_quote(listener, rng.choice([
@@ -463,8 +465,8 @@ LIE_PER_LEVEL = 0.055
 
 def lie_chance(speaker, listener) -> float:
     """Whether a story about nothing gets believed."""
-    skill = speaker.skills.level("lying")
-    doubt = listener.skills.level("observer")
+    skill = skills_mod.ability(speaker, "lying")
+    doubt = skills_mod.ability(listener, "observer")
     odds = LIE_BASE + LIE_PER_LEVEL * skill - 0.055 * doubt
     # A trusting listener is easier. v3.15 rolled thirty facets per creature
     # and this is another of them finally being asked.

@@ -24,6 +24,8 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Tuple
 
+from . import skills as skills_mod
+
 #: Kinds of book, what each is about, and the skill that gets better for
 #: having read it. ``None`` means the book teaches knowledge and nothing else.
 SUBJECTS: Tuple[Tuple[str, str, Optional[str]], ...] = (
@@ -311,10 +313,11 @@ def subjects_for(writer) -> List[Tuple[str, str]]:
 
 def write_depth(writer, kind: str) -> int:
     """How deep a work this writer can produce on this subject."""
-    craft = writer.skills.level("writing")
+    craft = skills_mod.ability(writer, "writing")
     entry = next((s for s in SUBJECTS if s[0] == kind), None)
-    known = writer.skills.level(entry[2]) if entry and entry[2] else craft
-    return max(1, min(MAX_DEPTH, (craft + known) // 3))
+    known = (skills_mod.ability(writer, entry[2])
+             if entry and entry[2] else craft)
+    return max(1, min(MAX_DEPTH, int((craft + known) // 3)))
 
 
 def write_turns(writer, kind: str) -> int:
@@ -350,7 +353,7 @@ def read_turns(reader, book: Book) -> int:
     A slow reader with a deep book loses most of a day to it, which is the
     cost that makes a library somewhere safe worth having.
     """
-    skill = max(0, reader.skills.level("reading"))
+    skill = max(0.0, skills_mod.ability(reader, "reading"))
     speed = 1.0 + skill * 0.18
     return max(10, int(READ_TURNS * book.depth / speed))
 

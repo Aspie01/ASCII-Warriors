@@ -519,6 +519,14 @@ thing you can dig. Standing in a fire hurts and armour helps little; it also
 throws light, so you are extremely visible next to one. In the fortress, magma
 sets light to anything flammable near it.
 
+**The attributes you were rolled.** Every skill is governed by two or three of
+your nineteen attributes, and they decide how well the work comes out. A
+creative smith forges better goods, a patient angler catches more, a
+quick-witted haggler moves a price further, and somebody with a tin ear should
+not take up the fiddle. Talent is worth about three levels of training and
+never four — a dull veteran always out-works a gifted apprentice — and your
+character sheet tells you which of your skills each attribute is helping.
+
 **Swimming.** A river is water, not a wall. Walk in and you swim — slower,
 twice as tiring, and only while your breath holds. What decides how long you
 have is the Swimmer skill and what you are carrying: unencumbered you can cross

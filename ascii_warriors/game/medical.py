@@ -15,6 +15,7 @@ from ..engine.rng import RNG
 from ..engine.screen import Frag
 from .body import PartState
 from .item import Item
+from . import skills as skills_mod
 
 #: Problems a body part can have that treatment can do something about.
 TREATMENTS = ("bandage", "splint", "suture")
@@ -107,8 +108,12 @@ def _consume(healer, treatment: str) -> Optional[Item]:
 
 def _quality(healer, treatment: str, rng: RNG) -> int:
     """Roll how well a treatment went: 0 botched, 1 poor, 2 fine, 3 excellent."""
-    skill = healer.skills.level(TREATMENT_SKILL.get(treatment, "wound_dressing"))
-    roll = skill + rng.randint(0, 8) + int(healer.attributes.factor("agility") * 2)
+    # Aptitude in place of the flat agility term: a surgeon wants steady
+    # hands and focus, a wound dresser wants empathy, and the skill table has
+    # said which is which since it was written.
+    skill = skills_mod.ability(
+        healer, TREATMENT_SKILL.get(treatment, "wound_dressing"))
+    roll = skill + rng.randint(0, 8) + 2
     if roll >= 16:
         return 3
     if roll >= 10:
@@ -204,6 +209,7 @@ def treat(
 
 def diagnose(healer, patient) -> List[Frag]:
     """Describe a patient's injuries, in detail proportional to skill."""
+    # Trained level: what a physician can tell is knowledge, not a roll.
     skill = healer.skills.level("diagnose")
     body = patient.body
     who = "You are" if patient is healer else "%s is" % patient.display_name()

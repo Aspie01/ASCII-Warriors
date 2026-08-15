@@ -25,6 +25,7 @@ from typing import Any, List, Optional, Tuple
 from ..data.calendar import TICKS_PER_HOUR
 from ..engine.geometry import DIRS8
 from ..world import tiles as tile_data
+from . import skills as skills_mod
 
 Cell = Tuple[int, int, int]
 
@@ -96,7 +97,7 @@ def gather(game, creature, rng) -> Tuple[List[Tuple[str, int]], str]:
     if cell is None:
         return ([], "There is nothing growing here to pick.")
     kind = gatherable(game, cell)
-    skill = creature.skills.level("herbalism")
+    skill = skills_mod.ability(creature, "herbalism")
     creature.add_exp("herbalism", 12 if kind == "shrub" else 6)
 
     if kind == "grass":
@@ -149,7 +150,7 @@ def water_beside(game, creature) -> Optional[Cell]:
 
 def fish_chance(creature) -> float:
     """How likely a cast is to come back with something."""
-    skill = creature.skills.level("fishing")
+    skill = skills_mod.ability(creature, "fishing")
     return min(FISH_MAX, FISH_BASE + FISH_PER_LEVEL * skill)
 
 

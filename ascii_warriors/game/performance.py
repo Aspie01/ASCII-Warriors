@@ -30,6 +30,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from ..world import artforms
+from . import skills as skills_mod
 
 #: Quality bands, worst to best. Deliberately the same shape as an
 #: engraving's, because a fortress that grades its walls should grade its
@@ -244,7 +245,9 @@ def score(world, performer, form, *, audience: Sequence[Any] = (),
     Split out from :func:`band` so a test can read the curve without a
     thousand rolls, and so the look panel could show it if it ever wants to.
     """
-    level = max(0, performer.skills.level(form.skill))
+    # `musicality` is the last attribute in the game that reaches nothing
+    # otherwise: a song is the only thing it could ever have meant.
+    level = max(0.0, skills_mod.ability(performer, form.skill))
     value = level * PER_LEVEL
     if knows(performer, form):
         value += KNOWN_BONUS

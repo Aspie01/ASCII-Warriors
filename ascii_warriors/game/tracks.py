@@ -23,6 +23,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
+
 Cell = Tuple[int, int, int]
 
 #: Ground that takes a print. Rock does not, which is why a trail stops at the
@@ -288,6 +289,9 @@ def read(game, reader, cell: Cell, track: Track) -> List[str]:
     better, because a hunter and a clerk looking at the same print should
     disagree about what it says, not about whether it is there.
     """
+    # Trained level, not effective: these are bands of what a reader can
+    # tell, and aptitude belongs on rolls and magnitudes rather than on
+    # what somebody knows. See `skills.ability`.
     level = max(0, reader.skills.level("tracker"))
     age = age_of(game, track)
     fade = fade_ticks(game, cell, track)

@@ -1220,7 +1220,9 @@ class Fortress:
 
     def _quality_for(self, dwarf, recipe) -> int:
         """Roll the quality of a crafted item."""
-        level = dwarf.skills.level(recipe.skill)
+        from ..game.skills import ability
+
+        level = ability(dwarf, recipe.skill)
         roll = self.rng.random() + level * 0.035
         if roll > 1.15:
             return 5

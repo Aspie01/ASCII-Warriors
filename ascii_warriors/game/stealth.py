@@ -32,6 +32,7 @@ from typing import Any, Optional
 
 from ..engine import geometry
 from ..engine.fov import has_los
+from . import skills as skills_mod
 
 #: How much of the roll each side brings before anything modifies it.
 SKILL_WEIGHT = 6.0
@@ -144,14 +145,17 @@ def hide_chance(world, sneaker, watcher) -> float:
     if watcher.body.dead:
         return 1.0
 
+    # Effective levels, not trained ones. The two hand-written attribute terms
+    # that used to sit below this -- agility for the sneak, intuition for the
+    # watcher -- picked one attribute each out of the four the skill table had
+    # already named, and ignored spatial sense entirely, which is the one a
+    # creeping man is actually using.
     score = UNTRAINED
-    score += SKILL_WEIGHT * (sneaker.skills.level("sneak")
-                             + sneaker.skills.level("ambusher") * 0.5)
-    score -= SKILL_WEIGHT * watcher.skills.level("observer")
+    score += SKILL_WEIGHT * (skills_mod.ability(sneaker, "sneak")
+                             + skills_mod.ability(sneaker, "ambusher") * 0.5)
+    score -= SKILL_WEIGHT * skills_mod.ability(watcher, "observer")
     if sneaker.defn.has("AMBUSHER"):
         score += AMBUSHER_HELP
-    score += sneaker.attributes.factor("agility") * 8.0 - 8.0
-    score -= watcher.attributes.factor("intuition") * 8.0 - 8.0
 
     dist = geometry.chebyshev(sneaker.x, sneaker.y, watcher.x, watcher.y)
     score += dist * DISTANCE_HELP

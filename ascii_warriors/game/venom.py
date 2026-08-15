@@ -24,6 +24,8 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
+from . import skills as skills_mod
+
 #: The kinds of venom in the world, and what each does per tick while it runs.
 #:
 #: `pain` and `bleed` feed the existing body model; `slow` costs speed;
@@ -152,12 +154,18 @@ def resistance(victim) -> float:
     Toughness is the obvious half. `discipline` is the other, and it is the
     first line of code in the game to read that skill: what a syndrome mostly
     does is make you stop, and the ones who do not stop take less of it.
+
+    `disease_resistance` is the third, and it had never been read by anything
+    at all -- an attribute rolled for every creature in the world, printed on
+    the character sheet, and connected to nothing. A syndrome is the one thing
+    in the game it could possibly mean.
     """
     tough = 0.0
     attrs = getattr(victim, "attributes", None)
     if attrs is not None:
         tough = max(0.0, (attrs.factor("toughness") - 1.0)) * 10.0
-    grit = max(0, victim.skills.level("discipline"))
+        tough += max(0.0, (attrs.factor("disease_resistance") - 1.0)) * 10.0
+    grit = max(0.0, skills_mod.ability(victim, "discipline"))
     return min(MAX_RESIST, (tough + grit) * RESIST_PER_POINT)
 
 

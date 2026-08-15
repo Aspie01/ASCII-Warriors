@@ -6713,3 +6713,261 @@ class TestSwimming(GameFixture):
 
         restored = Game.from_dict(self.game.to_dict())
         self.assertAlmostEqual(restored.drowning.get(p.id, 0.0), held, places=3)
+
+
+class TestAptitude(unittest.TestCase):
+    """`SkillDef.attrs` -- the attributes each skill declares it is governed
+    by, written with the table and read by nothing, leaving ten of the
+    nineteen attributes rolled for every creature and connected to nothing."""
+
+    def _who(self, race="dwarf", **attrs):
+        c = make_creature(RNG("apt"), race, equip=False)
+        for attr, value in attrs.items():
+            c.attributes.set(attr, value)
+        return c
+
+    def _gifted(self, sid, value, level=0):
+        from ascii_warriors.game import skills
+
+        c = make_creature(RNG("apt"), "dwarf", equip=False)
+        for attr in skills.SKILLS[sid].attrs:
+            c.attributes.set(attr, value)
+        c.skills.set_level(sid, level)
+        return c
+
+    # -- every attribute reaches something now -------------------------------- #
+
+    def test_the_attributes_nothing_read_are_all_governed_by_a_skill(self):
+        """Three attributes -- toughness, recuperation and disease resistance
+        -- govern no skill and never did; they are read directly, by wounds
+        and by venom. Every one of the ten that had no reader at all has to
+        reach one through the table."""
+        from ascii_warriors.game import skills
+        from ascii_warriors.game.attributes import ALL_ATTRS
+
+        direct_only = {"toughness", "recuperation", "disease_resistance"}
+        for attr in ALL_ATTRS:
+            if attr in direct_only:
+                continue
+            self.assertTrue(skills.governed_by(attr),
+                            "%s governs nothing and nothing reads it" % attr)
+
+    def test_every_attribute_now_reaches_an_outcome(self):
+        """Ten of nineteen were read by no line of code anywhere. The ones
+        with no direct reader must reach one through a skill somebody asks
+        `ability` for."""
+        import os
+        import re
+
+        from ascii_warriors.game import skills
+        from ascii_warriors.game.attributes import ALL_ATTRS
+
+        text = []
+        for dirpath, _dirs, names in os.walk("ascii_warriors"):
+            if "__pycache__" in dirpath:
+                continue
+            for name in names:
+                if name.endswith(".py"):
+                    with open(os.path.join(dirpath, name)) as fh:
+                        text.append(fh.read())
+        source = "\n".join(text)
+
+        asked = set(re.findall(
+            r'ability\([^,]+,\s*["\']([a-z_]+)["\']', source))
+        # The three dynamic call sites, each covering a whole category.
+        for sd in skills.SKILLS.values():
+            if sd.category in ("craft", "medical"):
+                asked.add(sd.id)
+        asked.update(("music", "poetry", "dancing"))
+        reached = set()
+        for sid in asked:
+            sd = skills.SKILLS.get(sid)
+            if sd:
+                reached.update(sd.attrs)
+
+        for attr in ALL_ATTRS:
+            direct = re.search(r'factor\(\s*["\']%s["\']' % attr, source)
+            self.assertTrue(direct or attr in reached,
+                            "%s is read by nothing at all" % attr)
+
+    # -- the curve ------------------------------------------------------------ #
+
+    def test_talent_helps_and_does_not_decide(self):
+        from ascii_warriors.game import skills
+
+        poor = skills.aptitude(self._gifted("crafting", 300), "crafting")
+        average = skills.aptitude(self._gifted("crafting", 1000), "crafting")
+        gifted = skills.aptitude(self._gifted("crafting", 2200), "crafting")
+        self.assertLess(poor, average)
+        self.assertLess(average, gifted)
+        self.assertAlmostEqual(average, 1.0, places=2)
+        self.assertGreaterEqual(poor, skills.MIN_APTITUDE)
+        self.assertLessEqual(gifted, skills.MAX_APTITUDE)
+
+    def test_talent_is_worth_under_half_a_level_of_training(self):
+        """What `MIN_APTITUDE` and `MAX_APTITUDE` are actually deciding. A
+        wider band was tried first and a prodigy beat a man four levels above
+        him, which is not what practice is for."""
+        from ascii_warriors.game import skills
+
+        self.assertLess(skills.TALENT_WORTH, 0.5)
+        checked = 0
+        for level in range(2, skills.MAX_LEVEL):
+            gap = int(level * skills.TALENT_WORTH) + 1
+            if level + gap > skills.MAX_LEVEL:
+                continue
+            checked += 1
+            gifted = self._gifted("crafting", 5000, level=level)
+            dull = self._gifted("crafting", 0, level=level + gap)
+            self.assertGreater(
+                skills.ability(dull, "crafting"),
+                skills.ability(gifted, "crafting"),
+                "the best possible %d beat the worst possible %d"
+                % (level, level + gap))
+        self.assertGreater(checked, 8, "the sweep checked almost nothing")
+
+    def test_the_most_gifted_apprentice_loses_to_a_dull_veteran(self):
+        from ascii_warriors.game import skills
+
+        gifted_novice = self._gifted("crafting", 5000, level=8)
+        dull_veteran = self._gifted("crafting", 0, level=12)
+        self.assertGreater(skills.ability(dull_veteran, "crafting"),
+                           skills.ability(gifted_novice, "crafting"))
+
+    def test_an_untrained_skill_is_still_untrained(self):
+        """Aptitude multiplies; it does not grant. Being clever is not knowing
+        how."""
+        from ascii_warriors.game import skills
+
+        prodigy = self._gifted("crafting", 5000, level=0)
+        self.assertEqual(skills.ability(prodigy, "crafting"), 0.0)
+
+    def test_aptitude_is_not_experience(self):
+        """It must never be stored. A gifted crafter's *level* is what they
+        trained, and a save that wrote aptitude into it would compound every
+        time it was loaded."""
+        from ascii_warriors.game import skills
+
+        c = self._gifted("crafting", 2400, level=7)
+        self.assertEqual(c.skills.level("crafting"), 7)
+        self.assertGreater(skills.ability(c, "crafting"), 7)
+        restored = type(c.skills)()
+        for sid, lv in c.skills.known():
+            restored.set_level(sid, lv)
+        self.assertEqual(restored.level("crafting"), 7)
+
+    def test_a_creature_with_no_attributes_is_simply_average(self):
+        from ascii_warriors.game import skills
+
+        class Bare:
+            skills = None
+            attributes = None
+
+        self.assertEqual(skills.aptitude(Bare(), "crafting"), 1.0)
+        self.assertEqual(skills.aptitude(self._who(), "no_such_skill"), 1.0)
+
+    # -- where it reaches ------------------------------------------------------ #
+
+    def test_a_gifted_crafter_makes_better_things(self):
+        """The headline. Quality was skill plus a die minus difficulty, and a
+        dull smith and a brilliant one turned out identical work."""
+        from ascii_warriors.game import crafting
+
+        def masterworks(gift):
+            made = []
+            for seed in range(60):
+                maker = self._gifted("crafting", gift, level=9)
+                made.append(crafting.ability(maker, "crafting")
+                            if hasattr(crafting, "ability") else 0)
+            return made
+
+        from ascii_warriors.game import skills
+
+        dull = skills.ability(self._gifted("crafting", 400, 9), "crafting")
+        bright = skills.ability(self._gifted("crafting", 2400, 9), "crafting")
+        self.assertGreater(bright, dull * 1.2)
+
+    def test_the_fortress_and_the_adventurer_roll_the_same_talent(self):
+        """Two quality rolls in two modes; both had skill and no attributes."""
+        import inspect
+
+        from ascii_warriors.fortress import fortress as fort_mod
+        from ascii_warriors.game import crafting
+
+        self.assertIn("ability(", inspect.getsource(crafting.craft))
+        self.assertIn("ability(", inspect.getsource(fort_mod.Fortress._quality_for))
+
+    def test_disease_resistance_finally_resists_something(self):
+        """Rolled for every creature in the world, printed on the character
+        sheet, and read by nothing. A syndrome is the one thing it could
+        possibly have meant."""
+        from ascii_warriors.game import venom
+
+        frail = self._who(disease_resistance=200, toughness=1000)
+        hardy = self._who(disease_resistance=3000, toughness=1000)
+        self.assertGreater(venom.resistance(hardy), venom.resistance(frail))
+
+    def test_a_musician_needs_musicality(self):
+        """The last attribute in the game that reached nothing else."""
+        from ascii_warriors.game import skills
+
+        tin_ear = self._who(musicality=300, kinesthetic_sense=1000)
+        tuneful = self._who(musicality=2600, kinesthetic_sense=1000)
+        for c in (tin_ear, tuneful):
+            c.skills.set_level("music", 8)
+        self.assertGreater(skills.ability(tuneful, "music"),
+                           skills.ability(tin_ear, "music"))
+
+    def test_a_haggler_uses_the_four_attributes_the_table_named(self):
+        """`_haggle_factor` multiplied both skills by `social_awareness` and
+        ignored the analytical head and the memory for prices that appraisal
+        actually declares."""
+        import inspect
+
+        from ascii_warriors.game import trade
+
+        source = inspect.getsource(trade._haggle_factor)
+        self.assertIn("ability(", source)
+        self.assertNotIn('factor("social_awareness")', source)
+
+    def test_combat_is_deliberately_left_alone(self):
+        """Its attribute model is hand-written and has been calibrated against
+        measurements in every milestone from v3.19 to v3.28. Running aptitude
+        over the top of it would count agility twice and invalidate all of
+        it."""
+        import inspect
+
+        from ascii_warriors.game import combat
+
+        for fn in (combat.attack_power, combat.defense_power,
+                   combat.compute_momentum):
+            self.assertNotIn("ability(", inspect.getsource(fn))
+
+    # -- what the player is told ------------------------------------------------ #
+
+    def test_the_sheet_says_what_an_attribute_is_for(self):
+        from ascii_warriors.ui.character_screen import _helps_with
+
+        c = self._who()
+        self.assertEqual(_helps_with(c, "creativity"), "")
+        c.skills.set_level("crafting", 6)
+        c.skills.set_level("lying", 3)
+        line = _helps_with(c, "creativity")
+        self.assertIn("Craftsdwarf", line)
+        self.assertIn("Liar", line)
+
+    def test_the_sheet_names_the_best_of_them_first(self):
+        from ascii_warriors.ui.character_screen import _helps_with
+
+        c = self._who()
+        c.skills.set_level("crafting", 2)
+        c.skills.set_level("lying", 9)
+        self.assertLess(_helps_with(c, "creativity").index("Liar"),
+                        _helps_with(c, "creativity").index("Craftsdwarf"))
+
+    def test_a_knack_is_only_mentioned_when_there_is_one(self):
+        from ascii_warriors.game import skills
+
+        self.assertEqual(skills.aptitude_word(1.0), "")
+        self.assertTrue(skills.aptitude_word(skills.MIN_APTITUDE))
+        self.assertTrue(skills.aptitude_word(skills.MAX_APTITUDE))

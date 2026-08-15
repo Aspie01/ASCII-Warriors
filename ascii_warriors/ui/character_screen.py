@@ -9,9 +9,37 @@ from ..engine.screen import Frag, Screen
 from ..engine.widgets import Tabs, key_hint, scroll_view
 from ..game.attributes import ATTR_NAMES, MENTAL, PHYSICAL
 from ..game.skills import SKILLS, SKILL_CATEGORIES, level_name
+from ..game import skills as skills_mod
 from .app import Scene
 
 TABS = ["Character", "Skills", "Wounds", "Tasks", "Thoughts"]
+
+
+#: How many of an attribute's skills to name on the character sheet. Two,
+#: because the point is to say what the number is for, not to list fifteen
+#: crafts at somebody.
+HELPS_SHOWN = 2
+
+
+def _helps_with(creature, attr: str) -> str:
+    """The skills this creature actually has that *attr* helps, best first.
+
+    Every attribute governs skills and now something reads that, so the
+    character sheet can finally say which. Only trained ones: telling a
+    peasant that willpower governs Leadership is a manual, not a sheet.
+    """
+    have = []
+    for sid in skills_mod.governed_by(attr):
+        level = creature.skills.level(sid)
+        if level > 0:
+            have.append((level, SKILLS[sid].name))
+    if not have:
+        return ""
+    have.sort(key=lambda kv: (-kv[0], kv[1]))
+    names = [n for _lv, n in have[:HELPS_SHOWN]]
+    more = len(have) - len(names)
+    tail = " +%d more" % more if more else ""
+    return "helps %s%s" % (", ".join(names), tail)
 
 
 class CharacterScene(Scene):
@@ -39,19 +67,18 @@ class CharacterScene(Scene):
             out.append(Frag("A %s of the world of %s." % (
                 p.defn.name, game.world.name), colors.UI["fg"]))
             out.append(Frag(""))
-            out.append(Frag("Physical", colors.UI["accent"]))
-            for attr in PHYSICAL:
-                desc = p.attributes.describe(attr)
-                out.append(Frag("  %-22s %5d  %s" % (
-                    ATTR_NAMES[attr], p.attributes.get(attr), desc),
-                    colors.UI["fg"] if desc else colors.UI["dim"]))
-            out.append(Frag(""))
-            out.append(Frag("Mental", colors.UI["accent"]))
-            for attr in MENTAL:
-                desc = p.attributes.describe(attr)
-                out.append(Frag("  %-22s %5d  %s" % (
-                    ATTR_NAMES[attr], p.attributes.get(attr), desc),
-                    colors.UI["fg"] if desc else colors.UI["dim"]))
+            for group, label in ((PHYSICAL, "Physical"), (MENTAL, "Mental")):
+                out.append(Frag(label, colors.UI["accent"]))
+                for attr in group:
+                    desc = p.attributes.describe(attr)
+                    out.append(Frag("  %-22s %5d  %s" % (
+                        ATTR_NAMES[attr], p.attributes.get(attr), desc),
+                        colors.UI["fg"] if desc else colors.UI["dim"]))
+                    helps = _helps_with(p, attr)
+                    if helps:
+                        out.append(Frag("      %s" % helps, colors.UI["dim"]))
+                if label == "Physical":
+                    out.append(Frag(""))
             out.append(Frag(""))
             out.append(Frag("Temperament", colors.UI["accent"]))
             for line in p.personality.describe():
@@ -100,6 +127,10 @@ class CharacterScene(Scene):
                     out.append(Frag("  %-24s %-16s [%s] %3d%%" % (
                         SKILLS[sid].name, level_name(lv), bar, pct),
                         colors.UI["fg"]))
+                    knack = skills_mod.aptitude_word(
+                        skills_mod.aptitude(p, sid))
+                    if knack:
+                        out.append(Frag("      %s" % knack, colors.UI["dim"]))
                 out.append(Frag(""))
 
         elif idx == 2:

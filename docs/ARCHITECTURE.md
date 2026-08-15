@@ -3345,7 +3345,71 @@ avoids water, so a carp placed by it landed on the bank, where `is_passable`
 would not let it move and it flapped for ever. `LocalMap.random_water` is the
 third place `swim` is now read.
 
-## 90. Style
+## 90. The attributes you were rolled (v3.30)
+
+Every skill in the table has declared the two or three attributes that govern
+it since the table was written. `SkillDef.attrs` had never been read by
+anything. The consequence was quiet and large: **ten of the nineteen
+attributes** -- analytical ability, creativity, memory, patience, willpower,
+empathy, linguistic ability, spatial sense, musicality and disease resistance
+-- were rolled for every creature in the world, printed on the character sheet,
+and read by no line of code anywhere. A dwarf with legendary creativity crafted
+exactly like a dull one, because quality was `skill + d6 - difficulty` in
+adventure mode and `random() + level * 0.035` in the fortress, and neither had
+an attribute in it.
+
+`skills.aptitude` averages the governing attributes' factors, and
+`skills.ability` is trained level times that. Nineteen of nineteen attributes
+now reach an outcome.
+
+**Combat is deliberately untouched.** It has its own hand-written attribute
+model -- `attack_power` reaches for agility and kinesthetic sense itself -- and
+that model has been calibrated against measurements in every milestone from
+v3.19 to v3.28. Running aptitude over the top of it would count agility twice
+and invalidate all of it. Aptitude is for the places that had nothing, and
+there is a test that keeps it out.
+
+**The band decides how many levels talent is worth, and that is the whole
+balance of the thing.** At 0.82 to 1.18 the ratio is 1.44, so talent stands in
+for a little under half your current level -- three levels to a journeyman,
+never four -- and a dull veteran always out-works the most gifted apprentice
+alive. A wider band (0.70 to 1.35) was tried first and measured: a prodigy at 8
+beat a plodder at 12, which is not what practice is for. `TALENT_WORTH` is
+derived from the two constants and asserted against a sweep of every level, so
+the rule and the numbers cannot drift apart.
+
+**Rolls and magnitudes, not knowledge thresholds.** This is the distinction the
+first version got wrong. How good the work came out, how much was gathered, how
+far a price moved, how well a wound was dressed -- all rolls, all take
+aptitude. But `tracks.read` and `medical.diagnose` are *bands of what a reader
+can tell you*, and running aptitude over those meant a player who trained
+Tracker to exactly the documented threshold silently did not get the thing they
+trained for. A dull tracker still knows what a deer print looks like once he
+has been taught; he is worse at everything the roll decides. Both were reverted
+and the rule is written into `ability`'s docstring, because the next person to
+wire a site will need it.
+
+**Three hand-written attribute terms were replaced rather than added to.**
+`_haggle_factor` multiplied both trade skills by `social_awareness`, which is
+one attribute out of the four appraisal and negotiation actually declare;
+`medical._quality` added a flat agility term to every treatment including the
+ones the table says want empathy; and the stealth score picked agility for the
+sneak and intuition for the watcher, ignoring spatial sense -- the one a
+creeping man is chiefly using. Adding aptitude on top of any of them would have
+counted an attribute twice.
+
+**Where the last two went.** `disease_resistance` had no skill and no reader;
+`venom.resistance` is the one thing in the game a syndrome could ever have
+meant. `musicality` governs exactly one skill, `music`, so it reaches an
+outcome through `performance.score` and nowhere else.
+
+**Nineteen numbers on a character sheet mean nothing until you can see what
+each is for.** Every attribute line now names the skills the reader actually
+has that it helps, best first, and every skill line says whether it comes
+easily or is a struggle. Only trained skills: telling a peasant that willpower
+governs Leadership is a manual, not a sheet.
+
+## 91. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

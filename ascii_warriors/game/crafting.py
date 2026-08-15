@@ -8,6 +8,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 from ..data import creatures as creature_data
 from ..data import items as item_data
 from .item import Item
+from .skills import ability
 
 
 @dataclass(frozen=True)
@@ -136,7 +137,10 @@ def craft(creature, recipe: Recipe, game) -> Tuple[bool, str]:
             if left <= 0:
                 break
 
-    skill_level = creature.skills.level(recipe.skill)
+    # Effective level, not trained level: `SkillDef.attrs` says what governs
+    # each craft -- creativity, focus and a steady hand for most of them -- and
+    # until now a dull smith and a brilliant one turned out the same work.
+    skill_level = ability(creature, recipe.skill)
     roll = skill_level + game.rng.randint(0, 6) - recipe.difficulty
     quality = 0
     if roll >= 12:
@@ -216,7 +220,7 @@ def cook(creature, items: Sequence[Item], game) -> Optional[Item]:
         creature.inventory.remove(it, it.count)
         if it in creature.inventory.items:
             creature.inventory.items.remove(it)
-    quality = min(5, creature.skills.level("cooking") // 3)
+    quality = min(5, int(ability(creature, "cooking")) // 3)
     out = Item("cooked_meat", "meat", quality=quality, count=total,
                maker=creature.name)
     creature.inventory.add(out)

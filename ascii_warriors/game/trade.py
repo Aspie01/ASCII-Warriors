@@ -12,6 +12,7 @@ from typing import Dict, List, Tuple
 from ..data import items as item_data
 from ..engine.rng import RNG
 from .item import Item, make_item
+from . import skills as skills_mod
 
 #: Merchants pay this fraction of an item's worth before skill adjustments.
 BASE_SELL_RATE = 0.35
@@ -87,10 +88,14 @@ def stock_merchant(npc, rng: RNG, *, tier: int = 2) -> None:
 
 def _haggle_factor(customer, merchant) -> float:
     """How far the customer's skills move a price in their favour, 0 to 0.45."""
-    appraisal = customer.skills.level("appraisal")
-    negotiation = customer.skills.level("negotiation")
-    social = customer.attributes.factor("social_awareness")
-    bonus = (appraisal * 0.012 + negotiation * 0.018) * social
+    # Both skills declare their own governing attributes -- appraisal wants
+    # an analytical head and a memory for prices, negotiation wants the three
+    # social ones -- so the hand-written `social_awareness` multiplier that
+    # used to sit here is gone. It counted one attribute for both skills and
+    # ignored the four the table had already named.
+    appraisal = skills_mod.ability(customer, "appraisal")
+    negotiation = skills_mod.ability(customer, "negotiation")
+    bonus = appraisal * 0.012 + negotiation * 0.018
     return max(0.0, min(0.45, bonus))
 
 

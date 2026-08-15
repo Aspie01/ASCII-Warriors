@@ -162,6 +162,111 @@ def exp_for_level(level: int) -> int:
 _LEVEL_TABLE: Tuple[int, ...] = tuple(exp_for_level(i) for i in range(MAX_LEVEL + 1))
 
 
+# --------------------------------------------------------------------------- #
+# Aptitude: what a creature was born with, as against what it has learned
+# --------------------------------------------------------------------------- #
+#
+# Every skill in the table has declared the two or three attributes that govern
+# it since the table was written, and `SkillDef.attrs` had never been read by
+# anything. The consequence was quiet and large: ten of the nineteen attributes
+# -- analytical ability, creativity, memory, patience, willpower, empathy,
+# linguistic ability, spatial sense, musicality and disease resistance -- were
+# rolled for every creature in the world, shown on the character sheet, and
+# read by no line of code anywhere. A dwarf with legendary creativity crafted
+# exactly like a dull one.
+#
+# What the other nine attributes had instead was a hand-tuned model in combat,
+# written call site by call site: `attack_power` reaches for agility and
+# kinesthetic sense itself. That model is deliberately left alone here. It has
+# been calibrated against measurements in every milestone from v3.19 to v3.28,
+# and running aptitude over the top of it would count agility twice and
+# invalidate all of it. Aptitude is for the places that had nothing.
+
+#: How far aptitude can move a skill. An average creature is 1.0, and the range
+#: is deliberately much narrower than the attribute spread that feeds it: what
+#: it is set to decides how many levels of training talent is worth, and that
+#: is the whole balance of the thing. At 0.82 and 1.18 the ratio is 1.44, so
+#: talent is worth a little under half your current level -- three levels to a
+#: journeyman, never four -- and a dull veteran always out-works a gifted
+#: apprentice. A wider band was tried first and a prodigy beat a man four
+#: levels above him, which is not what practice is for.
+MIN_APTITUDE = 0.82
+MAX_APTITUDE = 1.18
+#: The most training aptitude can stand in for, as a share of level. Derived
+#: from the band above and asserted against it, so the two cannot drift.
+TALENT_WORTH = MAX_APTITUDE / MIN_APTITUDE - 1.0
+
+
+def aptitude(creature, sid: str) -> float:
+    """How much a creature's attributes help it at one skill.
+
+    The average of the governing attributes' factors, pulled towards 1.0 so
+    that being clever is worth something and not everything.
+    """
+    sd = SKILLS.get(sid)
+    attrs = getattr(creature, "attributes", None)
+    if sd is None or attrs is None or not sd.attrs:
+        return 1.0
+    total = 0.0
+    for attr in sd.attrs:
+        total += attrs.factor(attr)
+    mean = total / float(len(sd.attrs))
+    # Half the deviation from average: the attributes decide the edges, the
+    # skill decides the middle.
+    return max(MIN_APTITUDE, min(MAX_APTITUDE, 1.0 + (mean - 1.0) * 0.5))
+
+
+def ability(creature, sid: str) -> float:
+    """A creature's effective level at a skill: what it learned, times knack.
+
+    Use this for **rolls and magnitudes** -- how good the work came out, how
+    much was gathered, how far a price moved, how long the breath lasted.
+
+    Do *not* use it for **knowledge thresholds**: the bands in
+    `tracks.read` and `medical.diagnose` decide what a reader can tell you,
+    and a dull tracker still knows what a deer print looks like once he has
+    been taught. Running aptitude over those quietly takes away the thing the
+    player trained to exactly the advertised level to get, which is a lie the
+    character sheet cannot see.
+
+    Keep `SkillSet.level` for what is displayed, trained and written to a
+    save. Aptitude is not experience and must never be stored as any.
+    """
+    attrs = getattr(creature, "skills", None)
+    if attrs is None:
+        return 0.0
+    return attrs.level(sid) * aptitude(creature, sid)
+
+
+def governed_by(attr: str) -> List[str]:
+    """Every skill this attribute helps, in table order.
+
+    The link has existed as data since the skill table was written. Now that
+    something reads it, it is worth showing: nineteen numbers on a character
+    sheet mean nothing until you can see what each of them is for.
+    """
+    return [sd.id for sd in SKILLS.values() if attr in sd.attrs]
+
+
+def aptitude_word(value: float) -> str:
+    """A word for how much aptitude is helping, "" when it is not much."""
+    for edge, word in APTITUDE_WORDS:
+        if value <= edge:
+            return word
+    return APTITUDE_WORDS[-1][1]
+
+
+#: What to call an aptitude. Five bands, and nothing said in the middle one,
+#: because most creatures sit there and a label on it would be noise.
+APTITUDE_WORDS: Tuple[Tuple[float, str], ...] = (
+    (0.90, "a struggle"),
+    (0.96, "uphill"),
+    (1.04, ""),
+    (1.12, "comes easily"),
+    (99.0, "a natural gift"),
+)
+
+
 def level_from_exp(exp: int) -> int:
     """The highest level fully paid for by *exp*."""
     level = 0
