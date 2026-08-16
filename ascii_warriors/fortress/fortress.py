@@ -1369,6 +1369,11 @@ class Fortress:
             "frost": self.frost.to_list(),
             "magma_floor": self.magma_floor,
             "magma_mark": self._magma_mark,
+            # Its opposite number was saved and this was not, so every load
+            # reset the high-water mark to nothing and the next step compared
+            # a river against zero. Any fortress holding more than FLOOD_WARN
+            # announced it was flooding the moment it came back.
+            "water_mark": self._water_mark,
             "hollow": ["%d,%d,%d" % c for c in self.hollow],
             "breached": self.breached,
             "breach_cell": ("%d,%d,%d" % self.breach_cell
@@ -1425,13 +1430,31 @@ class Fortress:
     @classmethod
     def from_dict(cls, d: Mapping[str, Any]) -> "Fortress":
         """Rebuild a fortress from :meth:`to_dict`."""
-        world = World.from_dict(d["world"])
+        return cls.restore(World.from_dict(d["world"]), d)
+
+    @classmethod
+    def restore(cls, world: World, d: Mapping[str, Any]) -> "Fortress":
+        """Rebuild a fortress into a world that already exists.
+
+        Split out of `from_dict` because a reclaim needs exactly this and
+        must not have a *copy* of the world: the site, the legends and the
+        artifacts an expedition is walking back into are the ones the rest of
+        the game is holding. Everything but `local` and `rng` is optional, so
+        a caller with only part of a fortress -- which is all a preserved
+        ruin is -- gets empty job boards and an empty court rather than a
+        crash.
+        """
         local = LocalMap.from_dict(d["local"])
         rng = RNG.from_dict(d["rng"])
         fort = cls(world, local, rng, name=str(d.get("name", "Fortress")),
                    wx=int(d.get("wx", 0)), wy=int(d.get("wy", 0)))
         fort.z = int(d.get("z", 0))
-        fort.time = GameTime.from_dict(d.get("time") or {})
+        if d.get("time"):
+            # Only when the payload has one. `GameTime.from_dict({})` is the
+            # year 0, and `__init__` has already set the clock to the world's
+            # own year -- which is what a reclaim wants, and what it silently
+            # did not get: its second fall was recorded as happening in year 0.
+            fort.time = GameTime.from_dict(d["time"])
         fort.log = MessageLog.from_dict(d.get("log") or {})
         fort.weather = Weather.from_dict(d.get("weather") or {})
         fort.drowning = {
@@ -1442,7 +1465,18 @@ class Fortress:
         fort.fire = FireLayer.from_list(d.get("fire") or [])
         fort.frost = Frost.from_list(d.get("frost") or [])
         fort.magma_floor = int(d.get("magma_floor", 0))
-        fort._magma_mark = int(d.get("magma_mark", 0))
+        # A payload without them -- an older save, or a preserved ruin -- gets
+        # what it is loading with, which is what a high-water mark means. Zero
+        # is the wrong answer for both: the magma check has no threshold at
+        # all, so a reclaim with a magma sea under it would report the sea
+        # itself as a breach on its first step.
+        # A payload without them -- an older save, or a preserved ruin -- gets
+        # what it is loading with, which is what a high-water mark means. Zero
+        # is the wrong answer for both: the magma check has no threshold at
+        # all, so a reclaim with a magma sea under it would report the sea
+        # itself as a breach on its first step.
+        fort._magma_mark = int(d.get("magma_mark", fort.magma.total()))
+        fort._water_mark = int(d.get("water_mark", fort.water.total()))
         fort.hollow = {
             tuple(int(v) for v in k.split(",")) for k in d.get("hollow", [])
         }

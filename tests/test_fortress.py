@@ -2135,6 +2135,45 @@ class TestWhatASaveKeeps(unittest.TestCase):
         back = Fortress.from_dict(fort.to_dict())
         self.assertEqual(back.water.ticks, 99)
 
+    def test_the_high_water_mark_survives_a_save(self):
+        """The diff above skips underscored names, so it never saw this one.
+
+        `magma_mark` was saved and `_water_mark` was not, so every load reset
+        the mark to nothing and the next step measured a river against zero.
+        """
+        fort = embark("highwater")
+        fort._water_mark = 4321
+        fort._magma_mark = 8765
+        back = Fortress.from_dict(fort.to_dict())
+        self.assertEqual(back._water_mark, 4321)
+        self.assertEqual(back._magma_mark, 8765)
+
+    def test_a_loaded_fortress_does_not_cry_flood(self):
+        """With the mark at zero, any map holding more than FLOOD_WARN
+        announced it was flooding on its first step back."""
+        fort = embark("noflood")
+        # More water than the warning threshold, and the fortress knows it:
+        # this is the sea it was built beside, not a breach.
+        d = fort.dwarves()[0]
+        placed = 0
+        for y in range(fort.local.height):
+            for x in range(fort.local.width):
+                if placed >= 400:
+                    break
+                if fort.local.walkable(x, y, d.z):
+                    fort.water.set((x, y, d.z), 7)
+                    placed += 1
+        fort._water_mark = fort.water.total()
+        self.assertGreater(fort.water.total(), sim.FLOOD_WARN)
+
+        back = Fortress.from_dict(fort.to_dict())
+        before = len(back.log.recent(500))
+        sim.step(back)
+        said = " ".join(getattr(m, "text", str(m))
+                        for m in back.log.recent(500)[before:])
+        self.assertNotIn("flooding", said.lower())
+        self.assertFalse(back.water.flooded)
+
 
 class TestEvents(unittest.TestCase):
     """Migrants, sieges, moods and caravans."""
@@ -2999,16 +3038,23 @@ class TestLegacy(unittest.TestCase):
         from ascii_warriors.game.state import Game
 
         fort = self._ended_fortress("dead")
-        names = {c.name for c in fort.creatures.values()}
+        # Somebody has to actually die. This asserted on every creature on the
+        # map, wildlife included, and passed on a fortress where nobody had.
+        fallen = set()
+        for d in list(fort.dwarves()):
+            d.body.dead = True
+            d.body.death_cause = "the test"
+            fallen.add(d.name)
+        self.assertTrue(fallen)
         legacy.record(fort, abandoned=True)
         player = make_creature(RNG("p"), "dwarf", faction="player")
         player.is_player = True
         game = Game(fort.world, player, RNG("adventure"))
         player.wx, player.wy = fort.wx, fort.wy
         game.enter_world_tile(fort.wx, fort.wy)
-        found = {c.name for c in game.creatures.values()}
-        self.assertTrue(names & found,
-                        "none of the fortress's dwarves are in the ruins")
+        found = {c.name for c in game.creatures.values() if c.body.dead}
+        self.assertTrue(fallen <= found,
+                        "the fortress's dead are not in the ruins")
 
     def test_ordinary_tiles_still_generate_normally(self):
         """Preserving one square must not preserve the whole world."""
@@ -3215,6 +3261,227 @@ class TestWhatAFortressLeaves(unittest.TestCase):
         self.assertTrue(names & {c.name for c in game.creatures.values()},
                         "the dead are not where they fell")
         self.assertTrue(any(c.body.dead for c in game.creatures.values()))
+
+
+class TestReclaim(unittest.TestCase):
+    """Going back into a fortress that already killed everybody in it."""
+
+    def _fallen(self, seed="reclaim", *, abandon=False):
+        """A fortress with workshops up, then emptied one way or the other."""
+        from ascii_warriors.fortress import legacy
+
+        fort = embark(seed)
+        dig_room(fort, 6)
+        for kind in ("smith", "still"):
+            spot = _open_spot(fort, kind)
+            if spot is None:
+                continue
+            b = Building(kind, *spot)
+            b.material_name = "granite"
+            b.built = True
+            for cell in b.cells():
+                fort.dig_out(cell, b.defn.tile)
+            fort.buildings.append(b)
+        sim.run(fort, 2500)
+        self.roster = {c.name for c in fort.dwarves()}
+        self.assertTrue(self.roster, "the fortress has no dwarves to lose")
+        if not abandon:
+            for d in list(fort.dwarves()):
+                d.body.dead = True
+                d.body.death_cause = "the test"
+        fort.lost = True
+        fort.loss_reason = "abandoned" if abandon else "the test"
+        legacy.record(fort, abandoned=abandon)
+        return fort
+
+    def test_you_can_go_back_into_a_fortress_that_fell(self):
+        """The embark screen used to say somebody already lived there."""
+        from ascii_warriors.fortress import legacy
+
+        fort = self._fallen()
+        world = fort.world
+        self.assertTrue(legacy.can_reclaim(world, fort.wx, fort.wy))
+        back = legacy.reclaim(world, fort.wx, fort.wy, RNG("again"))
+        self.assertIsNotNone(back)
+        self.assertEqual(back.name, fort.name)
+        self.assertEqual(back.year_founded, fort.year_founded,
+                         "a reclaim is the same place, not a new one")
+        self.assertEqual(len(back.dwarves()), 7)
+
+    def test_the_place_comes_back_with_it(self):
+        """The magma sea, the caverns and the wet rock are part of the site."""
+        from ascii_warriors.fortress import legacy
+
+        fort = self._fallen("place")
+        dug = sum(1 for z in fort.local.levels
+                  for t in fort.local.levels[z] if t == "floor")
+        back = legacy.reclaim(fort.world, fort.wx, fort.wy, RNG("again"))
+        self.assertEqual(back.magma.total(), fort.magma.total())
+        self.assertEqual(back.magma_floor, fort.magma_floor)
+        self.assertEqual(back.water.total(), fort.water.total())
+        self.assertEqual(len(back.hollow), len(fort.hollow))
+        self.assertEqual(len(back.aquifer), len(fort.aquifer))
+        found = sum(1 for z in back.local.levels
+                    for t in back.local.levels[z] if t == "floor")
+        self.assertEqual(found, dug, "the corridors are not the ones you dug")
+
+    def test_a_workshop_works_again(self):
+        """The other half of what an adventurer only gets to look at."""
+        from ascii_warriors.fortress import legacy
+
+        fort = self._fallen("shops")
+        raised = {b.kind for b in fort.buildings if b.built}
+        back = legacy.reclaim(fort.world, fort.wx, fort.wy, RNG("again"))
+        shops = [b for b in back.buildings if b.built and b.is_workshop]
+        self.assertTrue(shops, "no workshop survived the reclaim")
+        self.assertTrue(raised & {b.kind for b in shops})
+        for b in shops:
+            self.assertEqual(b.orders, [], "an order outlived the fortress")
+            self.assertIsNone(b.worker)
+            self.assertTrue(production.recipes_for(b.kind),
+                            "%s can take no orders" % b.kind)
+
+    def test_the_dead_are_still_lying_there(self):
+        """They are the reason anybody goes back."""
+        from ascii_warriors.fortress import legacy
+
+        fort = self._fallen("dead")
+        back = legacy.reclaim(fort.world, fort.wx, fort.wy, RNG("again"))
+        bodies = {c.name for c in back.creatures.values() if c.body.dead}
+        self.assertTrue(self.roster <= bodies,
+                        "the last expedition is not where it fell")
+        self.assertFalse(self.roster & {c.name for c in back.dwarves()},
+                         "a dead dwarf is on the new roster")
+
+    def test_the_survivors_of_an_abandoned_fortress_went_home(self):
+        """They packed the wagon. They are not standing there still."""
+        from ascii_warriors.fortress import legacy
+
+        fort = self._fallen("home", abandon=True)
+        payload = fort.world.preserved_map(fort.wx, fort.wy)
+        frozen = {c.get("name") for c in payload.get("creatures", [])}
+        self.assertFalse(self.roster & frozen,
+                         "an abandoned fortress froze its living dwarves")
+        back = legacy.reclaim(fort.world, fort.wx, fort.wy, RNG("again"))
+        self.assertFalse(self.roster & {c.name for c in back.creatures.values()})
+
+    def test_an_abandoned_fortress_has_nobody_home_for_an_adventurer_either(self):
+        """The same dwarves used to stand in the ruins with no AI at all."""
+        from ascii_warriors.fortress import legacy
+        from ascii_warriors.game.state import Game
+
+        fort = self._fallen("visitors", abandon=True)
+        player = make_creature(RNG("p"), "dwarf", faction="player")
+        player.is_player = True
+        game = Game(fort.world, player, RNG("adventure"))
+        player.wx, player.wy = fort.wx, fort.wy
+        game.enter_world_tile(fort.wx, fort.wy)
+        self.assertFalse(self.roster & {c.name for c in game.creatures.values()})
+
+    def test_the_orders_of_a_dead_fortress_do_not_come_back(self):
+        """A job board belongs to dwarves who are dead or gone."""
+        from ascii_warriors.fortress import legacy
+
+        fort = self._fallen("orders")
+        fort.stockpiles.append(Stockpile("goods", 10, 10, fort.z, 3, 3))
+        legacy.record(fort, abandoned=False)
+        back = legacy.reclaim(fort.world, fort.wx, fort.wy, RNG("again"))
+        self.assertEqual(len(back.jobs.jobs), 0)
+        self.assertEqual(back.stockpiles, [])
+        self.assertEqual(back.crimes, [])
+        self.assertEqual(len(back.designations.cells), 0)
+        self.assertFalse(back.military.squads)
+
+    def test_a_reclaimed_fortress_knows_what_year_it_is(self):
+        """`GameTime.from_dict({})` is the year 0, and a partial payload has
+        no time in it: the second fall was recorded as happening in year 0."""
+        from ascii_warriors.fortress import legacy
+
+        fort = self._fallen("clock")
+        back = legacy.reclaim(fort.world, fort.wx, fort.wy, RNG("again"))
+        self.assertEqual(back.time.year, fort.world.year)
+        self.assertGreater(back.time.year, 0)
+
+    def test_a_place_is_founded_once_however_often_it_falls(self):
+        """Every fall used to write another founding into the legends."""
+        from ascii_warriors.fortress import legacy
+
+        fort = self._fallen("history")
+        world = fort.world
+        back = legacy.reclaim(world, fort.wx, fort.wy, RNG("again"))
+        for d in list(back.dwarves()):
+            d.body.dead = True
+            d.body.death_cause = "again"
+        back.lost = True
+        back.loss_reason = "again"
+        legacy.record(back)
+
+        site = world.site_at(fort.wx, fort.wy)
+        self.assertEqual(
+            sum(1 for s in world.sites if (s.wx, s.wy) == (fort.wx, fort.wy)), 1)
+        foundings = [e for e in world.events
+                     if e.kind == "site_founded" and site.id in e.sites]
+        self.assertEqual(len(foundings), 1, "founded more than once")
+        falls = [e for e in world.events
+                 if e.kind == "site_destroyed" and site.id in e.sites]
+        self.assertEqual(len(falls), 2, "both falls should be remembered")
+
+    def test_going_back_is_written_into_the_legends(self):
+        """It is the most interesting thing anybody does with a ruin."""
+        from ascii_warriors.fortress import legacy
+        from ascii_warriors.world import history as history_mod
+
+        fort = self._fallen("legends")
+        world = fort.world
+        legacy.reclaim(world, fort.wx, fort.wy, RNG("again"))
+        site = world.site_at(fort.wx, fort.wy)
+        told = [e for e in world.events
+                if e.kind == "site_reclaimed" and site.id in e.sites]
+        self.assertEqual(len(told), 1)
+        self.assertIn(fort.name, told[0].text)
+        self.assertIn(told[0], history_mod.notable_events(world, 50))
+
+    def test_a_reclaimed_fortress_is_not_a_ruin(self):
+        """It kept the year it was destroyed and read as rubble in legends."""
+        from ascii_warriors.fortress import legacy
+
+        fort = self._fallen("notruin")
+        world = fort.world
+        self.assertTrue(world.site_at(fort.wx, fort.wy).is_ruin)
+        back = legacy.reclaim(world, fort.wx, fort.wy, RNG("again"))
+        back.lost = False
+        back.loss_reason = ""
+        legacy.make_site(back)
+        site = world.site_at(fort.wx, fort.wy)
+        self.assertFalse(site.is_ruin, "eighty dwarves live in these ruins")
+        self.assertEqual(site.population, len(back.dwarves()))
+
+    def test_a_reclaimed_fortress_runs_and_saves(self):
+        """It has to be an ordinary fortress from here on."""
+        from ascii_warriors.fortress import legacy
+
+        fort = self._fallen("runs")
+        back = legacy.reclaim(fort.world, fort.wx, fort.wy, RNG("again"))
+        sim.run(back, 2000)
+        self.assertTrue(back.dwarves(), "nobody survived the first season")
+        again = Fortress.from_dict(back.to_dict())
+        self.assertEqual(len(again.dwarves()), len(back.dwarves()))
+        self.assertEqual(again.magma.total(), back.magma.total())
+        self.assertEqual(again.year_founded, back.year_founded)
+        self.assertEqual(again.time.year, back.time.year)
+
+    def test_you_cannot_reclaim_a_place_somebody_lives_in(self):
+        """A ruin of your own is the only thing this opens up."""
+        from ascii_warriors.fortress import legacy
+
+        fort = embark("occupied")
+        world = fort.world
+        lived_in = [s for s in world.sites if not s.is_ruin]
+        self.assertTrue(lived_in, "the world generated no living settlements")
+        for site in lived_in[:5]:
+            self.assertFalse(legacy.can_reclaim(world, site.wx, site.wy))
+        # And nowhere at all, where nothing was ever built.
+        self.assertFalse(legacy.can_reclaim(world, fort.wx, fort.wy))
 
 
 class TestWater(unittest.TestCase):

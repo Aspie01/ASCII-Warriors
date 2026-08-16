@@ -900,7 +900,7 @@ def notable_events(world, n: int = 30) -> List[HistoricalEvent]:
     interesting = {
         "beast_slain", "beast_attack", "site_destroyed", "site_conquered",
         "artifact_created", "artifact_stolen", "war_declared", "hero_rose",
-        "became_necromancer", "banditry",
+        "became_necromancer", "banditry", "site_reclaimed",
     }
     out = [e for e in world.events if e.kind in interesting]
     return out[-n:][::-1]

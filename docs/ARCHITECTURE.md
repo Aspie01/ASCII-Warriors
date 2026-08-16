@@ -3678,7 +3678,86 @@ was never written. The guard now seeds a ruin before saving. A guard that cannot
 fail is worth nothing, and the only way to know is to break the thing on purpose
 and watch.
 
-## 97. Style
+## 97. Reclaim (v3.37)
+
+v3.36 let an adventurer walk into a fortress they lost. The other half of that
+story is walking back in with seven more dwarves, and it did not exist. Worse,
+the game actively refused: `legacy.make_site` sets `world.tile(wx, wy).site_id`
+when a fortress falls, and the embark screen rejected any tile with a `site_id`
+with **"Somebody already lives there."** — about a site with `is_ruin = True`
+and `population = 0`, where the only residents were the seven corpses you left.
+
+**`preserve` was keeping the contents and losing the place.** Measured against
+what a `Fortress` actually holds, twelve things were dropped, including a
+67,000-unit magma sea, the caverns, and a 2,047-cell aquifer. A reclaim built
+on that payload would have handed the player a fortress whose deep had quietly
+ceased to exist.
+
+The rule for what `preserve` now freezes is **what is physically there**. Water
+in the cisterns, magma under the floor, the caverns, the wet rock and what the
+engravers carved on the walls are the place, and stay. Designations, jobs,
+stockpile rectangles, the militia roster and the mayor's demands are
+instructions given to dwarves who are dead or gone, and do not. It is the same
+line v3.36 drew for ruins, applied to the layers instead of the buildings.
+
+**`Fortress.restore(world, d)`** is `from_dict` split in two. `from_dict` makes
+a *copy* of the world, which is right for loading a save and catastrophic for a
+reclaim — the site, the legends and the artifacts an expedition walks back into
+have to be the ones the rest of the game is holding. Everything but `local` and
+`rng` was already optional, so a caller with only part of a fortress (which is
+all a preserved ruin is) gets an empty job board and an empty court rather than
+a crash. Reclaim and save-loading now share one restoration path.
+
+**Two defects surfaced by building on that path:**
+
+*A reclaimed fortress did not know what year it was.* `restore` overwrote
+`__init__`'s clock with `GameTime.from_dict(d.get("time") or {})`, and an
+absent `time` is the year 0 — so the site's second fall was recorded as
+happening in year 0, before the world began. It now only overwrites when the
+payload actually has a time.
+
+*A place was founded once per fall.* `record` inserted a `site_founded` event
+every time, which nothing noticed while a fortress could only fall once. A
+fortress reclaimed twice read as having been founded three times in the same
+year. Going back is now its own `site_reclaimed` event, and it is in
+`notable_events` — somebody walking into the fortress that killed seven dwarves
+is the most interesting thing that ever happens to a ruin.
+
+**An abandoned fortress was freezing its living dwarves.** This one predates
+reclaim and v3.36 made it visible. A fortress is only *lost* once `dwarves()`
+is empty, so anybody alive when `preserve` runs is alive because the place was
+abandoned — and abandoning it means they packed the wagon and went home.
+Freezing them left them on the map with no job board to answer to and no AI to
+give them one: an adventurer walking into an abandoned fortress met five
+dwarves who had not moved a tile in years, and over 3,000 ticks of a reclaim
+two of them died standing still. `walked_out` filters them at the source, which
+fixes it in both modes at once.
+
+**A workshop works again.** This is the fortress-side counterpart to v3.36's
+read-only ruins, and it needs no special case: fortress mode has a job board,
+so a restored `Building` is simply a building. What does not come back is its
+order queue and its assigned worker.
+
+### 97.1. The high-water mark
+
+Working in `restore` turned up a save bug with nothing to do with reclaim.
+`to_dict` saved `magma_mark` and not `_water_mark`, so **every load reset the
+high-water mark to zero**, and the next step compared the map's whole river
+against nothing: `water.total() > 0 + FLOOD_WARN`. Any fortress holding more
+than 1,200 units announced *"The fortress is flooding!"* the moment it came
+back — measured, not reasoned about, by deleting the fix and watching the line
+appear.
+
+v3.34's round-trip guard could not have caught it. Its diff skips names
+beginning with an underscore, and both marks are private. The new test names
+them directly.
+
+Both marks now default to what the payload is loading with rather than to
+zero, which is what a high-water mark means and what a reclaim needs: the
+magma check has *no* threshold, so a reclaim over a 67,000-unit magma sea
+would otherwise have reported the sea itself as a breach on its first step.
+
+## 98. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

@@ -75,6 +75,11 @@ workshops you raised, the goods still on the floor, and your dwarves lying
 where they fell. The forge and the still are ruins now — you can stand in
 them and read what they were, but nobody is taking orders.
 
+Or embark on it again. Put the cursor on a fortress that fell and you reclaim
+it rather than founding somewhere new: seven more dwarves walk into the
+corridors the last seven dug, past their bodies, and the forge lights up again.
+The legends record that somebody went back.
+
 Losing is fun.
 
 ```

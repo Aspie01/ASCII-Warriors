@@ -694,6 +694,12 @@ the goods on the floor and your dwarves lying where they fell.
 Your workshops are ruins by then. Look at one and it tells you what it was and
 what it was built out of, but a forge with nobody at it is furniture.
 
+Or go back with seven more dwarves. Put the cursor on a fortress that fell and
+Enter reclaims it instead of founding somewhere new: the corridors, the
+workshops, the goods and the magma sea are exactly where the last expedition
+left them, and so are their bodies. The job board is not — that belonged to
+dwarves who are dead. Whatever emptied the place may not have left.
+
 WHAT WILL GO WRONG
 
 Migrants arrive each spring and autumn if word of your wealth has spread, and

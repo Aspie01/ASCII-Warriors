@@ -82,11 +82,16 @@ class EmbarkScene(Scene):
                                 self.cx - mw // 2))
         self.cam_y = max(0, min(max(0, self.world.height - mh),
                                 self.cy - mh // 2))
+        from ...fortress import legacy
+
         scr.text(2, 0, "Where will you dig?", colors.UI["title"])
         self._draw_world(scr, 1, 1, mw, mh)
         self._draw_report(scr, scr.width - panel, 1, panel - 2)
+        commit = ("Enter", "reclaim this fortress") \
+            if legacy.can_reclaim(self.world, self.cx, self.cy) \
+            else ("Enter", "embark here")
         key_hint(scr, 2, scr.height - 1, [
-            ("arrows", "move"), ("Enter", "embark here"),
+            ("arrows", "move"), commit,
             ("s", "suggest"), (keys.ESC, "back"),
         ])
 
@@ -154,6 +159,18 @@ class EmbarkScene(Scene):
         if t.is_ocean or t.is_lake:
             scr.text(x, row, "underwater", colors.UI["danger"])
             row += 1
+        from ...fortress import legacy
+
+        if legacy.can_reclaim(world, self.cx, self.cy):
+            payload = world.preserved_map(self.cx, self.cy) or {}
+            scr.text(x, row, "A fortress fell here", colors.UI["accent"])
+            row += 1
+            for line in legacy.describe(payload)[:3]:
+                scr.text(x, row, line[:w], colors.UI["fg"])
+                row += 1
+            row += 1
+            scr.wrapped(x, row, w, RECLAIM_ADVICE, colors.UI["dim"])
+            return
         if t.site_id is not None:
             site = world.site(t.site_id)
             scr.text(x, row, "occupied: %s" % (
@@ -183,27 +200,58 @@ class EmbarkScene(Scene):
             self._embark()
 
     def _embark(self) -> None:
-        """Found the fortress."""
+        """Found the fortress, or go back into one that already fell."""
+        from ...fortress import legacy
+        from .fort_screen import FortScene
+
         t = self.world.tile(self.cx, self.cy)
+        if legacy.can_reclaim(self.world, self.cx, self.cy):
+            self._reclaim()
+            return
         if t.is_ocean or t.is_lake:
             self.app.message("Embark", "You cannot found a fortress "
                                        "underwater.")
             return
         if t.site_id is not None:
-            self.app.message("Embark", "Somebody already lives there.")
+            site = self.world.site(t.site_id)
+            self.app.message("Embark", "Those ruins are not yours to reclaim."
+                             if site is not None and site.is_ruin
+                             else "Somebody already lives there.")
             return
         if not t.river and not self.app.confirm(
                 "No water here. Your dwarves will have only what they carry. "
                 "Embark anyway?"):
             return
         from ...fortress.fortress import Fortress
-        from .fort_screen import FortScene
 
         fort = Fortress.embark(self.world, self.cx, self.cy,
                                self.rng.sub("fortress"))
         fort.site_id = t.site_id
         self.app.reset_to(FortScene(self.app, fort))
 
+    def _reclaim(self) -> None:
+        """Send seven more dwarves into a fortress that already fell."""
+        from ...fortress import legacy
+        from .fort_screen import FortScene
+
+        payload = self.world.preserved_map(self.cx, self.cy) or {}
+        name = str(payload.get("name") or "the ruins")
+        if not self.app.confirm(
+                "Reclaim %s? Whatever emptied it may not have left." % name):
+            return
+        fort = legacy.reclaim(self.world, self.cx, self.cy,
+                              self.rng.sub("reclaim-%d-%d"
+                                           % (self.cx, self.cy)))
+        if fort is None:
+            self.app.message("Reclaim", "There is nothing left of it.")
+            return
+        self.app.reset_to(FortScene(self.app, fort))
+
+
+RECLAIM_ADVICE = (
+    "Enter sends seven more dwarves back in. The corridors, the workshops "
+    "and the goods are where they were left, and so is everything that was "
+    "still standing when the last one died.")
 
 ADVICE = ("Dig into a hill with trees nearby and water you can reach. "
           "A river is worth more than gold: dwarves who have run out of "
