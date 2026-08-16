@@ -3833,7 +3833,73 @@ same in every verb form but the copula. `describe` is `"They %s."` and
 a bare `"They " -> "I "` on singular phrases, which is where "I has a vivid
 imagination" came from.
 
-## 99. Style
+## 99. Things that said so and did not (v3.39)
+
+A sweep for two defect shapes the previous milestones kept turning up by hand:
+module-level names that appear exactly once — at their own definition — and
+function parameters the body never reads. Most hits were legitimate (colour
+palettes, uniform dispatch signatures like every `_finish_*` taking a `dwarf`,
+`__exit__(exc)`), so the sweep is a lead generator, not a verdict. These are
+the ones where the code made a claim it did not keep.
+
+**Two documented behaviours that never happened:**
+
+*A mount did not let you see any further.* Every other constant in `mounts.py`
+was wired up — `SPEED_SHARE`, `CARRY_SHARE`, `TRAVEL_FACTOR` — and
+`SIGHT_BONUS` was declared, documented as "how far a mount lets you see over a
+crowd or a hedge", and read by nothing. Applied after the weather multiplier,
+because being higher up does not help you see through fog.
+
+*The hospital never asked for bandages until somebody was bleeding.*
+`BANDAGE_PER_DWARF` said it "tries to keep [them] in stock, per dwarf" and
+nothing read it, so the only warning was the one that fires with a patient
+already on the floor and the cupboard bare. Bandages take a craftsdwarf and a
+bolt of cloth; the point of saying so early is that there is still time.
+
+**Standing in a fire left bruises.** Fire and frostbite are blunt to the tissue
+model — neither shears anything — so both described themselves with the blunt
+wording, and `WOUND_KINDS` listed a `burn` that nothing in the game could
+produce. `apply_damage` now takes a `wound` override for the cases the physics
+cannot name, and `combat.TRAP_WOUNDS` supplies it. The clause table was
+rewritten as a lookup at the same time; it says exactly what the branches said,
+which is what `test_an_ordinary_blow_is_unchanged` pins.
+
+**Four enumerations that lied.** These are worth keeping — they document a
+field's valid values — so the fix is to make them true, not to delete them:
+
+- `QUEST_KINDS` listed a `deliver` with no builder, no progress path and no
+  completion. The word appeared nowhere else in the project.
+- `TOPICS` listed an `ask_family` that `topics_for` never offered and `say`
+  never answered. The string appeared once, in the tuple.
+- `WOUND_KINDS` listed a puncture and a tear that nothing produced. A spear's
+  `stab` attack has kind `edge`, so a thrust cuts.
+- `EVENT_KINDS` was missing all four kinds a fortress ending, a reclaim or a
+  resettling writes, and carried a `tavern_founded` nothing has ever recorded.
+
+**A near miss worth recording.** The first attempt at `EVENT_KINDS` "fixed"
+`founded_site` into `site_founded`, on the reasoning that the fortress writes
+the second. The test caught it: both are real. Worldgen and the living world
+write `founded_site`, and `art.py` and `artforms.py` match engraving phrases
+against it; the fortress writes `site_founded`. Renaming either would have
+silently stopped an engraving being about anything. The duplication is a wart,
+but it is a load-bearing one, and it is now written down as such.
+
+**And a guard that would have gone blind.** These tests work by counting string
+literals across the source, so an explanatory comment that quotes a dead value
+is a second occurrence — re-adding `"puncture"` to the tuple would have made
+the count 2 and the test silent. Verified by reverting every fix and watching
+seven of the nine guards fail; the comments now name dead values in backticks.
+
+**Dead constants removed**, each checked for whether the rule it described was
+enforced elsewhere: `TRAIN_EXP` (`_finish_train` grants 12 and 20 by hand),
+`_NEEDS_SOLID` (`valid()` checks each kind against its own tile test),
+`BURN_MOMENTUM` (the same 5200 lives in `TRAP_STRIKES["fire"]`, which is what
+`fire.burn` actually goes through), `ORE_METALS` (smelting takes a generic
+`ore` input). And one dead parameter: `_haggle_factor` took a `merchant` it
+never read — their greed is applied by the callers, and counting it twice
+would have been the bug rather than the fix.
+
+## 100. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

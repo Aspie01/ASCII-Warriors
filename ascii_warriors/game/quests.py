@@ -7,9 +7,11 @@ from typing import Any, Dict, List, Mapping, Optional
 from ..data import creatures as creature_data
 from ..engine.rng import RNG
 
+#: Every kind of quest `generate_quest` can produce. It listed a "deliver"
+#: that had no builder, no progress path and no completion: the word appeared
+#: nowhere else in the project.
 QUEST_KINDS = (
-    "slay_beast", "clear_site", "retrieve_artifact", "deliver", "bounty",
-    "explore",
+    "slay_beast", "clear_site", "retrieve_artifact", "bounty", "explore",
 )
 
 

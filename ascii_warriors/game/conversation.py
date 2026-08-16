@@ -16,9 +16,11 @@ from . import quests as quest_mod
 from . import trade as trade_mod
 from . import skills as skills_mod
 
+#: Every topic `say` answers. "ask_family" used to be listed and was neither
+#: offered by `topics_for` nor handled below -- the string appeared once, here.
 TOPICS: Tuple[str, ...] = (
     "greet", "ask_directions", "ask_rumors", "ask_troubles", "ask_self",
-    "ask_family", "request_quest", "report_quest", "trade", "ask_beast",
+    "request_quest", "report_quest", "trade", "ask_beast",
     "ask_site", "brag", "insult", "threaten", "farewell", "recruit",
     "dismiss", "rent_room", "ask_perform",
 )

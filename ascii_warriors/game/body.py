@@ -32,7 +32,16 @@ BLEED_PER_POINT = 0.004
 #: standing about clotting, and a bandage is faster still.
 REST_CLOT_TICKS = 260.0
 
-WOUND_KINDS = ("cut", "bruise", "fracture", "puncture", "burn", "tear")
+#: Every wound the game can actually give you. `edge` and `blunt` are the only
+#: two kinds the tissue model knows, so the first three come out of the physics
+#: and the last two are named by whatever did the hurting. This used to list a
+#: puncture and a tear as well, neither of which anything could produce -- a
+#: spear's `stab` attack has kind `edge`, so a thrust cuts.
+#:
+#: Named in backticks rather than quoted on purpose: the test that keeps this
+#: honest counts string literals, and a comment quoting a dead kind is a second
+#: occurrence that hides it.
+WOUND_KINDS = ("cut", "bruise", "fracture", "burn", "frostbite")
 
 
 @dataclass
@@ -337,6 +346,7 @@ class Body:
         contact: int,
         penetration: int,
         rng: RNG,
+        wound: str = "",
     ) -> List[str]:
         """Drive *force* into a part and return the resulting effect clauses.
 
@@ -347,6 +357,11 @@ class Body:
         of every layer it meets and burns itself out doing so; a point takes
         little from each layer and keeps what it came in with, which is how it
         arrives at the far side of the ribs still carrying something.
+
+        *wound* names the injury when the physics cannot. Fire and frostbite
+        are both blunt to the tissue model -- neither shears anything -- so
+        without this a creature that stood in a fire came out bruised, and
+        `WOUND_KINDS` listed a "burn" that nothing in the game could produce.
         """
         part = self.parts.get(part_id)
         if part is None or part.gone:
@@ -383,7 +398,7 @@ class Body:
             depth += 1
 
             severity = 1.0 - new_frac
-            wound_kind = _wound_kind(kind, mat.id)
+            wound_kind = wound or _wound_kind(kind, mat.id)
             bleed = 0
             if tissue.has("MAJOR_ARTERIES") and edged:
                 bleed = int(6 + 22 * hurt)
@@ -393,8 +408,8 @@ class Body:
                 bleed = int(1 + 6 * hurt)
             pain = int(tissue.pain_receptors * hurt * 0.5)
 
-            wound = Wound(part.id, tissue.name, severity, wound_kind, bleed, pain)
-            part.wounds.append(wound)
+            injury = Wound(part.id, tissue.name, severity, wound_kind, bleed, pain)
+            part.wounds.append(injury)
             self.pain += pain
 
             clauses.append(_tissue_clause(tissue.name, wound_kind, hurt, new_frac))
@@ -752,26 +767,27 @@ def _wound_kind(attack_kind: str, material: str) -> str:
     return "bruise"
 
 
+#: How a wound reads at each depth: gone, deep, middling, shallow. Fire and
+#: cold are blunt to the tissue model and had been describing themselves as
+#: bruises, which is what standing in a fire used to say.
+_CLAUSES = {
+    "fracture": ("shattering", "shattering", "fracturing", "chipping"),
+    "cut": ("tearing apart", "tearing", "tearing", "cutting"),
+    "burn": ("burning away", "charring", "burning", "scorching"),
+    "frostbite": ("killing", "freezing", "numbing", "chilling"),
+}
+_BRUISE = ("tearing apart", "denting", "bruising", "bruising")
+
+
 def _tissue_clause(tissue_name: str, kind: str, hurt: float, remaining: float) -> str:
     """Build the phrase describing what happened to one tissue layer."""
+    words = _CLAUSES.get(kind, _BRUISE)
     if remaining <= 0.0:
-        if kind == "fracture":
-            return "shattering the %s" % tissue_name
-        return "tearing apart the %s" % tissue_name
-    if hurt > 0.6:
-        if kind == "fracture":
-            return "shattering the %s" % tissue_name
-        if kind == "cut":
-            return "tearing the %s" % tissue_name
-        return "denting the %s" % tissue_name
-    if hurt > 0.3:
-        if kind == "fracture":
-            return "fracturing the %s" % tissue_name
-        if kind == "cut":
-            return "tearing the %s" % tissue_name
-        return "bruising the %s" % tissue_name
-    if kind == "cut":
-        return "cutting the %s" % tissue_name
-    if kind == "fracture":
-        return "chipping the %s" % tissue_name
-    return "bruising the %s" % tissue_name
+        depth = 0
+    elif hurt > 0.6:
+        depth = 1
+    elif hurt > 0.3:
+        depth = 2
+    else:
+        depth = 3
+    return "%s the %s" % (words[depth], tissue_name)

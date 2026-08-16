@@ -55,9 +55,6 @@ SPREAD_ODDS = 0.08
 #: that has nearly burnt out does not jump.
 SPREAD_FLOOR = 6
 
-#: What standing in a fire does per step, as momentum into the body model.
-BURN_MOMENTUM = 5200
-
 #: How much light a burning cell throws, and how far.
 FIRE_LIGHT = 1.0
 LIGHT_RADIUS = 4

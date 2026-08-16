@@ -17,12 +17,27 @@ from ..data import names as name_data
 from ..data.descriptors import indefinite_article
 from ..engine.rng import RNG
 
+#: Every kind of event the world records, checked against what `record` is
+#: actually called with. Four were missing: the three a fortress ending or a
+#: reclaim writes, and the one the living world writes when somebody moves
+#: back into a ruin.
+#:
+#: A tavern_founded was here too and nothing has ever written one. Unquoted,
+#: because the test that keeps this list honest counts string literals.
+#:
+#: `founded_site` and `site_founded` are both here and both real, which is a
+#: wart rather than a typo. Worldgen and the living world write the first and
+#: `art.py` and `artforms.py` match engraving phrases against it; the fortress
+#: writes the second. Renaming either would silently stop an engraving being
+#: about anything.
 EVENT_KINDS: Tuple[str, ...] = (
-    "founded_civ", "founded_site", "became_leader", "birth", "death",
-    "war_declared", "peace", "battle", "site_destroyed", "site_conquered",
+    "founded_civ", "founded_site", "site_founded", "became_leader",
+    "birth", "death", "war_declared", "peace", "battle",
+    "site_destroyed", "site_conquered", "site_abandoned", "site_reclaimed",
+    "resettled",
     "artifact_created", "artifact_stolen", "beast_attack", "beast_slain",
     "hero_rose", "became_necromancer", "tower_built", "curse", "banditry",
-    "marriage", "migration", "plague", "tavern_founded", "performance",
+    "marriage", "migration", "plague", "performance",
 )
 
 

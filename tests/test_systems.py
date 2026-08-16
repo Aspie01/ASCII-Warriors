@@ -7540,3 +7540,204 @@ class TestSpentAmmunition(GameFixture):
                    for i in self.game.items_at(p.x + dx, p.y, p.z)):
                 found = True
         self.assertTrue(found, "the dagger vanished")
+
+
+class TestThingsThatSaidSoAndDidNot(GameFixture):
+    """Constants and tuples that described behaviour nothing implemented.
+
+    Found by sweeping for module-level names that appear exactly once -- at
+    their own definition -- and for parameters a function never reads. Most
+    hits were legitimate (palettes, uniform dispatch signatures); these are
+    the ones where the code was making a claim it did not keep.
+    """
+
+    def test_a_mount_lets_you_see_further(self):
+        """Every other mounts constant was wired up. `SIGHT_BONUS` was
+        declared, documented, and read by nothing."""
+        from ascii_warriors.game import mounts
+        from ascii_warriors.game.entity import make_creature
+
+        g = self.game
+        g.update_fov()
+        on_foot = len(g.visible)
+
+        horse = make_creature(RNG("horse"), "horse", faction="player")
+        horse.x, horse.y, horse.z = g.player.x + 1, g.player.y, g.player.z
+        g.add_creature(horse)
+        horse.tame = True
+        ok, _why = mounts.ride(g, horse)
+        self.assertTrue(ok, "the test could not get on the horse")
+        self.assertTrue(mounts.mounted(g))
+        g.update_fov()
+        self.assertGreater(len(g.visible), on_foot,
+                           "riding shows you no more than walking does")
+
+    def test_standing_in_a_fire_burns_you(self):
+        """Fire is blunt to the tissue model, so it described itself as a
+        bruise and `WOUND_KINDS` listed a "burn" nothing could produce."""
+        from ascii_warriors.game import combat
+        from ascii_warriors.game.body import WOUND_KINDS
+        from ascii_warriors.game.entity import make_creature
+
+        victim = make_creature(RNG("burnt"), "human")
+        # One RNG, advanced. A fresh RNG("f") each pass replays one identical
+        # roll forty times and tests nothing.
+        rng = RNG("f")
+        for _ in range(40):
+            combat.trap_strike(victim, "fire", "", rng=rng)
+            if any(w.kind == "burn" for p in victim.body.parts.values()
+                   for w in p.wounds):
+                break
+        kinds = {w.kind for p in victim.body.parts.values() for w in p.wounds}
+        self.assertIn("burn", kinds, "a fire leaves bruises")
+        self.assertNotIn("bruise", kinds)
+        self.assertIn("burn", WOUND_KINDS)
+
+    def test_frostbite_is_not_a_bruise_either(self):
+        from ascii_warriors.game import combat
+        from ascii_warriors.game.entity import make_creature
+
+        victim = make_creature(RNG("cold"), "human")
+        rng = RNG("c")
+        for _ in range(40):
+            combat.trap_strike(victim, "frostbite", "", rng=rng)
+            if any(w.kind == "frostbite" for p in victim.body.parts.values()
+                   for w in p.wounds):
+                break
+        kinds = {w.kind for p in victim.body.parts.values() for w in p.wounds}
+        self.assertIn("frostbite", kinds)
+
+    def test_a_burn_names_every_layer_it_goes_through(self):
+        """A blow that reaches skin, fat and muscle wounds all three, and the
+        override has to survive the loop. The first version of it collided
+        with the loop's own `wound` local, so from the second layer on it read
+        back the `Wound` object the previous pass had just built."""
+        from ascii_warriors.game import combat
+        from ascii_warriors.game.body import Body
+
+        body = Body("humanoid", 70000)
+        clauses = body.apply_damage("upper_body", "blunt", 90000, 2, 300,
+                                    RNG("deep"), wound="burn")
+        self.assertTrue(clauses, "the blow did nothing")
+        kinds = [w.kind for p in body.parts.values() for w in p.wounds]
+        self.assertGreater(len(kinds), 1, "only one tissue layer was reached")
+        self.assertEqual(set(kinds), {"burn"})
+
+    def test_an_ordinary_blow_is_unchanged(self):
+        """The clause table was rewritten; it must say what it said before."""
+        from ascii_warriors.game.body import _tissue_clause
+
+        self.assertEqual(_tissue_clause("skin", "cut", 0.1, 0.9),
+                         "cutting the skin")
+        self.assertEqual(_tissue_clause("skin", "cut", 0.5, 0.5),
+                         "tearing the skin")
+        self.assertEqual(_tissue_clause("skin", "cut", 0.9, 0.1),
+                         "tearing the skin")
+        self.assertEqual(_tissue_clause("skin", "cut", 1.0, 0.0),
+                         "tearing apart the skin")
+        self.assertEqual(_tissue_clause("bone", "fracture", 0.1, 0.9),
+                         "chipping the bone")
+        self.assertEqual(_tissue_clause("bone", "fracture", 0.5, 0.5),
+                         "fracturing the bone")
+        self.assertEqual(_tissue_clause("bone", "fracture", 1.0, 0.0),
+                         "shattering the bone")
+        self.assertEqual(_tissue_clause("fat", "bruise", 0.1, 0.9),
+                         "bruising the fat")
+        self.assertEqual(_tissue_clause("fat", "bruise", 0.9, 0.1),
+                         "denting the fat")
+
+    def test_every_wound_kind_can_actually_happen(self):
+        """It listed a "puncture" and a "tear" that nothing produced."""
+        import os
+
+        from ascii_warriors.game.body import WOUND_KINDS
+
+        src = ""
+        for d, _dirs, files in os.walk("ascii_warriors"):
+            if "__pycache__" in d:
+                continue
+            for f in files:
+                if f.endswith(".py"):
+                    with open(os.path.join(d, f)) as fh:
+                        src += fh.read()
+        for kind in WOUND_KINDS:
+            self.assertGreater(
+                src.count('"%s"' % kind), 1,
+                "%r is declared a wound kind and nothing makes one" % kind)
+
+    def test_every_quest_kind_can_be_generated(self):
+        """"deliver" was listed and had no builder at all."""
+        from ascii_warriors.game import quests
+
+        made = set()
+        givers = [c for c in self.game.creatures.values() if not c.is_player]
+        self.assertTrue(givers)
+        for i in range(600):
+            q = quests.generate_quest(RNG("q%d" % i), self.game,
+                                      givers[i % len(givers)])
+            if q is not None:
+                made.add(q.kind)
+        self.assertEqual(set(quests.QUEST_KINDS) - made, set(),
+                         "a declared quest kind cannot be generated")
+        self.assertEqual(made - set(quests.QUEST_KINDS), set())
+
+    def test_every_conversation_topic_is_answered(self):
+        """"ask_family" was listed, never offered and never handled."""
+        import re
+
+        from ascii_warriors.game import conversation
+
+        with open("ascii_warriors/game/conversation.py") as fh:
+            src = fh.read()
+        handled = set(re.findall(r'topic == "([a-z_]+)"', src))
+        for topic in conversation.TOPICS:
+            self.assertIn(topic, handled,
+                          "%r is a declared topic nobody answers" % topic)
+
+    def test_every_event_kind_is_one_the_world_records(self):
+        """It was missing the three a fortress ending or a reclaim writes and
+        the one the living world writes when a ruin is moved back into."""
+        import os
+        import re
+
+        from ascii_warriors.world.history import EVENT_KINDS
+
+        # Counted as string literals, the way the wound-kind check is. Matching
+        # the argument out of the call needs a regex, and a
+        # `HistoricalEvent(world.next_id("event"), year, "site_founded", ...)`
+        # defeats any regex that stops at the first bracket -- which is how an
+        # earlier version of this test concluded the fortress records nothing.
+        src = ""
+        for d, _dirs, files in os.walk("ascii_warriors"):
+            if "__pycache__" in d:
+                continue
+            for f in files:
+                if f.endswith(".py"):
+                    with open(os.path.join(d, f)) as fh:
+                        src += fh.read()
+        # The four a fortress writes, and the one the living world writes when
+        # somebody moves back into a ruin. All five were missing.
+        for kind in ("site_founded", "site_abandoned", "site_destroyed",
+                     "site_reclaimed", "founded_site", "resettled"):
+            self.assertIn(kind, EVENT_KINDS,
+                          "%s is recorded and not declared" % kind)
+        for kind in EVENT_KINDS:
+            self.assertGreater(
+                src.count('"%s"' % kind), 1,
+                "%r is a declared event kind nothing records" % kind)
+
+    def test_the_hospital_asks_for_bandages_before_it_needs_them(self):
+        """`BANDAGE_PER_DWARF` said the hospital keeps a stock and nothing
+        read it, so the only warning came with somebody already bleeding."""
+        from tests.test_fortress import embark
+        from ascii_warriors.fortress import hospital, sim
+
+        fort = embark("bandages")
+        for item in list(fort.all_items()):
+            if item.def_id == "bandage":
+                fort.take_item(item)
+        self.assertEqual(fort.stock_count("bandage"), 0)
+        sim.step(fort)
+        said = " ".join(getattr(m, "text", str(m)) for m in fort.log.recent(80))
+        self.assertIn("bandage", said.lower())
+        self.assertGreater(hospital.BANDAGE_PER_DWARF, 0)

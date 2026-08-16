@@ -724,6 +724,20 @@ def _scan_hospital(fort, budget: int) -> int:
     """
     from . import hospital
 
+    # Before anybody is hurt, not after. `BANDAGE_PER_DWARF` has said the
+    # hospital "tries to keep bandages in stock" since it was written and
+    # nothing read it, so the only warning a player ever got was the one below
+    # -- which fires when somebody is already bleeding and the cupboard is
+    # bare. Bandages take a craftsdwarf and a bolt of cloth; the point of
+    # saying so early is that there is still time to make some.
+    want = hospital.BANDAGE_PER_DWARF * max(1, len(fort.dwarves()))
+    if fort.stock_count("bandage") < want:
+        fort.warn_once("bandage_stock",
+                       "The hospital is low on bandages. A craftsdwarf can "
+                       "make more out of cloth.")
+    else:
+        fort.clear_warning("bandage_stock")
+
     hurt = hospital.patients(fort)
     if not hurt:
         return 0

@@ -63,10 +63,6 @@ KINDS: Dict[str, DesignationKind] = {
     )
 }
 
-#: Designations that need a wall or tree present to make sense.
-_NEEDS_SOLID = ("dig", "smooth", "remove", "engrave")
-
-
 class Designations:
     """Every standing order on the map, keyed by cell."""
 

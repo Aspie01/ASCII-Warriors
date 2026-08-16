@@ -133,11 +133,6 @@ WEAPON_METALS: List[str] = [
     "copper", "bismuth_bronze", "bronze", "iron", "steel", "adamantine",
 ]
 
-#: What a smelter can turn ore into, and what a vein can be made of.
-ORE_METALS: List[str] = [
-    "copper", "tin", "iron", "nickel", "silver", "gold", "platinum",
-]
-
 #: Stone the smelter burns off to make steel. Any of these will do.
 FLUX_STONES: List[str] = ["limestone", "marble", "chalk"]
 

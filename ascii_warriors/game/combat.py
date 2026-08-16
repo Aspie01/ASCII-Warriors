@@ -799,6 +799,14 @@ TRAP_STRIKES: Dict[str, Tuple[str, float, int, int, str]] = {
     "fall": ("blunt", 260000.0, 2000, 100, "slams"),
 }
 
+#: Traps whose injury the tissue model cannot name. Everything here is blunt
+#: to the physics -- nothing is being sheared -- so without this a creature
+#: that stood in a fire walked out with bruises.
+TRAP_WOUNDS: Dict[str, str] = {
+    "fire": "burn",
+    "frostbite": "frostbite",
+}
+
 
 def trap_strike(
     victim, trap_kind: str, material: str = "", *, rng: RNG, log=None,
@@ -837,7 +845,8 @@ def trap_strike(
         return result
 
     clauses = victim.body.apply_damage(
-        part.id, kind, delivered, contact, penetration, rng)
+        part.id, kind, delivered, contact, penetration, rng,
+        wound=TRAP_WOUNDS.get(trap_kind, ""))
     result.hit = True
     if clauses:
         result.add("%s, %s!" % (head, ", ".join(clauses)), colors.UI["fg"])

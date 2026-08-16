@@ -86,8 +86,13 @@ def stock_merchant(npc, rng: RNG, *, tier: int = 2) -> None:
     npc.inventory.add(Item("coin", "silver", count=rng.randint(60, 400)))
 
 
-def _haggle_factor(customer, merchant) -> float:
-    """How far the customer's skills move a price in their favour, 0 to 0.45."""
+def _haggle_factor(customer) -> float:
+    """How far the customer's skills move a price in their favour, 0 to 0.45.
+
+    The merchant used to be a parameter and was never read: their greed is
+    applied by the callers, on the base price, and counting them twice would
+    have been the bug rather than the fix.
+    """
     # Both skills declare their own governing attributes -- appraisal wants
     # an analytical head and a memory for prices, negotiation wants the three
     # social ones -- so the hand-written `social_awareness` multiplier that
@@ -109,7 +114,7 @@ def price_to_buy(item: Item, merchant, customer, game=None) -> int:
     unit = max(1, item.value // max(1, item.count))
     greed = merchant.personality.greed_factor() if merchant is not None else 1.0
     price = unit * BASE_BUY_RATE * (0.75 + 0.5 * greed)
-    price *= 1.0 - _haggle_factor(customer, merchant)
+    price *= 1.0 - _haggle_factor(customer)
     price *= _standing_factor(game, merchant)
     return max(1, int(round(price)))
 
@@ -121,7 +126,7 @@ def price_to_sell(item: Item, merchant, customer, game=None) -> int:
     unit = max(1, item.value // max(1, item.count))
     greed = merchant.personality.greed_factor() if merchant is not None else 1.0
     price = unit * BASE_SELL_RATE * (1.25 - 0.4 * greed)
-    price *= 1.0 + _haggle_factor(customer, merchant)
+    price *= 1.0 + _haggle_factor(customer)
     price /= _standing_factor(game, merchant)
     return max(1, int(round(price)))
 

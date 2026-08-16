@@ -689,6 +689,15 @@ class Game:
         radius = p.sight_radius(light)
         if self.local.is_outside(p.x, p.y, p.z):
             radius = max(2, int(radius * self.weather.sight_modifier()))
+        # Every other thing a mount is for was wired up -- speed, carrying,
+        # overland travel -- and `SIGHT_BONUS` was declared, documented as
+        # "how far a mount lets you see over a crowd or a hedge", and read by
+        # nothing. Applied after the weather, because being higher up does not
+        # help you see through fog.
+        from . import mounts as mounts_mod
+
+        if mounts_mod.mounted(self):
+            radius += mounts_mod.SIGHT_BONUS
         z = p.z
 
         def blocks(x: int, y: int) -> bool:

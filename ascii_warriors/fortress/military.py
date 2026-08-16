@@ -79,9 +79,6 @@ TRAINING_SKILLS: Tuple[str, ...] = (
     "fighter", "dodging", "armor_use", "shield_use",
 )
 
-#: Exp per tick of sparring, before skill scaling.
-TRAIN_EXP = 1
-
 #: The alert states a fortress can be in.
 ALERTS: Tuple[str, ...] = ("civilian", "alarm")
 
