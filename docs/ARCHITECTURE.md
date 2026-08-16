@@ -3899,7 +3899,58 @@ enforced elsewhere: `TRAIN_EXP` (`_finish_train` grants 12 and 20 by hand),
 never read — their greed is applied by the callers, and counting it twice
 would have been the bug rather than the fix.
 
-## 100. Style
+## 100. Gods (v3.40)
+
+The game has been building temples since `sitegen` was written. It furnishes
+them with an altar and a statue, stations a priest inside, sells you a book at
+the door, and calls any room with an altar in it a "temple" — and there was
+nothing to worship. `"altar": "temple"` in `rooms.ROOM_KINDS` was the **only**
+mention of a temple in the whole of fortress mode: a named room with a quality
+score that no dwarf ever had a reason to walk into. A search for
+`god|deity|worship|pray` across the project found two hits, both incidental.
+
+**Every people gets a pantheon at worldgen.** Three to six gods, each with a
+name in that people's own tongue, an epithet and a sphere. The spheres are not
+decoration: `SPHERE_FOR_PROFESSION` sends a smith to the god of craft and a
+soldier to the god of war, so a dwarf's prayer sounds like it came from that
+dwarf.
+
+**Who worships whom is not stored.** `deity_of` derives it from the
+worshipper's own id against their people's pantheon, which costs nothing to
+save, cannot be lost in a reload, and gives the same answer in both modes — a
+dwarf in your fortress and the same figure met later in the ruins pray to the
+same god. It needed one fallback: `Fortress.civ_id` is optional and `embark`
+never sets one, so a fortress expedition has no civilization and without a
+fall-back to their own race's gods nobody in fortress mode would have had a
+god at all — in the one place the temple was built for.
+
+**A temple is now what an altar was always described as.** `Needs` gained
+`prayer`, a want rather than a need: it accumulates like hunger but nothing
+ever dies of it. A dwarf who has gone a week without a quiet place walks to
+the best temple in the fortress, stands in it, and comes out with a good
+thought naming their god. A fortress with no altar is told in the only way
+that matters — everybody is a little unhappier, seasonally, and there is no
+warning box, because building one is a choice rather than an emergency. The
+partial count lives in `DwarfState.praying` so a dwarf interrupted halfway
+keeps what it has; without that, nobody in a busy fortress would ever finish.
+
+**An adventurer prays at an altar with `_`** — the altar's own glyph, which is
+the only mnemonic that needs no explaining in a game you read by its glyphs.
+Priests greet you in their god's name and `ask_self` says who they hold to,
+which is the second thing v3.38's named locals gave the player to ask about.
+
+The legends screen gains a Gods tab, a page per god listing the peoples that
+hold them and their living faithful, and a line on every figure's page saying
+who they worship.
+
+**The naming bug worth recording**, because it is the third time this shape
+has appeared in this project: `rng.sub("god")` inside the per-god loop is the
+*same* sub-RNG every iteration, so the first version named every god of a
+people the same thing. One stream, created once and advanced, is the fix — the
+same mistake as re-seeding an RNG inside a test loop, which was caught twice in
+v3.39.
+
+## 101. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

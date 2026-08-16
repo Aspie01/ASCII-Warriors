@@ -696,6 +696,16 @@ Press a on the ending screen to roll an adventurer in the same world and walk
 back into your own fortress: the corridors you dug, the workshops you raised,
 the goods on the floor and your dwarves lying where they fell.
 
+Somewhere quiet matters. Every people in the world keeps gods of its own --
+of war, of the forge, of the deep, of the long dark -- and your dwarves keep
+them too. Build an altar in a decent room and it is a temple: dwarves will
+walk to it when they have gone a while without, and come out steadier. A
+fortress with nowhere to pray never says so; it is just a worse place to live.
+
+As an adventurer, press _ on an altar to pray at it. Ask a priest about
+themselves and they will tell you who they hold to, and the Gods tab of the
+legends screen lists every one of them.
+
 Your workshops are ruins by then. Look at one and it tells you what it was and
 what it was built out of, but a forge with nobody at it is furniture.
 

@@ -295,6 +295,10 @@ class PlayScene(Scene):
             cost = actions.gather_here(game)
         elif key == "Y":
             cost = actions.fish_here(game)
+        elif key == "_":
+            # The altar's own glyph, which is the only mnemonic that needs no
+            # explaining in a game you read by its glyphs.
+            cost = actions.pray_here(game)
         elif key == "s":
             cost = actions.search(game)
         elif key == "S":

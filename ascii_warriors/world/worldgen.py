@@ -152,6 +152,9 @@ class World:
         #: Musical, poetic and dance forms, owned by the civilizations
         #: that invented them.
         self.forms: List[Any] = []
+        #: The gods each people keeps. Who worships whom is not stored: see
+        #: `religion.deity_of`, which derives it from the worshipper.
+        self.gods: List[Any] = []
         self.year = 125
         self.history_years = 0
         self._next_hf = 1
@@ -159,6 +162,7 @@ class World:
         self._next_site = 1
         self._next_artifact = 1
         self._next_form = 1
+        self._next_deity = 1
         #: Maps of places the player built and left behind, keyed ``"wx,wy"``.
         #: An abandoned fortress is a real location an adventurer can walk into,
         #: with its corridors, its furniture and its dead exactly as they were.
@@ -270,6 +274,9 @@ class World:
         if kind == "site":
             self._next_site += 1
             return self._next_site - 1
+        if kind == "deity":
+            self._next_deity += 1
+            return self._next_deity - 1
         self._next_artifact += 1
         return self._next_artifact - 1
 
@@ -296,9 +303,10 @@ class World:
             "events": [e.to_dict() for e in self.events],
             "artifacts": [a.to_dict() for a in self.artifacts],
             "forms": [f.to_dict() for f in self.forms],
+            "gods": [g.to_dict() for g in self.gods],
             "counters": [
                 self._next_hf, self._next_event, self._next_site,
-                self._next_artifact, self._next_form,
+                self._next_artifact, self._next_form, self._next_deity,
             ],
             "preserved": self.preserved,
         }
@@ -326,15 +334,21 @@ class World:
         w.events = [HistoricalEvent.from_dict(e) for e in d.get("events", [])]
         w.artifacts = [Artifact.from_dict(a) for a in d.get("artifacts", [])]
         w.forms = [ArtForm.from_dict(f) for f in d.get("forms", [])]
+        from .religion import Deity
+
+        w.gods = [Deity.from_dict(g) for g in d.get("gods", [])]
         w.preserved = dict(d.get("preserved") or {})
         counters = list(d.get("counters") or [1, 1, 1, 1])
-        # Worlds saved before forms existed have four counters, not five.
+        # Worlds saved before forms existed have four counters, not five, and
+        # ones saved before there were gods have five rather than six.
         while len(counters) < 5:
             counters.append(max([f.id for f in w.forms] or [0]) + 1)
+        while len(counters) < 6:
+            counters.append(max([g.id for g in w.gods] or [0]) + 1)
         (w._next_hf, w._next_event, w._next_site, w._next_artifact,
-         w._next_form) = (int(counters[0]), int(counters[1]),
-                          int(counters[2]), int(counters[3]),
-                          int(counters[4]))
+         w._next_form, w._next_deity) = (
+             int(counters[0]), int(counters[1]), int(counters[2]),
+             int(counters[3]), int(counters[4]), int(counters[5]))
         return w
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
@@ -600,6 +614,7 @@ def generate_world(
     from . import artforms as artform_mod
     from . import civ as civ_mod
     from . import history as history_mod
+    from . import religion as religion_mod
 
     dim = WORLD_SIZES.get(size, WORLD_SIZES["medium"])
     if not name:
@@ -625,6 +640,11 @@ def generate_world(
 
     _report(progress, "Raising civilizations", 0.60)
     civ_mod.place_civilizations(world, rng, progress)
+
+    # Before history runs, so a priest born in year 3 has somebody to be a
+    # priest of.
+    _report(progress, "Naming the gods", 0.70)
+    religion_mod.generate(world, rng.sub("gods"))
 
     _report(progress, "Recording history", 0.72)
     history_mod.simulate(world, rng, history_years, progress)

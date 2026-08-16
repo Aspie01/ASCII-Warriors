@@ -3484,6 +3484,94 @@ class TestReclaim(unittest.TestCase):
         self.assertFalse(legacy.can_reclaim(world, fort.wx, fort.wy))
 
 
+class TestTheTemple(unittest.TestCase):
+    """`"altar": "temple"` in ROOM_KINDS was the only mention of a temple in
+    the whole of fortress mode: a named room with a quality score that no
+    dwarf ever had a reason to walk into."""
+
+    def _with_altar(self, seed="temple"):
+        fort = embark(seed)
+        dig_room(fort, 6)
+        spot = _open_spot(fort, "altar")
+        self.assertIsNotNone(spot, "nowhere to put an altar")
+        b = Building("altar", *spot)
+        b.material_name = "granite"
+        b.built = True
+        for cell in b.cells():
+            fort.dig_out(cell, b.defn.tile)
+        fort.buildings.append(b)
+        return fort, b
+
+    def test_an_altar_in_a_room_is_a_temple(self):
+        from ascii_warriors.fortress import rooms
+
+        fort, _b = self._with_altar()
+        found = rooms.temples(fort)
+        self.assertTrue(found, "an altar in a room is not a temple")
+        self.assertEqual(found[0].kind, "temple")
+
+    def test_a_fortress_without_one_has_no_temple(self):
+        from ascii_warriors.fortress import rooms
+
+        self.assertEqual(rooms.temples(embark("bare")), [])
+
+    def test_every_dwarf_has_a_god(self):
+        """`Fortress.civ_id` is optional and embark never sets one, so without
+        a fallback nobody in fortress mode has a god at all."""
+        from ascii_warriors.world import religion
+
+        fort = embark("faith")
+        self.assertIsNone(fort.civ_id, "the premise of this test has changed")
+        for d in fort.dwarves():
+            god = religion.deity_of(fort.world, d)
+            self.assertIsNotNone(god, "%s prays to nothing" % d.name)
+            self.assertTrue(god.spheres)
+
+    def test_a_dwarf_goes_to_the_temple_and_is_the_better_for_it(self):
+        from ascii_warriors.game import needs as needs_mod
+
+        fort, b = self._with_altar("visit")
+        temple = set()
+        from ascii_warriors.fortress import rooms
+
+        temple = set(rooms.temples(fort)[0].cells)
+        for d in fort.dwarves():
+            d.needs.prayer = needs_mod.PRAYER_WANTED * 2
+        prayed = False
+        for _ in range(400):
+            sim.step(fort)
+            if any(d.needs.prayer == 0 for d in fort.dwarves()):
+                prayed = True
+                break
+        self.assertTrue(prayed, "nobody ever went to the temple")
+        thoughts = [t for d in fort.dwarves() for t, _s in d.needs.thoughts]
+        self.assertTrue(any("pray" in t for t in thoughts),
+                        "praying left no impression: %r" % thoughts[-6:])
+
+    def test_nowhere_to_pray_is_felt(self):
+        """The only way the game tells you: everybody is a little unhappier."""
+        from ascii_warriors.game import needs as needs_mod
+
+        fort = embark("nowhere")
+        for d in fort.dwarves():
+            d.needs.prayer = needs_mod.PRAYER_WANTED * 2
+        sim._season_thoughts(fort)
+        thoughts = [t for d in fort.dwarves() for t, _s in d.needs.thoughts]
+        self.assertTrue(any("nowhere quiet" in t for t in thoughts), thoughts)
+
+    def test_a_half_finished_prayer_survives_a_save(self):
+        """A dwarf interrupted halfway keeps what it has, or it would never
+        finish in a busy fortress -- so the count has to be in the save."""
+        fort, _b = self._with_altar("saved")
+        d = fort.dwarves()[0]
+        d.fort.praying = 120
+        d.needs.prayer = 9999
+        back = Fortress.from_dict(fort.to_dict())
+        same = back.creatures[d.id]
+        self.assertEqual(same.fort.praying, 120)
+        self.assertEqual(same.needs.prayer, 9999)
+
+
 class TestWater(unittest.TestCase):
     """Water that moves, and the engineering that controls it."""
 

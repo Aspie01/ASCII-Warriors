@@ -794,5 +794,193 @@ class TestPersonalityReadsLikeEnglish(unittest.TestCase):
                          "I speak my mind forcefully.")
 
 
+
+
+
+class TestGods(unittest.TestCase):
+    """Every temple in the game was furnished and had nothing to worship."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.world = _world("gods", size="small", years=80)
+
+    def test_every_people_keeps_a_pantheon(self):
+        from ascii_warriors.world import religion
+
+        self.assertTrue(self.world.gods)
+        for civ in self.world.civs:
+            gods = religion.gods_of(self.world, civ.id)
+            self.assertGreaterEqual(len(gods), religion.MIN_GODS, civ.name)
+            self.assertLessEqual(len(gods), religion.MAX_GODS, civ.name)
+
+    def test_the_gods_have_names_of_their_own(self):
+        """A fresh `rng.sub("god")` per god is the same sub-RNG every time,
+        which named every god of a people the same thing."""
+        names = [g.name for g in self.world.gods]
+        self.assertEqual(len(names), len(set(names)))
+        for g in self.world.gods:
+            self.assertTrue(g.name)
+            self.assertTrue(g.spheres)
+            self.assertIn(g.spheres[0], [s for s, _e in
+                                         __import__(
+                                             "ascii_warriors.world.religion",
+                                             fromlist=["religion"]).SPHERES])
+
+    def test_a_god_is_the_same_god_every_time_you_ask(self):
+        """Worship is derived rather than stored, so it has to be stable."""
+        from ascii_warriors.world import religion
+
+        for fig in list(self.world.figures.values())[:40]:
+            first = religion.deity_of(self.world, fig)
+            self.assertIs(first, religion.deity_of(self.world, fig))
+
+    def test_a_trade_looks_to_its_own_sphere(self):
+        from ascii_warriors.world import religion
+
+        matched = 0
+        for fig in self.world.figures.values():
+            want = religion.SPHERE_FOR_PROFESSION.get(fig.profession)
+            god = religion.deity_of(self.world, fig)
+            if god is None or want is None:
+                continue
+            if want in god.spheres:
+                matched += 1
+            else:
+                # Only acceptable when their people keep no god of it.
+                pantheon = religion.gods_of(self.world, fig.civ_id)
+                self.assertFalse(
+                    any(want in g.spheres for g in pantheon),
+                    "%s the %s ignores their own god of %s"
+                    % (fig.name, fig.profession, want))
+        self.assertGreater(matched, 0, "nobody looks to their own trade")
+
+    def test_gods_survive_a_world_save(self):
+        from ascii_warriors.world import religion
+        from ascii_warriors.world.worldgen import World
+
+        back = World.from_dict(self.world.to_dict())
+        self.assertEqual(len(back.gods), len(self.world.gods))
+        self.assertEqual([g.id for g in back.gods],
+                         [g.id for g in self.world.gods])
+        self.assertEqual([g.summary() for g in back.gods],
+                         [g.summary() for g in self.world.gods])
+        # And the derived worship gives the same answers on the far side.
+        for fig in list(self.world.figures.values())[:20]:
+            was = religion.deity_of(self.world, fig)
+            now = religion.deity_of(back, back.figures[fig.id])
+            self.assertEqual(was.id if was else None, now.id if now else None)
+
+    def test_a_world_saved_before_gods_still_loads(self):
+        """Five counters rather than six, and no `gods` key at all."""
+        from ascii_warriors.world.worldgen import World
+
+        blob = self.world.to_dict()
+        blob.pop("gods", None)
+        blob["counters"] = blob["counters"][:5]
+        back = World.from_dict(blob)
+        self.assertEqual(back.gods, [])
+        self.assertGreater(back.next_id("deity"), 0)
+
+    def test_the_legends_screen_has_a_page_for_a_god(self):
+        from ascii_warriors.world import legends, religion
+
+        god = self.world.gods[0]
+        lines = legends.deity_lines(self.world, god.id)
+        text = " ".join(f.text for f in lines)
+        self.assertIn(god.name, text)
+        self.assertIn(god.spheres[0], text)
+        # And a figure's page says who they hold to.
+        fig = next(f for f in self.world.figures.values()
+                   if religion.deity_of(self.world, f) is not None)
+        page = " ".join(f.text for f in legends.figure_lines(self.world, fig.id))
+        self.assertIn(religion.deity_of(self.world, fig).name, page)
+
+
+class TestPrayer(unittest.TestCase):
+    """An altar you can do something with."""
+
+    def setUp(self):
+        self._tmp = tempfile.mkdtemp()
+        self._old = os.environ.get("ASCII_WARRIORS_SAVE_DIR")
+        os.environ["ASCII_WARRIORS_SAVE_DIR"] = self._tmp
+        self.world = _world("prayer", size="pocket", years=30)
+
+    def tearDown(self):
+        if self._old is None:
+            os.environ.pop("ASCII_WARRIORS_SAVE_DIR", None)
+        else:
+            os.environ["ASCII_WARRIORS_SAVE_DIR"] = self._old
+
+    def _at_an_altar(self):
+        from ascii_warriors.game.entity import make_creature
+
+        player = make_creature(RNG("p"), "human", faction="player")
+        player.is_player = True
+        game = Game(self.world, player, RNG("pray"))
+        site = next(s for s in self.world.sites
+                    if s.is_settlement and not s.is_ruin)
+        player.wx, player.wy = site.wx, site.wy
+        game.enter_world_tile(site.wx, site.wy)
+        lm = game.local
+        for z in lm.levels:
+            for y in range(lm.height):
+                for x in range(lm.width):
+                    if lm.tile(x, y, z) == "altar":
+                        player.x, player.y, player.z = x, y, z
+                        return game, player
+        return game, None
+
+    def test_praying_at_an_altar_settles_you(self):
+        from ascii_warriors.game import actions
+
+        game, player = self._at_an_altar()
+        if player is None:
+            self.skipTest("no altar in this world's settlements")
+        player.needs.prayer = 200000
+        before = len(game.log.recent(50))
+        cost = actions.pray_here(game)
+        self.assertEqual(cost, actions.PRAY_TURNS)
+        self.assertEqual(player.needs.prayer, 0)
+        said = " ".join(getattr(m, "text", str(m))
+                        for m in game.log.recent(50)[before:])
+        self.assertIn("thanks", said.lower())
+
+    def test_praying_anywhere_else_does_nothing(self):
+        from ascii_warriors.game import actions
+
+        game, player = self._at_an_altar()
+        if player is None:
+            self.skipTest("no altar in this world's settlements")
+        # Step off the altar.
+        player.x += 1 if game.local.tile(player.x + 1, player.y,
+                                         player.z) != "altar" else -1
+        player.needs.prayer = 200000
+        cost = actions.pray_here(game)
+        self.assertEqual(cost, actions.FREE)
+        self.assertEqual(player.needs.prayer, 200000)
+
+    def test_the_want_grows_and_a_save_keeps_it(self):
+        from ascii_warriors.game.entity import make_creature
+        from ascii_warriors.game.needs import PRAYER_WANTED
+
+        c = make_creature(RNG("q"), "dwarf")
+        self.assertEqual(c.needs.prayer, 0)
+        # Fed and watered the whole way, so the only thing accumulating is the
+        # want of a quiet place. Ticking a week in one go kills them of thirst
+        # and proves nothing about prayer.
+        step = 600
+        for _ in range((PRAYER_WANTED // step) + 2):
+            c.needs.tick(step, c, None)
+            c.needs.hunger = 0
+            c.needs.thirst = 0
+            c.needs.drowsy = 0
+        self.assertGreater(c.needs.prayer, PRAYER_WANTED)
+        self.assertFalse(c.body.dead, "somebody died of wanting a temple")
+        from ascii_warriors.game.needs import Needs
+
+        back = Needs.from_dict(c.needs.to_dict())
+        self.assertEqual(back.prayer, c.needs.prayer)
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()

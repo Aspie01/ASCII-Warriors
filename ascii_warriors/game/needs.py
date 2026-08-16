@@ -35,12 +35,18 @@ HYDRATION_SCALE = 16
 #: Ticks for one point of stress to fade back towards indifference.
 STRESS_DECAY = 900
 
+#: The want of a quiet place. Slower than any of the bodily needs -- a week
+#: without it is a grumble, not a crisis -- and unlike them it kills nobody:
+#: a dwarf who never prays is unhappy, not dead.
+PRAYER_WANTED = int(TICKS_PER_DAY * 7.0)
+PRAYER_NEGLECTED = int(TICKS_PER_DAY * 16.0)
+
 
 class Needs:
     """A creature's bodily and mental needs."""
 
     __slots__ = ("hunger", "thirst", "drowsy", "fatigue", "stress", "thoughts",
-                 "owner")
+                 "prayer", "owner")
 
     def __init__(self) -> None:
         #: Whose needs these are, set by `Creature.__init__`. Kept so that
@@ -53,6 +59,9 @@ class Needs:
         self.drowsy = 0
         self.fatigue = 0
         self.stress = 0
+        #: Ticks since this creature last had a quiet moment somewhere it
+        #: counted. A temple is what a temple is for.
+        self.prayer = 0
         #: Recent thoughts as ``(text, stress delta)``.
         self.thoughts: List[Tuple[str, int]] = []
 
@@ -104,6 +113,17 @@ class Needs:
                 )
 
         self.fatigue = max(0, self.fatigue - max(1, ticks // 4))
+
+        # A want rather than a need: nothing below ever kills for it. What it
+        # does is make a fortress with nowhere quiet in it a worse place to
+        # live, which is what an altar was always supposed to be for.
+        self.prayer += ticks
+        msgs.extend(
+            _threshold_messages(
+                self.prayer - ticks, self.prayer,
+                ((PRAYER_WANTED, "You could do with a quiet moment."),),
+            )
+        )
 
         # Feelings fade. Without this a creature that had one good week stays
         # ecstatic for ever and nothing you do to it afterwards matters.
@@ -288,6 +308,7 @@ class Needs:
         return {
             "hunger": self.hunger, "thirst": self.thirst, "drowsy": self.drowsy,
             "fatigue": self.fatigue, "stress": self.stress,
+            "prayer": self.prayer,
             "thoughts": [list(t) for t in self.thoughts[-20:]],
         }
 
@@ -298,6 +319,7 @@ class Needs:
         n.hunger = int(d.get("hunger", 0))
         n.thirst = int(d.get("thirst", 0))
         n.drowsy = int(d.get("drowsy", 0))
+        n.prayer = int(d.get("prayer", 0))
         n.fatigue = int(d.get("fatigue", 0))
         n.stress = int(d.get("stress", 0))
         n.thoughts = [(str(t[0]), int(t[1])) for t in d.get("thoughts", [])]

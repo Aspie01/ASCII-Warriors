@@ -118,6 +118,11 @@ def greeting(npc, game) -> str:
     if role == "merchant":
         return "Good %s! You have the look of someone who needs supplies." % part
     if role == "priest":
+        from ..world import religion as religion_mod
+
+        god = religion_mod.deity_of(game.world, npc)
+        if god is not None:
+            return "%s keep you, traveller." % god.display_name
         return "Peace be on you, traveller."
     return "Good %s to you." % part
 
@@ -299,6 +304,12 @@ def say(speaker, listener, topic: str, game) -> List[Frag]:
         # and the hearsay framing is both what somebody actually says about
         # their own reputation and the only phrasing that cannot come out
         # ungrammatical.
+        from ..world import religion as religion_mod
+
+        god = religion_mod.deity_of(world, listener)
+        if god is not None:
+            lines.append("I hold to %s, god of %s."
+                         % (god.display_name, god.sphere_text()))
         if listener.hf_id is not None:
             lines.extend(rumor_lines(game, hf_id=listener.hf_id, n=2))
         for ln in lines:

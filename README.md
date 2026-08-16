@@ -16,6 +16,10 @@ them about themselves and they will tell you what they are known for. Every
 quest points at something that exists. When you die, your character is written
 into the same legends, and the world carries on without you.
 
+Every people keeps gods of its own — of war, of the forge, of the deep — and
+so do your dwarves. An altar in a decent room is a temple, and a fortress with
+nowhere quiet in it is a worse place to live.
+
 **No hit points.** Every blow lands on a specific body part and drives force
 through skin, fat, muscle and bone in turn. You die because something vital was
 destroyed, because your head came off, or — most often — because you bled out.

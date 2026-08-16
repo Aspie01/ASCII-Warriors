@@ -872,6 +872,29 @@ def gather_here(game) -> int:
     return foraging.GATHER_TURNS if items or "search" in said else FREE
 
 
+#: Ticks a prayer takes. Long enough to be a decision on a dangerous map.
+PRAY_TURNS = 300
+
+
+def pray_here(game) -> int:
+    """Stop at an altar and be quiet for a moment.
+
+    Every temple in the game was furnished with one of these and there was
+    nothing to say to it. What it does for an adventurer is what a night's
+    sleep does: it settles you.
+    """
+    from ..world import religion as religion_mod
+
+    p = game.player
+    if game.local is None or game.local.tile(p.x, p.y, p.z) != "altar":
+        game.log.info("There is no altar here.")
+        return FREE
+    game.log.good(religion_mod.prayer_line(game.world, p))
+    p.needs.prayer = 0
+    p.needs.add_thought("prayed at an altar", -6)
+    return PRAY_TURNS
+
+
 def fish_here(game) -> int:
     """Spend a while at the water's edge.
 

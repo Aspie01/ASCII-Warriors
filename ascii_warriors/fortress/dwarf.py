@@ -23,6 +23,14 @@ THIRST_URGENT = 9000
 HUNGER_URGENT = 14000
 SLEEP_URGENT = 15000
 
+#: When a dwarf starts wanting somewhere quiet. Ranked below the bodily needs
+#: on purpose -- nobody prays instead of drinking -- so this only ever wins a
+#: turn when nothing else is pressing.
+PRAYER_URGENT = 100800
+
+#: Ticks of standing in a temple that count as having prayed.
+PRAYER_TICKS = 300
+
 #: How far a dwarf will walk for a job before giving up on it.
 MAX_PATH_NODES = 6000
 
@@ -31,7 +39,8 @@ class DwarfState:
     """Everything a dwarf has that only matters inside a fortress."""
 
     __slots__ = ("labors", "job", "path", "path_goal", "nickname", "bed",
-                 "mood", "mood_ticks", "idle_ticks", "squad", "carrying",
+                 "mood", "mood_ticks", "idle_ticks", "praying", "squad",
+                 "carrying",
                  "workshop", "blocked", "sleeping", "lonely")
 
     def __init__(self, labors: Optional[LaborSet] = None) -> None:
@@ -46,6 +55,9 @@ class DwarfState:
         self.mood = ""
         self.mood_ticks = 0
         self.idle_ticks = 0
+        #: Ticks spent standing in a temple so far. A dwarf who is interrupted
+        #: halfway keeps what it has, or it would never finish in a busy fort.
+        self.praying = 0
         self.squad = False
         #: Written whenever a dwarf picks something up for a job, and read by
         #: nothing. The item lives in the dwarf's inventory and `put_down`
@@ -74,6 +86,7 @@ class DwarfState:
             # vampire could not feed until somebody went back to bed.
             "sleeping": self.sleeping,
             "idle_ticks": self.idle_ticks,
+            "praying": self.praying,
             "blocked": self.blocked,
         }
 
@@ -90,6 +103,7 @@ class DwarfState:
         s.lonely = int(d.get("lonely", 0))
         s.sleeping = bool(d.get("sleeping", False))
         s.idle_ticks = int(d.get("idle_ticks", 0))
+        s.praying = int(d.get("praying", 0))
         s.blocked = int(d.get("blocked", 0))
         return s
 
@@ -625,6 +639,7 @@ def _handle_needs(fort, dwarf, ticks: int) -> bool:
         (needs.thirst / float(THIRST_URGENT), _go_drink),
         (needs.hunger / float(HUNGER_URGENT), _go_eat),
         (needs.drowsy / float(SLEEP_URGENT), _go_sleep),
+        (needs.prayer / float(PRAYER_URGENT), _go_pray),
     ]
     wants.sort(key=lambda w: -w[0])
     for urgency, action in wants:
@@ -668,6 +683,44 @@ def _go_eat(fort, dwarf, ticks: int) -> bool:
             return True
     elif dwarf.needs.hunger > HUNGER_URGENT * 1.5:
         fort.warn_once("hunger", "Your dwarves are starving!")
+    return False
+
+
+def _go_pray(fort, dwarf, ticks: int) -> bool:
+    """Walk to a temple and be quiet in it for a while.
+
+    Fails silently when the fortress has no temple, and the dwarf goes on
+    wanting one -- which is the whole mechanism. There is no warning for it
+    because a fortress with no altar is a choice, not an emergency, and it
+    tells you in the only way that matters: everybody is a little unhappier.
+    """
+    from . import rooms as room_mod
+    from ..world import religion as religion_mod
+
+    found = room_mod.temples(fort)
+    if not found:
+        return False
+    temple = found[0]
+    here = (dwarf.x, dwarf.y, dwarf.z)
+    if here in temple.cells:
+        state = dwarf.fort
+        state.praying = state.praying + ticks
+        if state.praying < PRAYER_TICKS:
+            return True
+        state.praying = 0
+        dwarf.needs.prayer = 0
+        god = religion_mod.deity_of(fort.world, dwarf)
+        dwarf.needs.add_thought(
+            "prayed to %s" % god.name if god is not None
+            else "sat a while in the temple",
+            -(4 + temple.quality // 8))
+        return True
+    release_job(fort, dwarf)
+    for cell in sorted(temple.cells,
+                       key=lambda c: _heuristic(here, c))[:4]:
+        if path_to(fort, dwarf, cell, adjacent=False):
+            step_along(fort, dwarf)
+            return True
     return False
 
 

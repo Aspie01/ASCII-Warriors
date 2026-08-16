@@ -164,6 +164,19 @@ def room_of(fort, dwarf) -> Optional[Room]:
     return measure(fort, building)
 
 
+def temples(fort) -> List[Room]:
+    """Every temple in the fortress, best first.
+
+    A temple is an altar in a room, which is what the altar's own description
+    has said since it was written. Until there were gods to pray to, this was
+    a name a room could have and nothing more -- no dwarf had a reason to walk
+    into one.
+    """
+    found = [r for r in rooms(fort) if r.kind == "temple"]
+    found.sort(key=lambda r: -r.quality)
+    return found
+
+
 def dining_quality(fort) -> int:
     """The best dining room the fortress has, or zero."""
     best = 0

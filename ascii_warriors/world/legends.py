@@ -52,6 +52,12 @@ def figure_lines(world, hf_id: int) -> List[Frag]:
     if fig.stats:
         out.append(_line("Prowess %d, cunning %d." % (
             fig.stats.get("prowess", 0), fig.stats.get("cunning", 0)), _DIM))
+    from . import religion as religion_mod
+
+    god = religion_mod.deity_of(world, fig)
+    if god is not None:
+        out.append(_line("Worships %s, god of %s."
+                         % (god.display_name, god.sphere_text()), _ACCENT))
     kin = history_mod.relations_of(world, fig)
     if kin:
         out.append(_line(""))
@@ -179,6 +185,37 @@ def artifact_lines(world, art_id: int) -> List[Frag]:
         out.append(_line("Last seen at %s." % site.name, _ACCENT))
     if art.lost:
         out.append(_line("Its whereabouts are unknown.", colors.UI["warn"]))
+    return out
+
+
+def deity_lines(world, deity_id: int) -> List[Frag]:
+    """The page for one god: what they govern and who holds them."""
+    from . import religion as religion_mod
+
+    god = religion_mod.god(world, deity_id)
+    if god is None:
+        return [_line("No such god.")]
+    out = [_line(god.display_name, _ACCENT)]
+    if god.native_name and god.native_name.lower() != god.name.lower():
+        out.append(_line("Called %s." % god.native_name, _DIM))
+    out.append(_line("God of %s." % god.sphere_text()))
+    peoples = [world.civ(c) for c in god.civ_ids]
+    peoples = [c for c in peoples if c is not None]
+    if peoples:
+        out.append(_line(""))
+        out.append(_line("Held by:", _ACCENT))
+        for civ in peoples:
+            out.append(_line("  %s" % civ.name))
+    faithful = [f for f in world.figures.values()
+                if religion_mod.deity_of(world, f) is god]
+    if faithful:
+        out.append(_line(""))
+        out.append(_line("Among the faithful:", _ACCENT))
+        living = [f for f in faithful if f.died is None]
+        for f in (living or faithful)[:12]:
+            out.append(_line("  %s" % f.summary()))
+        out.append(_line("  %d in all, %d of them living."
+                         % (len(faithful), len(living)), _DIM))
     return out
 
 

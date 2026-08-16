@@ -1340,8 +1340,11 @@ def _season_thoughts(fort) -> None:
     """Dwarves notice how they are living."""
     from . import rooms
 
+    from ..game import needs as needs_mod
+
     beds = sum(1 for b in fort.buildings if b.kind == "bed" and b.built)
     dining = rooms.dining_quality(fort)
+    temple = rooms.temples(fort)
     dwarves = fort.dwarves()
     for d in dwarves:
         if beds < len(dwarves):
@@ -1358,6 +1361,13 @@ def _season_thoughts(fort) -> None:
                                 -min(8, dining // 4))
         if fort.stock_count("dwarven_ale", "wine", "beer") <= 0:
             d.needs.add_thought("had no drink to speak of", 8)
+        if not temple:
+            # Only once it has been wanted. A fortress in its first month is
+            # not neglecting anybody.
+            if d.needs.prayer > needs_mod.PRAYER_WANTED:
+                d.needs.add_thought("had nowhere quiet to pray", 5)
+        elif d.needs.prayer > needs_mod.PRAYER_NEGLECTED:
+            d.needs.add_thought("has not prayed in a long time", 4)
         art.admire(fort, d)
 
 

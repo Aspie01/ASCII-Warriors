@@ -13,7 +13,7 @@ from ..world import legends
 from .app import Scene
 
 TABS = ["Overview", "Figures", "Sites", "Civilizations", "Artifacts",
-        "Art", "Events"]
+        "Art", "Gods", "Events"]
 
 
 class LegendsScene(Scene):
@@ -94,6 +94,16 @@ class LegendsScene(Scene):
                     [Frag(artforms.summary(world, f), colors.UI["accent2"])],
                     ("form", f.id)))
         elif idx == 6:
+            from ..world import religion
+
+            for g in sorted(getattr(world, "gods", []),
+                            key=lambda g: (g.spheres[:1], g.name)):
+                if needle and needle not in g.name.lower():
+                    continue
+                items.append(MenuItem(
+                    [Frag(g.summary(), colors.UI["accent2"])],
+                    ("deity", g.id)))
+        elif idx == 7:
             for e in reversed(world.events[-500:]):
                 if needle and needle not in e.text.lower():
                     continue
@@ -192,4 +202,6 @@ class LegendsScene(Scene):
         elif kind == "event":
             ev = next((e for e in world.events if e.id == ident), None)
             self.detail = legends.event_lines(world, ev) if ev else None
+        elif kind == "deity":
+            self.detail = legends.deity_lines(world, ident)
         self.offset = 0
