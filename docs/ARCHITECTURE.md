@@ -3757,7 +3757,83 @@ zero, which is what a high-water mark means and what a reclaim needs: the
 magma check has *no* threshold, so a reclaim over a 67,000-unit magma sea
 would otherwise have reported the sea itself as a breach on its first step.
 
-## 98. Style
+## 98. The people in the legends are the people in the town (v3.38)
+
+The README's second paragraph is the whole pitch: *"Everything you hear in a
+tavern is a real event that really happened to a real figure **who may still be
+out there**."* The first half was true — measured, the rumour lines are real
+events about real figures at real sites. The second half was not.
+
+`sitegen` placed exactly two kinds of historical figure: a site's `ruler_hf`
+and its `owner_hf`. Measured on a small world: **364 living figures, 356 with a
+home site, and 8 ever placed on a map.** The other 348 were unmeetable in
+principle. A city whose legends named 21 living residents put one of them in
+front of the player, among twenty-nine townsfolk. They were not nobodies: 58
+warriors, 47 smiths, 42 hunters, 20 poets, 13 scholars and 9 necromancers who
+existed only as rows in a table and as names in the gossip.
+
+**Identify, do not add.** A town already spawns about the right number of
+people; they simply had no names out of the legends. `residents.name_the_locals`
+takes the population a builder produced and hands out the identities of the
+figures who live there, so the town stays the size it was. Called once from
+`build_site`, which every site kind already goes through, so no builder has to
+remember to ask. 283 of 295 resident figures now have faces.
+
+**Ordering is the whole game**, because there are usually more figures than
+slots — a forest retreat had 80 residents and 17 places to stand. `notability`
+ranks by titles, kills and deeds, so if somebody has to be left out it is not
+the Dragonbane. Events every figure has (`birth`, `death`, `migration`) are
+excluded: all 377 living residents had "events about them", so counting events
+flatly ranked them all equal.
+
+**`could_be` is two rules, both from the data.** `defn.civ` distinguishes a race
+(`human`, `goblin`) from a job (`guard`, `merchant`, `necromancer`): a race slot
+needs the matching race, a job slot needs `CIVILIZED`, which is what keeps a
+name off a troll or a zombie. The job rule needs the *site's* race as well, and
+that second half was missing in the first version — some of a site's listed
+residents are not its people at all (a dwarf fortress had eleven goblins on its
+rolls), and `hammerdwarf` and `elf_archer` carry no `civ`, so three goblins'
+names went onto three dwarven hammerers before the probe caught it.
+
+A retired adventurer is just another resident figure, so `renown.retire`'s
+docstring promise — "somebody the next game can hear about, meet in a tavern"
+— came true with them and needed no code of its own.
+
+### 98.1. Two dead things next to each other
+
+`rumor_lines(game, hf_id=...)` had accepted an `hf_id` and never referenced it,
+so there was no way to ask about a particular person even once there was a
+particular person standing in front of you. It now filters to that figure's own
+history, and less strictly than the tavern's: `notable_events` keeps wars and
+beasts, and a marriage is not notable to a stranger but is the whole of what
+most people have to tell you about themselves.
+
+`ask_self` gave name, trade, civ and temperament and never a deed — while
+`ask_beast`, two branches below it, quoted a monster's history out of the same
+world. It now says what the legends say. The lines stay in the third person on
+purpose: the events read "X and Y were married", and the hearsay framing is
+both what somebody actually says about their own reputation and the only
+phrasing that cannot come out ungrammatical.
+
+### 98.2. "They has no vanity."
+
+Putting named legends in every town made the character sheet worth reading,
+which is how this surfaced: **every personality line in the game was
+ungrammatical.** The phrases in `_FACET_PHRASES` were third-person singular
+("is a coward", "prefers solitude", "has a vivid imagination"), the one thing
+that reads them prefixes `"They "`, and where a phrase began `"is "` the code
+deleted it. So the game said "They has no vanity.", "They prefers solitude."
+and "They a coward." — on the character sheet and the look cursor, not only in
+conversation.
+
+The table is now written for a plural or first-person subject, which are the
+same in every verb form but the copula. `describe` is `"They %s."` and
+`_in_first_person` is `"I %s."` with `are` → `am`, plus the two possessives
+(`themselves` → `myself`, `their` → `my`). The old first-person conversion was
+a bare `"They " -> "I "` on singular phrases, which is where "I has a vivid
+imagination" came from.
+
+## 99. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

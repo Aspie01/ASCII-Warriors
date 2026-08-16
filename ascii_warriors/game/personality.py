@@ -148,8 +148,7 @@ class Personality:
         traits.sort(key=lambda t: -t[0])
         out: List[str] = []
         for _, phrase in traits[:6]:
-            out.append("They %s." % phrase[3:] if phrase.startswith("is ") else
-                       "They %s." % phrase)
+            out.append("They %s." % phrase)
         strong_values = sorted(
             ((abs(v), k, v) for k, v in self.values.items() if abs(v) >= 25),
             reverse=True,

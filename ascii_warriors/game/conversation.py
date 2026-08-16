@@ -120,12 +120,41 @@ def greeting(npc, game) -> str:
     return "Good %s to you." % part
 
 
+def _in_first_person(line: str) -> str:
+    """One of `Personality.describe`'s sentences, as the person would say it.
+
+    They and I share every verb form except the copula, so this is "am" for
+    "are" and the two pronouns, and nothing else. It used to be a bare
+    ``"They " -> "I "`` on phrases conjugated for a singular subject, which is
+    where "I has a vivid imagination" came from.
+    """
+    text = line[5:] if line.startswith("They ") else line
+    if text.startswith("are "):
+        text = "am " + text[4:]
+    return "I " + text.replace("themselves", "myself").replace("their ", "my ")
+
+
 def rumor_lines(game, hf_id: Optional[int] = None, n: int = 3) -> List[str]:
-    """A handful of real historical events, phrased as hearsay."""
+    """A handful of real historical events, phrased as hearsay.
+
+    With an *hf_id*, what is said about that one figure. The parameter had
+    been accepted and ignored since the function was written, so there was no
+    way to ask about a particular person even once there was a particular
+    person standing in front of you. Their own history is filtered less
+    strictly than the tavern's: `notable_events` keeps wars and beasts, and a
+    marriage is not notable to a stranger but is the whole of what many people
+    have to tell you about themselves.
+    """
     from ..world import history as history_mod
 
     world = game.world
-    events = history_mod.notable_events(world, 40)
+    if hf_id is not None:
+        events = [e for e in history_mod.events_about(world, hf_id)
+                  if e.kind != "birth"]
+        if not events:
+            return []
+    else:
+        events = history_mod.notable_events(world, 40)
     if not events:
         return ["Nothing ever happens here."]
     # People talk about what just happened first. The world keeps moving while
@@ -261,9 +290,15 @@ def say(speaker, listener, topic: str, game) -> List[Frag]:
             lines.append("I am a %s by trade." % listener.profession)
         if civ is not None:
             lines.append("I am of %s." % civ.name)
-        traits = listener.personality.describe()[:2]
-        lines.extend(t.replace("They ", "I ").replace("themselves", "myself")
-                     for t in traits)
+        lines.extend(_in_first_person(t)
+                     for t in listener.personality.describe()[:2])
+        # What the world remembers of them, if it remembers anything. Left in
+        # the third person on purpose: the events read "X and Y were married",
+        # and the hearsay framing is both what somebody actually says about
+        # their own reputation and the only phrasing that cannot come out
+        # ungrammatical.
+        if listener.hf_id is not None:
+            lines.extend(rumor_lines(game, hf_id=listener.hf_id, n=2))
         for ln in lines:
             out.extend(_quote(listener, ln))
             out.append(Frag("", _INFO))

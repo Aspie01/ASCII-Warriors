@@ -520,5 +520,279 @@ class TestGameLoop(unittest.TestCase):
         self.assertFalse(save_mod.list_saves())
 
 
+class TestResidents(unittest.TestCase):
+    """The people in the legends are the people in the town."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.world = _world("residents", size="small", years=120)
+
+    def _living(self):
+        return [f for f in self.world.figures.values()
+                if f.died is None and f.site_id is not None]
+
+    def _inhabited(self):
+        """Sites somebody actually lives in, with resident figures."""
+        homes = {f.site_id for f in self._living()}
+        return [s for s in self.world.sites
+                if s.id in homes and not s.is_ruin]
+
+    def _walk_into(self, site):
+        from ascii_warriors.game.entity import make_creature
+
+        player = make_creature(RNG("p"), "human", faction="player")
+        player.is_player = True
+        game = Game(self.world, player, RNG("g%d" % site.id))
+        player.wx, player.wy = site.wx, site.wy
+        game.enter_world_tile(site.wx, site.wy)
+        return game
+
+    def test_the_legends_of_a_town_are_standing_in_it(self):
+        """Only a site's ruler and owner were ever placed: 8 of 356."""
+        met = figures = 0
+        for site in self._inhabited()[:12]:
+            game = self._walk_into(site)
+            met += sum(1 for c in game.creatures.values() if c.hf_id is not None)
+            figures += sum(1 for f in self._living() if f.site_id == site.id)
+        self.assertTrue(figures, "no site has resident figures to place")
+        self.assertGreater(met, figures // 2,
+                           "most of a town's legends are still unmeetable")
+
+    def test_nobody_is_given_two_faces(self):
+        """One figure, one body: a person cannot be in the town twice."""
+        for site in self._inhabited()[:8]:
+            game = self._walk_into(site)
+            ids = [c.hf_id for c in game.creatures.values()
+                   if c.hf_id is not None]
+            self.assertEqual(len(ids), len(set(ids)),
+                             "%s has somebody standing in two places" % site.name)
+
+    def test_a_name_never_lands_on_the_wrong_creature(self):
+        """Nobody wears a body of the wrong race.
+
+        Two ways to get this wrong. `name_the_locals` could hand a slot to a
+        figure that cannot be it; and the builders stamp the ruler's id onto
+        whatever they built first, which left a goblin civilization's human
+        ruler standing there as a goblin.
+        """
+        from ascii_warriors.data import creatures as creature_data
+
+        checked = 0
+        for site in self._inhabited()[:12]:
+            game = self._walk_into(site)
+            for c in game.creatures.values():
+                if c.hf_id is None:
+                    continue
+                fig = self.world.figures.get(c.hf_id)
+                self.assertIsNotNone(fig)
+                defn = creature_data.get(c.def_id)
+                # A creature with no civ of its own -- guard, merchant, bandit
+                # -- is a job rather than a race, and contradicts nobody.
+                if defn.civ:
+                    self.assertEqual(defn.civ, fig.race,
+                                     "%s the %s is drawn as a %s"
+                                     % (fig.name, fig.race, c.def_id))
+                else:
+                    self.assertTrue(defn.has("CIVILIZED"),
+                                    "%s is a %s" % (fig.name, c.def_id))
+                checked += 1
+        self.assertTrue(checked, "no figures were placed at all")
+
+    def test_a_job_slot_only_takes_the_towns_own_people(self):
+        """`hammerdwarf` and `elf_archer` carry no `civ` of their own, so a
+        rule of job-slots-are-open-to-anybody put three goblins' names on
+        three dwarven hammerers -- a dwarf fortress had eleven goblins on its
+        rolls, from whatever changed hands there."""
+        from ascii_warriors.data import creatures as creature_data
+        from ascii_warriors.world import residents
+
+        dwarf_site = next((s for s in self._inhabited() if s.race == "dwarf"),
+                          None)
+        if dwarf_site is None:
+            self.skipTest("no dwarven site in this world")
+        goblin = next((f for f in self._living() if f.race == "goblin"), None)
+        dwarf = next((f for f in self._living() if f.race == "dwarf"), None)
+        self.assertIsNotNone(goblin)
+        self.assertIsNotNone(dwarf)
+
+        hammerer = creature_data.get("hammerdwarf")
+        self.assertIsNone(hammerer.civ, "the premise of this test has changed")
+        self.assertFalse(residents.could_be(hammerer, goblin, dwarf_site))
+        self.assertTrue(residents.could_be(hammerer, dwarf, dwarf_site))
+        # And nothing that cannot hold a name gets one.
+        self.assertFalse(residents.could_be(creature_data.get("troll"),
+                                            goblin, dwarf_site))
+        self.assertFalse(residents.could_be(creature_data.get("zombie"),
+                                            dwarf, dwarf_site))
+
+    def test_the_ruler_keeps_their_own_body(self):
+        """The one figure that was already placed must not be displaced."""
+        from ascii_warriors.world import residents
+
+        for site in self._inhabited():
+            if site.ruler_hf is None:
+                continue
+            fig = self.world.figures.get(site.ruler_hf)
+            if fig is None or fig.died is not None:
+                continue
+            game = self._walk_into(site)
+            here = [c for c in game.creatures.values()
+                    if c.hf_id == site.ruler_hf]
+            self.assertEqual(len(here), 1,
+                             "%s lost its ruler" % site.name)
+            return
+        self.skipTest("no site in this world has a living ruler")
+
+    def test_the_notable_are_placed_before_the_unremarkable(self):
+        """There are more figures than slots, so the order is the whole game."""
+        from ascii_warriors.world import residents
+
+        site = max(self._inhabited(),
+                   key=lambda s: sum(1 for f in self._living()
+                                     if f.site_id == s.id))
+        ranked = residents.residents(self.world, site)
+        scores = [residents.notability(self.world, f) for f in ranked]
+        self.assertEqual(scores, sorted(scores, reverse=True))
+
+    def test_a_retired_adventurer_can_be_met(self):
+        """`renown.retire` has promised this in its docstring all along."""
+        from ascii_warriors.game import renown
+        from ascii_warriors.game.entity import make_creature
+
+        site = next(s for s in self._inhabited() if s.is_settlement)
+        player = make_creature(RNG("rhona"), site.race or "human",
+                               faction="player")
+        player.is_player = True
+        game = Game(self.world, player, RNG("retire"))
+        player.name = "Rhona the Bold"
+        player.wx, player.wy = site.wx, site.wy
+        game.enter_world_tile(site.wx, site.wy)
+        renown.retire(game)
+        hero = self.world.figures.get(player.hf_id)
+        self.assertIsNotNone(hero)
+        self.assertIn("retired", hero.flags)
+
+        after = self._walk_into(site)
+        found = [c for c in after.creatures.values() if c.hf_id == hero.id]
+        self.assertTrue(found, "the next adventurer cannot find them")
+        self.assertEqual(found[0].name, "Rhona the Bold")
+
+    def test_they_will_tell_you_what_they_did(self):
+        """`ask_self` gave name, trade and temperament and never a deed,
+        though `ask_beast` two branches below quoted a monster's history."""
+        from ascii_warriors.game import conversation
+        from ascii_warriors.world import history as history_mod
+
+        for site in self._inhabited()[:12]:
+            game = self._walk_into(site)
+            for c in game.creatures.values():
+                if c.hf_id is None:
+                    continue
+                deeds = [e for e in history_mod.events_about(self.world, c.hf_id)
+                         if e.kind != "birth"]
+                if not deeds:
+                    continue
+                said = " ".join(
+                    f.text for f in
+                    conversation.say(game.player, c, "ask_self", game))
+                self.assertTrue(
+                    any(e.text in said for e in deeds),
+                    "%s will not say what they are known for" % c.name)
+                return
+        self.skipTest("no placed figure in this world has a deed to tell")
+
+    def test_asking_about_one_figure_is_about_that_figure(self):
+        """`rumor_lines` took an `hf_id` and ignored it entirely."""
+        from ascii_warriors.game import conversation
+        from ascii_warriors.world import history as history_mod
+
+        site = self._inhabited()[0]
+        game = self._walk_into(site)
+        who = next((f for f in self._living()
+                    if [e for e in history_mod.events_about(self.world, f.id)
+                        if e.kind != "birth"]), None)
+        self.assertIsNotNone(who)
+        deeds = [e.text for e in history_mod.events_about(self.world, who.id)
+                 if e.kind != "birth"]
+        lines = conversation.rumor_lines(game, hf_id=who.id, n=3)
+        self.assertTrue(lines)
+        for line in lines:
+            self.assertTrue(any(d in line for d in deeds),
+                            "asked about one person, told about another: %r"
+                            % line)
+
+
+class TestPersonalityReadsLikeEnglish(unittest.TestCase):
+    """Every personality line in the game was ungrammatical.
+
+    The phrases were third-person singular ("is a coward", "prefers
+    solitude"), the one thing that reads them prefixes "They ", and where the
+    phrase began "is " the code deleted it -- so the character sheet said
+    "They has no vanity." and "They a coward."
+    """
+
+    def _lines(self, n=40):
+        from ascii_warriors.game.entity import make_creature
+
+        out = []
+        for i in range(n):
+            c = make_creature(RNG("p%d" % i), "human")
+            out.extend(c.personality.describe())
+        return out
+
+    def test_no_singular_verb_follows_they(self):
+        bad = ("They is ", "They has ", "They does ")
+        for line in self._lines():
+            for prefix in bad:
+                self.assertFalse(line.startswith(prefix), line)
+
+    def test_every_sentence_has_a_verb(self):
+        """"They a coward." and "They deeply intolerant." were what deleting
+        the copula produced."""
+        for line in self._lines():
+            self.assertTrue(line.startswith("They "), line)
+            rest = line[5:].rstrip(".")
+            self.assertTrue(rest, line)
+            self.assertNotIn(rest.split(" ")[0], ("a", "an", "the"),
+                             "no verb in %r" % line)
+
+    def test_no_phrase_is_conjugated_for_a_singular_subject(self):
+        """The precise shape of the bug: "prefers", "has", "nurses". No verb
+        in its base form ends in s, so the first word of a phrase must not."""
+        from ascii_warriors.data.descriptors import _FACET_PHRASES
+
+        for facet, pair in _FACET_PHRASES.items():
+            for phrase in pair:
+                first = phrase.split(" ")[0]
+                self.assertFalse(first.endswith("s"),
+                                 "%s: %r is third-person singular"
+                                 % (facet, phrase))
+
+    def test_every_phrase_in_the_table_fits_both_persons(self):
+        from ascii_warriors.data.descriptors import _FACET_PHRASES
+        from ascii_warriors.game.conversation import _in_first_person
+
+        for facet, (high, low) in _FACET_PHRASES.items():
+            for phrase in (high, low):
+                third = "They %s." % phrase
+                first = _in_first_person(third)
+                self.assertTrue(first.startswith("I "), (facet, first))
+                self.assertNotIn("I are ", first, facet)
+                self.assertNotIn("themselves", first, facet)
+                self.assertNotIn("their ", first, facet)
+
+    def test_a_person_speaks_of_themselves_in_the_first_person(self):
+        from ascii_warriors.game.conversation import _in_first_person
+
+        self.assertEqual(_in_first_person("They are a coward."),
+                         "I am a coward.")
+        self.assertEqual(_in_first_person("They have no vanity."),
+                         "I have no vanity.")
+        self.assertEqual(_in_first_person("They look out only for themselves."),
+                         "I look out only for myself.")
+        self.assertEqual(_in_first_person("They speak their mind forcefully."),
+                         "I speak my mind forcefully.")
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()

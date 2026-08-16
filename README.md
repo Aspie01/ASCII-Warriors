@@ -10,9 +10,11 @@ settlements burned, artifacts forged and stolen, megabeasts waking up and eating
 their way across the map until somebody kills them. Then you walk into it.
 
 Everything you hear in a tavern is a real event that really happened to a real
-figure who may still be out there. Every quest points at something that exists.
-When you die, your character is written into the same legends, and the world
-carries on without you.
+figure who may still be out there — and the people standing around you in that
+tavern are those figures. The town's smith is the smith the legends name. Ask
+them about themselves and they will tell you what they are known for. Every
+quest points at something that exists. When you die, your character is written
+into the same legends, and the world carries on without you.
 
 **No hit points.** Every blow lands on a specific body part and drives force
 through skin, fat, muscle and bone in turn. You die because something vital was

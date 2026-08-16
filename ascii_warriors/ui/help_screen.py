@@ -167,6 +167,11 @@ towns, heroes rise, wars start and finish, and ruins are resettled. Travellers
 bring word of it and the autumn caravan is full of it, and all of it goes into
 the legends screen alongside the history you generated.
 
+The figures in those legends live somewhere, and where they live is a town you
+can walk into. The people you meet there are them: ask one about themselves and
+they will tell you what the world remembers of them. Retire an adventurer in a
+town and the next one you roll can go and find them there.
+
 A fortress worth robbing attracts goblins. A fortress worth a walk across a
 continent attracts something older, by name, with everything it has killed
 written down. Kill it and the world will record that your fortress is where it

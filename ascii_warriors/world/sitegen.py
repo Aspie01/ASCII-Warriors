@@ -601,6 +601,8 @@ _BUILDERS = {
 
 def build_site(lm, world, site, rng: RNG) -> List[PopSpec]:
     """Build a site into a local map and return who lives there."""
+    from . import residents as resident_mod
+
     if site is None:
         return []
     if site.is_ruin and site.kind not in ("ruin", "tomb"):
@@ -608,4 +610,9 @@ def build_site(lm, world, site, rng: RNG) -> List[PopSpec]:
     builder = _BUILDERS.get(site.kind)
     if builder is None:
         return []
-    return builder(lm, world, site, rng)
+    pop = builder(lm, world, site, rng)
+    # Every builder above invents anonymous townsfolk, and the world has
+    # already decided who lives here by name. One funnel, so no builder has to
+    # remember to ask.
+    resident_mod.name_the_locals(world, site, pop)
+    return pop
