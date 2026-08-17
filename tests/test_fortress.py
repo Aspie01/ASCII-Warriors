@@ -980,6 +980,235 @@ class TestProduction(unittest.TestCase):
         self.assertEqual(production.output_material(recipe, [(log, 1)]), "oak")
 
 
+class TestTheDead(unittest.TestCase):
+    """Coffins, and what turns up if you do not build any.
+
+    A dwarf used to die, drop a corpse, give everybody a bad thought and be
+    finished with. The corpse could be hauled to the refuse pile with the
+    bones and the rubbish and left there for the rest of the fortress's life,
+    and nothing anywhere minded.
+    """
+
+    def _coffin(self, fort):
+        """A built coffin the dwarves can reach."""
+        spot = _open_spot(fort, "coffin")
+        self.assertIsNotNone(spot, "nowhere to put a coffin")
+        b = Building("coffin", *spot)
+        b.built = True
+        fort.buildings.append(b)
+        fort.local.set_tile(*spot, "coffin")
+        return b
+
+    def _kill(self, fort, index=1):
+        """Kill one dwarf and hand it back."""
+        victim = fort.dwarves()[index]
+        victim.body.death_cause = "test"
+        fort.kill_creature(victim)
+        return victim
+
+    # -- burial -------------------------------------------------------------- #
+
+    def test_a_dead_dwarf_is_waiting_for_a_coffin(self):
+        """The fortress writes down that it owes somebody a burial."""
+        fort = embark("deadlist")
+        victim = self._kill(fort)
+        self.assertIn(victim.id, fort.unburied)
+
+    def test_a_corpse_knows_whose_it_is(self):
+        """Two migrants can share a name; they cannot share an id."""
+        from ascii_warriors.fortress import ghosts as ghost_mod
+
+        fort = embark("deadwho")
+        victim = self._kill(fort)
+        body = ghost_mod.body_of(fort, victim.id)
+        self.assertIsNotNone(body, "no corpse was left")
+        self.assertEqual(body.flags.get("name"), victim.name)
+
+    def test_the_fortress_buries_its_dead(self):
+        """Designate nothing: a coffin and a corpse are instructions enough."""
+        fort = embark("deadbury")
+        coffin = self._coffin(fort)
+        victim = self._kill(fort)
+        self.assertIsNone(coffin.buried)
+        sim.run(fort, 3000)
+        self.assertEqual(coffin.buried, victim.id,
+                         "nobody put %s in the ground" % victim.name)
+        self.assertEqual(coffin.buried_name, victim.name)
+        self.assertNotIn(victim.id, fort.unburied)
+
+    def test_burial_takes_the_body_off_the_floor(self):
+        """It is in the coffin, not beside it and not still in somebody's arms.
+
+        Off the floor is not enough on its own: a dwarf that picked the body
+        up and never put it anywhere satisfies that and has buried nobody.
+        """
+        from ascii_warriors.fortress import ghosts as ghost_mod
+
+        fort = embark("deadgone")
+        coffin = self._coffin(fort)
+        victim = self._kill(fort)
+        sim.run(fort, 3000)
+        self.assertIsNone(ghost_mod.body_of(fort, victim.id))
+        self.assertEqual(coffin.buried, victim.id)
+        carried = [i for d in fort.dwarves() for i in d.inventory.items
+                   if i.is_corpse]
+        self.assertEqual(carried, [], "somebody is still holding the body")
+
+    def test_one_coffin_holds_one_dwarf(self):
+        """The second body waits for a second coffin."""
+        fort = embark("deadfull")
+        coffin = self._coffin(fort)
+        first = self._kill(fort, 1)
+        sim.run(fort, 3000)
+        self.assertEqual(coffin.buried, first.id)
+        second = self._kill(fort, 1)
+        sim.run(fort, 3000)
+        self.assertEqual(coffin.buried, first.id, "it buried two in one")
+        self.assertIn(second.id, fort.unburied)
+
+    def test_a_fortress_with_no_coffins_is_told(self):
+        """Once, and not every scan."""
+        fort = embark("deadwarn")
+        self._kill(fort)
+        sim.run(fort, 600)
+        said = [m.text for m in fort.log.all() if "coffin" in m.text]
+        self.assertEqual(len(said), 1, said)
+
+    def test_a_coffin_makes_a_tomb(self):
+        """Rooms know what they are for."""
+        from ascii_warriors.fortress import rooms as rooms_mod
+
+        fort = embark("deadtomb")
+        coffin = self._coffin(fort)
+        self.assertEqual(rooms_mod.measure(fort, coffin).kind, "tomb")
+
+    # -- what turns up otherwise --------------------------------------------- #
+
+    def test_nothing_rises_before_the_season_is_out(self):
+        """A death is not immediately a haunting."""
+        from ascii_warriors.fortress import ghosts as ghost_mod
+
+        fort = embark("deadwait")
+        self._kill(fort)
+        ghost_mod.haunt(fort, sim.STEP_TICKS)
+        self.assertEqual(fort.ghosts, {})
+
+    def test_a_dwarf_left_lying_comes_back(self):
+        """The whole rule, in one test."""
+        from ascii_warriors.fortress import ghosts as ghost_mod
+
+        fort = embark("deadrise")
+        victim = self._kill(fort)
+        fort.unburied[victim.id] = fort.ticks - ghost_mod.HAUNT_AFTER - 1
+        ghost_mod.haunt(fort, sim.STEP_TICKS)
+        self.assertIn(victim.id, fort.ghosts)
+        self.assertEqual(fort.ghosts[victim.id].name, victim.name)
+
+    def test_a_buried_dwarf_stays_where_it_was_put(self):
+        """Burial is the answer, so it has to actually be the answer."""
+        from ascii_warriors.fortress import ghosts as ghost_mod
+
+        fort = embark("deadquiet")
+        self._coffin(fort)
+        victim = self._kill(fort)
+        sim.run(fort, 3000)
+        fort.unburied[victim.id] = fort.ticks - ghost_mod.HAUNT_AFTER - 1
+        ghost_mod.haunt(fort, sim.STEP_TICKS)
+        self.assertEqual(fort.ghosts, {}, "a buried dwarf rose anyway")
+
+    def test_a_body_that_is_gone_raises_nothing(self):
+        """There is no memorial slab, so there must be no unfixable haunt.
+
+        A corpse that was burned, butchered or carried off the map takes the
+        dwarf with it. Otherwise a fortress could be haunted for ever by
+        somebody it has no way to bury.
+        """
+        from ascii_warriors.fortress import ghosts as ghost_mod
+
+        fort = embark("deadlost")
+        victim = self._kill(fort)
+        body = ghost_mod.body_of(fort, victim.id)
+        fort.take_item(body)
+        fort.unburied[victim.id] = fort.ticks - ghost_mod.HAUNT_AFTER - 1
+        ghost_mod.haunt(fort, sim.STEP_TICKS)
+        self.assertEqual(fort.ghosts, {})
+
+    def test_a_ghost_chills_whoever_is_near_it(self):
+        """Being haunted has to cost something or it is scenery."""
+        from ascii_warriors.fortress import ghosts as ghost_mod
+
+        fort = embark("deadchill")
+        victim = self._kill(fort)
+        fort.unburied[victim.id] = fort.ticks - ghost_mod.HAUNT_AFTER - 1
+        ghost_mod.haunt(fort, sim.STEP_TICKS)
+        ghost = fort.ghosts[victim.id]
+        watcher = fort.dwarves()[0]
+        watcher.x, watcher.y, watcher.z = ghost.cell
+        before = watcher.needs.stress
+        ghost.last_chill = fort.ticks - ghost_mod.CHILL_TICKS - 1
+        ghost_mod.haunt(fort, sim.STEP_TICKS)
+        self.assertGreater(watcher.needs.stress, before)
+
+    def test_a_ghost_walks_through_the_wall(self):
+        """Which is most of what makes it frightening."""
+        from ascii_warriors.fortress import ghosts as ghost_mod
+
+        fort = embark("deadwall")
+        victim = self._kill(fort)
+        fort.unburied[victim.id] = fort.ticks - ghost_mod.HAUNT_AFTER - 1
+        ghost_mod.haunt(fort, sim.STEP_TICKS)
+        ghost = fort.ghosts[victim.id]
+        d = fort.dwarves()[0]
+        # Wall the ghost in completely and point it at a dwarf ten tiles off.
+        for dx in range(-1, 2):
+            for dy in range(-1, 2):
+                if (dx, dy) != (0, 0):
+                    fort.local.set_tile(ghost.x + dx, ghost.y + dy, ghost.z,
+                                        "rock_wall")
+        d.x, d.y, d.z = ghost.x + 10, ghost.y, ghost.z
+        was = ghost.cell
+        ghost_mod.haunt(fort, sim.STEP_TICKS)
+        self.assertNotEqual(ghost.cell, was, "the wall stopped it")
+        self.assertFalse(fort.local.walkable(*ghost.cell))
+
+    def test_burying_the_body_lays_the_ghost(self):
+        """The one way out, and it is the obvious one."""
+        from ascii_warriors.fortress import ghosts as ghost_mod
+
+        fort = embark("deadlay")
+        victim = self._kill(fort)
+        fort.unburied[victim.id] = fort.ticks - ghost_mod.HAUNT_AFTER - 1
+        ghost_mod.haunt(fort, sim.STEP_TICKS)
+        self.assertIn(victim.id, fort.ghosts)
+        self._coffin(fort)
+        sim.run(fort, 4000)
+        self.assertNotIn(victim.id, fort.ghosts, "it is still walking")
+        self.assertTrue(any("laid to rest" in m.text for m in fort.log.all()))
+
+    def test_the_dead_survive_a_save(self):
+        """Who is owed a burial, who is in which coffin, and who is walking."""
+        from ascii_warriors.fortress import ghosts as ghost_mod
+
+        fort = embark("deadsave")
+        coffin = self._coffin(fort)
+        first = self._kill(fort, 1)
+        sim.run(fort, 3000)
+        second = self._kill(fort, 1)
+        fort.unburied[second.id] = fort.ticks - ghost_mod.HAUNT_AFTER - 1
+        ghost_mod.haunt(fort, sim.STEP_TICKS)
+        self.assertIn(second.id, fort.ghosts)
+
+        again = Fortress.from_dict(fort.to_dict())
+        back = next(b for b in again.buildings if b.kind == "coffin")
+        self.assertEqual(back.buried, first.id)
+        self.assertEqual(back.buried_name, first.name)
+        self.assertIn(second.id, again.unburied)
+        self.assertIn(second.id, again.ghosts)
+        self.assertEqual(again.ghosts[second.id].name, second.name)
+        self.assertEqual(again.ghosts[second.id].cell,
+                         fort.ghosts[second.id].cell)
+
+
 class TestGlass(unittest.TestCase):
     """Sand off the desert floor, and what a furnace does with it.
 

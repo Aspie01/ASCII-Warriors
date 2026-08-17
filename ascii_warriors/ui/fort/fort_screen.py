@@ -240,6 +240,14 @@ class FortScene(Scene):
         if b is not None:
             lines.append("%s (%s)" % (
                 b.name, "built" if b.built else "planned"))
+            if b.kind == "coffin":
+                lines.append(Frag(
+                    "%s lies here" % b.buried_name if b.buried_name
+                    else "empty, and waiting", colors.UI["dim"]))
+        for g in fort.ghosts.values():
+            if g.cell == cell:
+                lines.append(Frag("the ghost of %s" % g.name,
+                                  colors.UI["accent2"]))
         pile = fort.stockpile_at(*cell)
         if pile is not None:
             lines.append("%s stockpile" % pile.kind)

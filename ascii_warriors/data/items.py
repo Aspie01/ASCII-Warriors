@@ -458,6 +458,7 @@ for _fid, _fname, _fglyph, _fvol, _fval in (
     ("coffer", "coffer", "=", 5000, 40),
     ("statue", "statue", "&", 30000, 200),
     ("altar", "altar", "_", 20000, 300),
+    ("coffin", "coffin", "∩", 20000, 60),
 ):
     _add(ItemDef(_fid, _fname, _fname + "s", "furniture", _fglyph, _fvol, _fval,
                  ("WOOD", "STONE", "METAL"), flags=frozenset({"FURNITURE"})))

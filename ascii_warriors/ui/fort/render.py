@@ -86,6 +86,7 @@ def draw_map(
     _draw_buildings(scr, fort, ox, oy, w, h, cam_x, cam_y)
     _draw_items(scr, fort, ox, oy, w, h, cam_x, cam_y)
     _draw_creatures(scr, fort, ox, oy, w, h, cam_x, cam_y)
+    _draw_dead(scr, fort, ox, oy, w, h, cam_x, cam_y)
 
     if region is not None:
         _draw_region(scr, ox, oy, w, h, cam_x, cam_y, region)
@@ -267,6 +268,24 @@ def _draw_creatures(scr, fort, ox, oy, w, h, cam_x, cam_y) -> None:
         if c.faction == "hostile":
             bg = colors.Color(60, 16, 16)
         scr.put(ox + sx, oy + sy, glyph, colour, bg)
+
+
+def _draw_dead(scr, fort, ox, oy, w, h, cam_x, cam_y) -> None:
+    """The dwarves that were never buried, drawn over everything else.
+
+    Over, because a ghost is not standing on the floor and a wall is not
+    between you and it. If it is on this level you can see it.
+    """
+    from ...fortress import ghosts as ghost_mod
+
+    for g in getattr(fort, "ghosts", {}).values():
+        if g.z != fort.z:
+            continue
+        sx, sy = g.x - cam_x, g.y - cam_y
+        if not (0 <= sx < w and 0 <= sy < h):
+            continue
+        _ch, _fg, bg = scr.get(ox + sx, oy + sy)
+        scr.put(ox + sx, oy + sy, ghost_mod.GLYPH, ghost_mod.COLOR, bg)
 
 
 def _draw_region(scr, ox, oy, w, h, cam_x, cam_y, region) -> None:

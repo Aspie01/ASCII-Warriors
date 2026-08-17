@@ -111,6 +111,10 @@ KINDS: Dict[str, BuildingKind] = {
            "tavern", "Workshops", True,
            "Where dwarves with nothing to do go instead of standing in a "
            "corridor. Friendships, marriages and children all start here."),
+        _b("coffin", "Coffin", "∩", colors.Color(186, 178, 166), 1, 1,
+           ("STONE", "WOOD"), 1, 180, "building", "masonry",
+           "coffin", "Furniture", False,
+           "A dwarf left lying where it fell is a dwarf that comes back."),
         _b("altar", "Altar", "_", colors.Color(220, 210, 170), 1, 1,
            ("STONE", "METAL"), 1, 160, "building", "masonry",
            "altar", "Furniture", False,
@@ -254,6 +258,10 @@ class Building:
         self.crop = ""
         self.growth = 0
         self.planted = False
+        #: A coffin remembers who is in it, by creature id and by name,
+        #: because the name has to outlive the creature record.
+        self.buried: Optional[int] = None
+        self.buried_name = ""
 
     @property
     def defn(self) -> BuildingKind:
@@ -305,6 +313,7 @@ class Building:
             "worker": self.worker, "owner": self.owner, "crop": self.crop,
             "growth": self.growth, "planted": self.planted,
             "links": self.links, "shut": self.shut, "pending": self.pending,
+            "buried": self.buried, "buried_name": self.buried_name,
         }
 
     @classmethod
@@ -325,6 +334,8 @@ class Building:
         b.links = [int(i) for i in d.get("links", [])]
         b.shut = bool(d.get("shut", True))
         b.pending = bool(d.get("pending", False))
+        b.buried = d.get("buried")
+        b.buried_name = str(d.get("buried_name", ""))
         return b
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid

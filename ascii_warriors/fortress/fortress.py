@@ -77,6 +77,11 @@ class Fortress:
         self.grazed: Dict[Cell, int] = {}
         #: Cell -> what an engraver carved on that wall.
         self.engravings: Dict[Cell, Any] = {}
+        #: Dwarf id -> the tick it died, for as long as it is above ground.
+        #: Emptied by burial, and the reason a fortress needs coffins.
+        self.unburied: Dict[int, int] = {}
+        #: Dwarf id -> the ghost of it, for the ones that waited too long.
+        self.ghosts: Dict[int, Any] = {}
         #: Everything anybody has been caught doing, and some things nobody
         #: has been caught doing.
         self.crimes: List[Any] = []
@@ -457,6 +462,8 @@ class Fortress:
             social_mod.grieve(self, c)
             for other in self.dwarves():
                 other.needs.add_thought("saw a death in the fortress", 5)
+            # It is now waiting for a coffin, and it will not wait for ever.
+            self.unburied[c.id] = self.ticks
         else:
             self.log.combat("The %s is dead." % c.short_name())
             self._record_kill(c)
@@ -747,7 +754,7 @@ class Fortress:
         """Reserve whatever a job needs before a dwarf commits to it."""
         if job.kind in DESIGNATION_KINDS:
             return self.designations.claim(job.cell, dwarf.id)
-        if job.kind == "haul":
+        if job.kind in ("haul", "bury"):
             item = self.find_item(job.target) if job.target else None
             if item is None or self.item_cell(item) is None:
                 self.jobs.remove(job)
@@ -796,7 +803,7 @@ class Fortress:
 
     def job_items(self, job: Job) -> List[int]:
         """Item ids a job needs in hand before the work can start."""
-        if job.kind in ("haul", "equip"):
+        if job.kind in ("haul", "equip", "bury"):
             return [job.target] if job.target else []
         if job.kind == "treat":
             return [job.carrying] if job.carrying else []
@@ -1176,6 +1183,30 @@ class Fortress:
         dwarf.fort.carrying = None
         self.drop_item(item, job.x, job.y, job.z)
 
+    def _finish_bury(self, dwarf, job: Job) -> None:
+        """A dwarf carries one of its own to a coffin and closes it."""
+        from . import ghosts as ghost_mod
+
+        body = next((i for i in dwarf.inventory.items if i.id == job.target),
+                    None)
+        # The coffin is where the job is: no second target field needed, and
+        # no way for the two to disagree.
+        coffin = self.building_at(*job.cell)
+        if body is None or coffin is None or coffin.kind != "coffin" \
+                or coffin.buried is not None:
+            return
+        dwarf.inventory.items.remove(body)
+        dwarf.fort.carrying = None
+        who = body.flags.get("who")
+        coffin.buried = who
+        coffin.buried_name = str(body.flags.get("name", "somebody"))
+        self.unburied.pop(who, None)
+        self.log.info("%s has been laid to rest." % coffin.buried_name)
+        for other in self.dwarves():
+            other.needs.add_thought("saw a friend buried", -4)
+        if who is not None:
+            ghost_mod.lay(self, who)
+
     def _finish_build(self, dwarf, job: Job) -> None:
         b = self.building(job.target) if job.target else None
         if b is None:
@@ -1426,6 +1457,8 @@ class Fortress:
             "grazed": {"%d,%d,%d" % c: t for c, t in self.grazed.items()},
             "engravings": {"%d,%d,%d" % c: a.to_dict()
                            for c, a in self.engravings.items()},
+            "unburied": {str(k): v for k, v in self.unburied.items()},
+            "ghosts": [g.to_dict() for g in self.ghosts.values()],
             "crimes": [c.to_dict() for c in self.crimes],
             "bonds": [b.to_dict() for b in self.bonds.values()],
             "animal_state": {
@@ -1544,6 +1577,11 @@ class Fortress:
             tuple(int(v) for v in k.split(",")): art_mod.Engraving.from_dict(a)
             for k, a in (d.get("engravings") or {}).items()
         }
+        from . import ghosts as ghost_mod
+
+        fort.unburied = {int(k): int(v)
+                         for k, v in (d.get("unburied") or {}).items()}
+        ghost_mod.from_list(fort, d.get("ghosts") or [])
         from . import justice as justice_mod
 
         fort.crimes = [justice_mod.Crime.from_dict(c)

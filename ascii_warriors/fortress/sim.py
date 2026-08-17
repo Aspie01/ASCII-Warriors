@@ -23,6 +23,7 @@ from ..world import tiles as tile_data
 from . import animals
 from . import art
 from . import dwarf as dwarf_mod
+from . import ghosts
 from . import justice
 from . import perform
 from . import production
@@ -159,6 +160,7 @@ def step(fort) -> None:
     _mingle(fort, ticks)
     perform.tick(fort, ticks)
     _night(fort, ticks)
+    ghosts.haunt(fort, ticks)
     _thieves(fort)
     justice.tick(fort)
     _hostiles(fort, ticks)
@@ -786,9 +788,9 @@ def scan_jobs(fort) -> int:
     _prune(fort)
     budget = MAX_NEW_JOBS
     for scanner in (_scan_hospital, _scan_levers, _scan_military,
-                    _scan_designations, _scan_animals, _scan_fishing,
-                    _scan_buildings, _scan_farms, _scan_workshops,
-                    _scan_stockpiles):
+                    _scan_burials, _scan_designations, _scan_animals,
+                    _scan_fishing, _scan_buildings, _scan_farms,
+                    _scan_workshops, _scan_stockpiles):
         if budget <= 0:
             break
         budget -= scanner(fort, budget)
@@ -1263,6 +1265,39 @@ def _anybody_does(fort, labor: str) -> bool:
     if not labor or labor not in LABORS:
         return True
     return any(d.fort.labors.has(labor) for d in fort.dwarves())
+
+
+def _scan_burials(fort, budget: int) -> int:
+    """Match a dwarf lying on the floor to an empty coffin.
+
+    Ahead of ordinary hauling in priority, because a corpse in a stockpile is
+    still a corpse nobody buried, and the refuse pile will happily accept one
+    and leave it there until it rises.
+    """
+    from . import ghosts as ghost_mod
+
+    if not fort.unburied:
+        return 0
+    empty = [b for b in fort.buildings
+             if b.kind == "coffin" and b.built and b.buried is None
+             and not fort.jobs.has_job_at("bury", b.center)]
+    if not empty:
+        fort.warn_once("coffins",
+                       "There is nowhere to bury the dead. Build a coffin.")
+        return 0
+    posted = 0
+    for who in list(fort.unburied):
+        if posted >= budget or not empty:
+            break
+        body = ghost_mod.body_of(fort, who)
+        if body is None or fort.jobs.is_reserved(body.id):
+            continue
+        coffin = empty.pop()
+        job = fort.jobs.make("bury", *coffin.center, labor="hauling",
+                             work=HAUL_WORK * 2, target=body.id, priority=3)
+        fort.jobs.reserve_item(body.id, job)
+        posted += 1
+    return posted
 
 
 def _scan_stockpiles(fort, budget: int) -> int:

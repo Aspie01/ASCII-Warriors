@@ -407,6 +407,14 @@ all, and every season it stays open the fortress thinks about it and gets
 angrier. Press `c` for the book — you can hold a trial now instead of waiting
 for the season, or pardon somebody and wear what the rest of them think of it.
 
+**The dead, and what they do about it.** Build coffins. A dwarf that dies
+leaves a corpse, and a corpse hauled to the refuse pile with the bones is a
+dwarf you did not bury — no designation needed, a coffin and a body are
+instructions enough. Leave one lying for a season and it comes back: a ghost
+that walks through walls, cannot be fought and cannot be shut out, and makes
+everyone near it colder and unhappier. There is one way to stop it, and it is
+the one you should have used already.
+
 **Glass, and what a desert is for.** Mark a patch of sand and somebody brings
 back a bag of it; the desert does not run out. A glass furnace burns sand and
 fuel into green glass tables, chairs, coffers, doors, statues, flasks and

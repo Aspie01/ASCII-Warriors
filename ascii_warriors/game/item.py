@@ -672,6 +672,10 @@ def corpse_of(creature) -> Item:
     it.flags["creature"] = creature.def_id
     it.flags["size"] = creature.defn.size
     it.flags["name"] = creature.name
+    # Whose it is, not just what it was: a fortress burying its dead has to
+    # be able to tell one dwarf corpse from another, and a name is not an
+    # identity when two migrants arrive called the same thing.
+    it.flags["who"] = creature.id
     if getattr(creature, "raised_by", None) is not None:
         it.flags["raised"] = True
     return it

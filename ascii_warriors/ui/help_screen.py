@@ -123,6 +123,23 @@ deal with anyway -- and the water leaves mud on the rock. Mud takes a crop.
 Shut the gate, let it drain, and plant. A floor you have already smoothed will
 not soak, which is the point of smoothing it.
 
+THE DEAD
+
+Build coffins. A dwarf that dies leaves a corpse, and a corpse hauled to the
+refuse pile with the bones and the rubbish is a dwarf you did not bury.
+
+Put up a coffin -- the mason and the carpenter both make them -- and somebody
+carries the body to it and closes it. No designation is needed: a coffin and a
+corpse are instructions enough. One coffin holds one dwarf. A coffin in a
+decent room is a tomb, and worth something to the fortress.
+
+Leave a dwarf lying for a season and it comes back. A ghost walks through the
+walls, cannot be fought and cannot be shut out, and everybody near it is
+colder and unhappier for it. There is exactly one way to stop it, and it is
+the one you should have used in the first place: put the body in the ground.
+If the corpse is gone -- burned, butchered, carried off by a thief -- the
+dwarf goes with it, and nothing rises.
+
 GLASS
 
 Sand is worth something. Press d then a to mark a patch of sand, and somebody

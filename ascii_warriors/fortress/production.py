@@ -55,6 +55,8 @@ _r("wood_crossbow", "Crossbow", "carpenter", "bowyer",
    (("WOOD", 2), ("BAR", 1)), "crossbow", 1, 400,
    "The marksdwarf uniform has asked for one of these since it was written.")
 _r("wood_crutch", "Crutch", "carpenter", "carpentry", (("WOOD", 1),), "crutch")
+_r("wood_coffin", "Wooden coffin", "carpenter", "carpentry", (("WOOD", 1),),
+   "coffin", 1, 280)
 # Instruments. A tavern with nothing to play in it is a room with barrels,
 # and a musical form asks for a particular instrument by name.
 _r("wood_lute", "Lute", "carpenter", "carpentry", (("WOOD", 1),), "lute",
@@ -73,6 +75,9 @@ _r("stone_coffer", "Stone coffer", "mason", "masonry", (("STONE", 1),), "coffer"
 _r("stone_statue", "Statue", "mason", "masonry", (("STONE", 1),), "statue", 1, 320,
    "Dwarves are unreasonably cheered by a good statue.")
 _r("stone_altar", "Altar", "mason", "masonry", (("STONE", 1),), "altar", 1, 300)
+_r("stone_coffin", "Stone coffin", "mason", "masonry", (("STONE", 1),),
+   "coffin", 1, 320,
+   "Cut for one dwarf, and one dwarf will need it sooner than you think.")
 
 # -- craftsdwarf ------------------------------------------------------------- #
 _r("stone_crafts", "Stone crafts", "craftsdwarf", "crafting", (("STONE", 1),),

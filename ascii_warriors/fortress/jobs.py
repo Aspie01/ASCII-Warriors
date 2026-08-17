@@ -34,6 +34,7 @@ JOB_LABELS: Dict[str, Tuple[str, Color]] = {
     "equip": ("Fetching gear", colors.Color(190, 180, 210)),
     "train": ("Training", colors.Color(190, 180, 210)),
     "haul": ("Hauling", colors.Color(170, 170, 190)),
+    "bury": ("Burying the dead", colors.Color(170, 165, 175)),
     "build": ("Building", colors.Color(200, 180, 120)),
     "craft": ("Working", colors.Color(190, 170, 210)),
     "plant": ("Planting", colors.Color(140, 200, 140)),

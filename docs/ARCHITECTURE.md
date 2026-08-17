@@ -4313,7 +4313,55 @@ bag of sand". It now also drops it when the adjective appears as a word
 anywhere in the noun. A sand bag would be a bag made of sand, which is a
 different object.
 
-## 105. Style
+## 105. The dead (v3.45)
+
+Until now a dwarf died, dropped a corpse, gave everybody a bad thought, and
+that was the end of it. The corpse could be hauled to the refuse pile with the
+bones and the rubbish and left there for the rest of the fortress's life, and
+nothing anywhere minded. There were no coffins, no burial, no graves and no
+consequence — in a game whose whole subject is what a fortress leaves behind.
+
+**Coffins.** A one-tile piece of furniture out of stone or wood, in the
+`Furniture` build category, `ROOM_KINDS["coffin"] = "tomb"`. A `Building`
+gained `buried` and `buried_name`: the id because two migrants can arrive with
+the same name, and the name because it has to outlive the creature record.
+
+**Burial needs no designation.** `sim._scan_burials` matches an unburied body
+to an empty coffin and posts a `bury` job, ahead of ordinary hauling in
+priority — a corpse in a refuse stockpile is still a corpse nobody buried. The
+job reuses the hauling machinery exactly: `job_items` was already the single
+place that says what a job needs in hand, so adding `"bury"` to one tuple gave
+the fetch, the carry, the drop-on-abandon and the reservation for free. The
+coffin is `building_at(job.cell)` rather than a second target field, so the two
+cannot disagree.
+
+**`fort.unburied`** is dwarf id → the tick it died, written in `kill_creature`
+and cleared by burial. That dict is the whole bookkeeping.
+
+**Ghosts** are `fortress/ghosts.py`, deliberately not creatures. A ghost has no
+body, no needs and no inventory; giving it one so the combat system would
+accept it would hand the fortress a monster it can neither kill nor flee,
+which is a different and much worse game. It drifts one cell a step towards
+the nearest dwarf *through the walls* — no pathing, because it has no feet,
+and no door in the fortress will keep it out. Every `CHILL_TICKS` it costs
+everybody within `HAUNT_RANGE` a thought.
+
+It rises `HAUNT_AFTER` — one season — after the death, and only while there is
+still a body to bury. That last clause is the important one: there is no
+memorial slab in this game, so without it a corpse that was burned, butchered
+or carried off by a thief would leave a haunting the player has no way on
+earth to end. Burying the body lays the ghost, and everybody feels the relief.
+
+**Two guards that were not guards.** Writing the re-break pass caught two
+tests passing for the wrong reason. "Burial takes the body off the floor" was
+satisfied by a dwarf that picked the corpse up and never put it down — it now
+also checks the coffin holds them and nobody is still carrying it. And "a body
+that is gone raises nothing" survived removing the check in `restless`,
+because `rise` refuses too; the rule is guarded in both places and the test
+only fails when both go. Worth knowing which of the two a green test was
+actually resting on.
+
+## 106. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

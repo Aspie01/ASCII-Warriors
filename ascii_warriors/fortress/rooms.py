@@ -28,13 +28,14 @@ ROOM_KINDS: Dict[str, str] = {
     "barracks": "barracks",
     "tavern": "tavern",
     "altar": "temple",
+    "coffin": "tomb",
 }
 
 #: What each piece of furniture inside a room adds to its quality.
 FURNITURE_VALUE: Dict[str, int] = {
     "bed": 2, "table": 2, "chair": 2, "cabinet": 3, "coffer": 3,
     "statue": 6, "door": 2, "well": 4, "altar": 5, "barracks": 2,
-    "hospital": 2, "tavern": 4,
+    "hospital": 2, "tavern": 4, "coffin": 3,
 }
 
 #: Quality thresholds and the names Dwarf Fortress would give them.
