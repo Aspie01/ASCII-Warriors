@@ -10,6 +10,7 @@ from ...engine.widgets import MenuItem, choose, header
 from ...fortress import buildings as building_mod
 from ...fortress.buildings import BUILD_CATEGORIES, KINDS, Building, Stockpile
 from ...fortress.buildings import STOCKPILE_TYPES
+from ...fortress import justice
 from .cursor import CursorScene
 
 
@@ -233,6 +234,46 @@ class PastureScene(CursorScene):
                         % (pasture.w, pasture.h, grass))
         if not grass:
             fort.log.warn("Nothing grows there. Animals need grass.")
+
+
+class CellScene(CursorScene):
+    """Mark the room the fortress holds people in."""
+
+    mode_name = "Cell"
+
+    def header(self) -> List[Frag]:
+        """Explain what this is for."""
+        out = [Frag("Mark the room you hold suspects in. ", colors.UI["fg"])]
+        if self.fort.cell is not None:
+            out.append(Frag("(one is already set: Enter twice to replace it)",
+                            colors.UI["dim"]))
+        return out
+
+    def hints(self) -> List[Tuple[str, str]]:
+        """Bottom-line hints."""
+        return [(keys.ENTER, "corner, then corner"), ("x", "clear"),
+                (keys.ESC, "done")]
+
+    def extra_key(self, key: str) -> bool:
+        """Clear the cell entirely."""
+        if key == "x":
+            self.fort.cell = None
+            self.fort.log.system("The cell is cleared.")
+            return True
+        return False
+
+    def apply(self, x0: int, y0: int, x1: int, y1: int) -> None:
+        """Set the cell rectangle."""
+        fort = self.fort
+        lo_x, hi_x = sorted((x0, x1))
+        lo_y, hi_y = sorted((y0, y1))
+        fort.cell = (lo_x, lo_y, fort.z, hi_x - lo_x + 1, hi_y - lo_y + 1)
+        fort.log.system("Cell set, %d by %d." % (hi_x - lo_x + 1,
+                                                 hi_y - lo_y + 1))
+        walkable = [c for c in justice.cell_cells(fort)
+                    if fort.local.walkable(*c)]
+        if not walkable:
+            fort.log.warn("Nobody can stand in there. Dig it out first.")
 
 
 class BurrowScene(CursorScene):

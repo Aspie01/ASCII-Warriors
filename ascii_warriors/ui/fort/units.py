@@ -26,6 +26,13 @@ def _jailed(fort, dwarf) -> bool:
     return justice.is_jailed(fort, dwarf)
 
 
+def _held(fort, dwarf) -> bool:
+    """Whether the player is holding this dwarf on suspicion."""
+    from ...fortress import justice
+
+    return justice.is_confined(fort, dwarf)
+
+
 #: How a bond is coloured in the detail panel.
 BOND_COLORS = {
     "spouse": "accent2", "lover": "accent2", "child": "accent2",
@@ -150,6 +157,8 @@ class UnitsScene(Scene):
             what, colour = "possessed", colors.MAGIC
         elif _child(d):
             what, colour = "playing", colors.UI["accent2"]
+        elif _held(self.fort, d):
+            what, colour = "held", colors.UI["danger"]
         elif self.fort.crimes and _jailed(self.fort, d):
             what, colour = "serving time", colors.UI["danger"]
         elif state.job is not None:
@@ -180,7 +189,8 @@ class UnitsScene(Scene):
         self.menu.draw(scr, 2, 2, scr.width - 4, scr.height - 5)
         key_hint(scr, 2, scr.height - 2, [
             (keys.ENTER, "look closer"), ("l", "labors"), ("n", "nickname"),
-            ("m", "militia"), ("s", "slaughter"), (keys.ESC, "back"),
+            ("m", "militia"), ("s", "slaughter"), ("h", "hold"),
+            (keys.ESC, "back"),
         ])
 
     def handle(self, key: str) -> None:
@@ -201,6 +211,8 @@ class UnitsScene(Scene):
             return
         if key == "l":
             self.app.push(LaborScene(self.app, self.fort, creature))
+        elif key == "h":
+            self._hold(creature)
         elif key == "n":
             self._nickname(creature)
         elif key == "m":
@@ -223,6 +235,18 @@ class UnitsScene(Scene):
             "The %s is marked for slaughter." % creature.short_name()
             if state.slaughter else
             "The %s is spared." % creature.short_name())
+        self.menu.set_items(self._items())
+
+    def _hold(self, creature) -> None:
+        """Take a dwarf to the cell, or let it out again."""
+        from ...fortress import justice
+
+        fort = self.fort
+        if not justice.release(fort, creature):
+            justice.confine(fort, creature)
+            if fort.cell is None:
+                fort.log.warn("There is nowhere to hold them. Mark a cell "
+                              "with J.")
         self.menu.set_items(self._items())
 
     def _nickname(self, creature) -> None:

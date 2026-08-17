@@ -413,9 +413,13 @@ def take_turn(fort, dwarf, ticks: int) -> None:
         return
     if _handle_wounds(fort, dwarf, ticks):
         return
-    if _handle_needs(fort, dwarf, ticks):
+    # Before the needs, not after: a dwarf that leaves the cell whenever it is
+    # hungry is not being held, and it is back in the dormitory every night,
+    # which is exactly where a vampire wants to be. `_serving_time` answers
+    # the needs itself instead -- somebody brings them their dinner.
+    if _serving_time(fort, dwarf, ticks):
         return
-    if _serving_time(fort, dwarf):
+    if _handle_needs(fort, dwarf, ticks):
         return
     if _too_young(fort, dwarf):
         return
@@ -447,21 +451,77 @@ def _too_young(fort, dwarf) -> bool:
     return True
 
 
-def _serving_time(fort, dwarf) -> bool:
-    """A convicted dwarf does no work. True if that is what is happening.
+def _serving_time(fort, dwarf, ticks: int) -> bool:
+    """A held dwarf does no work. True if that is what is happening.
 
-    It still eats, drinks and sleeps -- the needs run before this -- but it
-    takes no job and it does not wander, which is what being held amounts to.
-    A sentence costs the fortress its legendary mason for a few days, and that
-    cost is the whole point of having a law.
+    It still eats, drinks and sleeps -- `_keep` sees to that where it stands --
+    but it takes no job and it does not wander, which is what being held
+    amounts to. A sentence costs the fortress its legendary mason for a few
+    days, and that cost is the whole point of having a law.
+
+    Not working is not enough on its own. A vampire that stops hauling rocks
+    but goes on sleeping in the dormitory is a vampire that goes on feeding,
+    so a fortress that has marked a cell puts the dwarf *in* it: that is what
+    turns holding somebody from a note in a book into something that happens
+    to them. With no cell marked, this is only the old rule -- no work, no
+    wandering -- and the fortress is told so once.
     """
     from . import justice
 
-    if not fort.crimes or not justice.is_jailed(fort, dwarf):
+    if not fort.crimes and not fort.held:
+        return False
+    if not justice.is_jailed(fort, dwarf):
         return False
     release_job(fort, dwarf)
     dwarf.fort.idle_ticks = 0
+    if fort.cell is None:
+        fort.warn_once("cell", "You are holding somebody and have nowhere to "
+                               "put them. Mark a cell.")
+        return _handle_needs(fort, dwarf, ticks) or True
+    cells = [c for c in justice.cell_cells(fort) if fort.local.walkable(*c)]
+    if not cells:
+        fort.warn_once("cell", "The cell has no floor anybody can stand on.")
+        return _handle_needs(fort, dwarf, ticks) or True
+    if not justice.in_cell(fort, dwarf.x, dwarf.y, dwarf.z):
+        goal = min(cells, key=lambda c: (abs(c[0] - dwarf.x)
+                                         + abs(c[1] - dwarf.y)
+                                         + abs(c[2] - dwarf.z) * 4))
+        if path_to(fort, dwarf, goal, adjacent=False):
+            step_along(fort, dwarf)
+            return True
+        # Nowhere to walk to. Being unable to reach the cell is not a licence
+        # to go back to the dormitory, so it stays where it is.
+        fort.warn_once("cell", "Nobody can reach the cell from where they are.")
+    _keep(fort, dwarf, ticks)
     return True
+
+
+def _keep(fort, dwarf, ticks: int) -> None:
+    """Feed, water and bed a dwarf that is not allowed to fetch its own.
+
+    A cell that starves its occupant is not a punishment, it is an execution
+    with extra steps, and the fortress has a word for that already. Somebody
+    brings them what they need, out of the same stores everybody else eats
+    from -- so holding a dwarf costs the fortress food as well as a pair of
+    hands.
+    """
+    needs = dwarf.needs
+    state = dwarf.fort
+    if needs.thirst >= THIRST_URGENT:
+        item = fort.find_consumable(dwarf, drink=True)
+        if item is not None:
+            fort.consume(dwarf, item, drink=True)
+    if needs.hunger >= HUNGER_URGENT:
+        item = fort.find_consumable(dwarf, drink=False)
+        if item is not None:
+            fort.consume(dwarf, item, drink=False)
+    if needs.drowsy >= SLEEP_URGENT:
+        state.sleeping = True
+        needs.sleep(ticks * 4)
+        dwarf.body.rest_heal(ticks * 2, dwarf.attributes.factor("recuperation"))
+        if needs.drowsy <= 0:
+            state.sleeping = False
+            needs.add_thought("slept on the floor", 3)
 
 
 #: How far a soldier will chase, and how far a civilian panics.

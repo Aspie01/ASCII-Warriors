@@ -691,6 +691,15 @@ the sheriff's book that has no name attached, because there was nobody in the
 room. There is a defence, and it is not a better lock: dwarves who sleep in a
 dormitory have witnesses, and dwarves in fine private bedrooms do not.
 
+A witness puts a name in the book. Acting on it is yours: mark a cell with J,
+open the units list with u, and press h on whoever you have decided about.
+They are taken there and kept there -- no trial, no evidence, no sentence, and
+they will not forgive you for it, nor will their friends. Do it to the wrong
+dwarf and you have jailed a mason and the deaths go on. Waiting for the law
+instead is a real choice and often the wrong one: a sheriff needs eighteen
+dwarves, and a vampire is very good at keeping a fortress under eighteen
+dwarves.
+
 FRIENDS AND FAMILIES
 
 Build a tavern (b, Workshops) and dwarves with nothing to do go there instead

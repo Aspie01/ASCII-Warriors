@@ -170,6 +170,10 @@ class FortScene(Scene):
             from .build_menu import BurrowScene
 
             self.app.push(BurrowScene(self.app, self))
+        elif key == "J":
+            from .build_menu import CellScene
+
+            self.app.push(CellScene(self.app, self))
         elif key == "n":
             from .build_menu import PastureScene
 
@@ -320,6 +324,7 @@ HELP_LINES: Tuple[str, ...] = (
     "m        the militia: raise squads, arm them, order them about",
     "h        health: who is hurt and who can treat them",
     "c        crime: the sheriff's book, trials and pardons",
+    "J        mark the cell you hold suspects in (u, then h, to hold one)",
     "L        levers: link them to gates and pull them",
     "w        mark the safe burrow civilians retreat into",
     "n        paint a pasture for the livestock",

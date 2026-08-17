@@ -5545,6 +5545,201 @@ class TestJustice(unittest.TestCase):
         self.assertEqual(again.hostiles(), [])
 
 
+class TestTheAccusation(unittest.TestCase):
+    """Holding somebody you are sure about and cannot try.
+
+    Found by playing: a fortress of twelve, thriving -- eighty-five thousand
+    in wealth, seven thousand units of ale, two artifacts -- in which one
+    vampire killed ten dwarves over two hundred days. It was named in the log
+    every time somebody woke up next to it, and forty-seven of those nights
+    went into the sheriff's book with its name on them. There was no sheriff:
+    a sheriff needs eighteen dwarves, and a vampire is very good at keeping a
+    fortress under eighteen dwarves. The player could read the killer's name
+    and had no verb in the game to act on it.
+    """
+
+    def setUp(self):
+        from ascii_warriors.game import night as night_mod
+
+        self.night = night_mod
+
+    def _cell(self, fort, corner=(8, 8)):
+        """A dug-out holding cell, with a corridor dug to it.
+
+        The corridor is the point. Marking three tiles in a far corner and
+        hoping the generated map joins them to the fortress is how a test ends
+        up measuring the seed: the same cell is reachable on one embark and
+        walled off on the next.
+        """
+        d = fort.dwarves()[0]
+        z = d.z
+        cx, cy = corner
+        for y in range(cy, cy + 3):
+            for x in range(cx, cx + 3):
+                fort.dig_out((x, y, z), "floor")
+        # A straight L from the dwarf to the cell, so there is always a way.
+        for x in range(min(cx, d.x), max(cx, d.x) + 1):
+            fort.dig_out((x, d.y, z), "floor")
+        for y in range(min(cy, d.y), max(cy, d.y) + 1):
+            fort.dig_out((cx, y, z), "floor")
+        fort.cell = (cx, cy, z, 3, 3)
+        return fort.cell
+
+    def _vampire_and_victim(self, fort):
+        """A vampire, somebody asleep beside it, and nobody else near."""
+        v, victim = fort.dwarves()[0], fort.dwarves()[1]
+        self.night.afflict(v, "vampire")
+        victim.x, victim.y, victim.z = v.x + 2, v.y, v.z
+        victim.fort.sleeping = True
+        for other in fort.dwarves()[2:]:
+            other.x, other.y = other.x + 40, other.y + 30
+        return v, victim
+
+    # -- the verb ---------------------------------------------------------- #
+
+    def test_a_held_dwarf_is_held(self):
+        """The state exists and one funnel answers for it."""
+        fort = embark("holding")
+        d = fort.dwarves()[0]
+        self.assertFalse(justice.is_confined(fort, d))
+        self.assertFalse(justice.is_jailed(fort, d))
+        justice.confine(fort, d)
+        self.assertTrue(justice.is_confined(fort, d))
+        # `is_jailed` is what the work loop and the units list both ask, so
+        # being held and being sentenced cannot come apart.
+        self.assertTrue(justice.is_jailed(fort, d))
+        self.assertTrue(justice.release(fort, d))
+        self.assertFalse(justice.is_jailed(fort, d))
+        self.assertFalse(justice.release(fort, d), "released twice")
+
+    def test_holding_somebody_costs_you(self):
+        """No trial, no evidence, and everybody knows it."""
+        fort = embark("nofriend")
+        d = fort.dwarves()[0]
+        justice.confine(fort, d)
+        self.assertTrue(any("held without trial" in t
+                            for t in d.needs.recent_thoughts(4)),
+                        d.needs.recent_thoughts(4))
+
+    def test_a_held_dwarf_does_no_work(self):
+        """Which is what it costs the fortress."""
+        fort = embark("nowork")
+        self._cell(fort)
+        d = fort.dwarves()[0]
+        justice.confine(fort, d)
+        sim.run(fort, 60)
+        self.assertIsNone(d.fort.job, "a held dwarf took a job")
+
+    def test_a_held_dwarf_goes_to_the_cell_and_stays(self):
+        """Not working is not the same as being somewhere.
+
+        This is the whole difference between a note in a book and something
+        that happens to somebody: a vampire that stops hauling rocks but goes
+        on sleeping in the dormitory goes on feeding.
+        """
+        fort = embark("thecell")
+        self._cell(fort)
+        d = fort.dwarves()[0]
+        justice.confine(fort, d)
+        sim.run(fort, 900)
+        self.assertTrue(justice.in_cell(fort, d.x, d.y, d.z),
+                        "held at %s, cell is %s" % ((d.x, d.y, d.z), fort.cell))
+        sim.run(fort, 400)
+        self.assertTrue(justice.in_cell(fort, d.x, d.y, d.z),
+                        "it wandered back out")
+
+    def test_holding_the_vampire_stops_the_feeding(self):
+        """The point of the whole thing."""
+        from ascii_warriors.engine import geometry
+
+        fort = embark("caughtit")
+        # Far corner: the cell has to be further from the beds than a vampire
+        # can reach, and `sim.FEED_RANGE` is thirty.
+        self._cell(fort, corner=(3, 3))
+        v, victim = self._vampire_and_victim(fort)
+        justice.confine(fort, v)
+        sim.run(fort, 900)
+        self.assertTrue(justice.in_cell(fort, v.x, v.y, v.z),
+                        "the vampire never reached the cell")
+        # The cell is a place, and the point of the place is that it is out of
+        # reach of the beds. State that rather than trusting the map.
+        self.assertGreater(
+            geometry.chebyshev(v.x, v.y, victim.x, victim.y), sim.FEED_RANGE,
+            "the cell is close enough to the beds to feed from")
+        full = victim.body.blood
+        victim.fort.sleeping = True
+        for _ in range(8):
+            sim._feed_vampires(fort, self.night)
+        self.assertEqual(victim.body.blood, full,
+                         "it fed from inside the cell")
+        self.assertFalse(victim.body.dead)
+
+    def test_the_vampire_at_large_does_drain_them(self):
+        """The same eight nights, with nobody held: the control.
+
+        Without this the test above passes on a fortress where the vampire
+        could not have reached anybody anyway.
+        """
+        fort = embark("caughtit")
+        self._cell(fort)
+        _v, victim = self._vampire_and_victim(fort)
+        full = victim.body.blood
+        for _ in range(8):
+            sim._feed_vampires(fort, self.night)
+            if victim.body.dead:
+                break
+        self.assertLess(victim.body.blood, full)
+
+    def test_a_fortress_with_no_cell_says_so(self):
+        """Holding somebody with nowhere to put them is worth knowing."""
+        fort = embark("nocell")
+        d = fort.dwarves()[0]
+        justice.confine(fort, d)
+        sim.run(fort, 30)
+        self.assertIsNone(d.fort.job)
+        # The distinctive phrase, not the word "cell": `confine` already logs
+        # "is taken to the cell", so matching on that passes with the warning
+        # deleted -- which is how the first version of this test passed.
+        self.assertTrue(
+            any("nowhere to put them" in m.text for m in fort.log.all()),
+            "no warning about having nowhere to hold anybody")
+
+    def test_the_dead_are_not_held(self):
+        """A body in a cell is a bookkeeping leak."""
+        fort = embark("nolonger")
+        d = fort.dwarves()[0]
+        justice.confine(fort, d)
+        d.body.dead = True
+        d.body.death_cause = "slain"
+        fort.kill_creature(d)
+        self.assertNotIn(d.id, fort.held)
+
+    def test_holding_survives_a_save(self):
+        """Both the cell and who is in it."""
+        fort = embark("savedcell")
+        self._cell(fort)
+        d = fort.dwarves()[0]
+        justice.confine(fort, d)
+        again = Fortress.from_dict(fort.to_dict())
+        self.assertEqual(again.cell, fort.cell)
+        back = again.creatures[d.id]
+        self.assertTrue(justice.is_confined(again, back))
+        self.assertTrue(justice.is_jailed(again, back))
+
+    def test_the_player_can_reach_it(self):
+        """A verb nobody can press is not a verb."""
+        from ascii_warriors.ui.fort import build_menu, fort_screen, units
+
+        self.assertTrue(any(line.split()[0] == "J"
+                            for line in fort_screen.HELP_LINES
+                            if line.strip()),
+                        "no key marks the cell")
+        self.assertTrue(hasattr(build_menu, "CellScene"),
+                        "no scene marks the cell")
+        self.assertTrue(hasattr(units.UnitsScene, "_hold"),
+                        "the units list cannot hold anybody")
+
+
 class TestSocial(unittest.TestCase):
     """Who knows whom, what it costs when they die, and where children come from."""
 

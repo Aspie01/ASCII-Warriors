@@ -130,9 +130,81 @@ def serving(fort) -> List[Crime]:
 
 
 def is_jailed(fort, dwarf) -> bool:
-    """True while a dwarf is serving a sentence."""
+    """True while a dwarf is being held, sentenced or merely suspected.
+
+    One funnel. `dwarf._serving_time` and the units list both ask this, so
+    everything that holds a dwarf holds it the same way and there is nowhere
+    for the two kinds of holding to disagree.
+    """
+    if is_confined(fort, dwarf):
+        return True
     return any(c.culprit == dwarf.id and c.until > fort.ticks
                for c in fort.crimes if c.convicted)
+
+
+# --------------------------------------------------------------------------- #
+# The cell
+# --------------------------------------------------------------------------- #
+
+
+def is_confined(fort, dwarf) -> bool:
+    """True while the player is holding this dwarf on suspicion."""
+    return dwarf.id in fort.held
+
+
+def confine(fort, dwarf) -> None:
+    """Hold a dwarf, on nothing but your say-so.
+
+    The fortress could already name a vampire -- it is in the log by name
+    every time somebody wakes up next to one, and in the sheriff's book after
+    that -- and could do precisely nothing with the knowledge. A sheriff needs
+    eighteen dwarves, and a vampire is very good at keeping a fortress under
+    eighteen dwarves.
+
+    So this is not justice and does not pretend to be: no trial, no evidence,
+    no sentence. It is the fortress deciding somebody sleeps somewhere else
+    tonight, and it costs what that costs -- the held dwarf resents it, and so
+    do the ones who liked them.
+    """
+    if dwarf.id in fort.held:
+        return
+    fort.held[dwarf.id] = fort.ticks
+    fort.log.system("%s is taken to the cell." % dwarf.name)
+    dwarf.needs.add_thought("was held without trial", 15)
+    from . import social
+
+    for other in fort.dwarves():
+        if other is dwarf:
+            continue
+        bd = social.bond(fort, other, dwarf)
+        if bd is not None and bd.value >= 30:
+            other.needs.add_thought("saw a friend taken away", 8)
+
+
+def release(fort, dwarf) -> bool:
+    """Let a held dwarf go. True if it was being held."""
+    if fort.held.pop(dwarf.id, None) is None:
+        return False
+    fort.log.system("%s is let out of the cell." % dwarf.name)
+    dwarf.needs.add_thought("was let out", -6)
+    return True
+
+
+def cell_cells(fort) -> List[Tuple[int, int, int]]:
+    """Every cell of the holding cell, or nothing if none is marked."""
+    if fort.cell is None:
+        return []
+    cx, cy, cz, w, h = fort.cell
+    return [(x, y, cz)
+            for y in range(cy, cy + h) for x in range(cx, cx + w)]
+
+
+def in_cell(fort, x: int, y: int, z: int) -> bool:
+    """True if a position is inside the holding cell."""
+    if fort.cell is None:
+        return False
+    cx, cy, cz, w, h = fort.cell
+    return z == cz and cx <= x < cx + w and cy <= y < cy + h
 
 
 def culprit_of(fort, crime: Crime):

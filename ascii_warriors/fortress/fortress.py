@@ -85,6 +85,12 @@ class Fortress:
         #: Everything anybody has been caught doing, and some things nobody
         #: has been caught doing.
         self.crimes: List[Any] = []
+        #: Dwarf id -> the tick you decided to hold it. Not a sentence and not
+        #: a conviction: the fortress's own answer to somebody it is sure
+        #: about and cannot try.
+        self.held: Dict[int, int] = {}
+        #: ``(x, y, z, w, h)`` of the room held dwarves are kept in.
+        self.cell: Optional[Tuple[int, int, int, int, int]] = None
         #: ``(lower id, higher id)`` -> what those two dwarves are to each
         #: other. One entry per pair, so there is only ever one answer.
         self.bonds: Dict[Tuple[int, int], Any] = {}
@@ -464,6 +470,8 @@ class Fortress:
                 other.needs.add_thought("saw a death in the fortress", 5)
             # It is now waiting for a coffin, and it will not wait for ever.
             self.unburied[c.id] = self.ticks
+            # Nobody is held after they are dead.
+            self.held.pop(c.id, None)
         else:
             self.log.combat("The %s is dead." % c.short_name())
             self._record_kill(c)
@@ -1460,6 +1468,8 @@ class Fortress:
             "unburied": {str(k): v for k, v in self.unburied.items()},
             "ghosts": [g.to_dict() for g in self.ghosts.values()],
             "crimes": [c.to_dict() for c in self.crimes],
+            "held": {str(k): v for k, v in self.held.items()},
+            "cell": list(self.cell) if self.cell else None,
             "bonds": [b.to_dict() for b in self.bonds.values()],
             "animal_state": {
                 str(c.id): c.animal.to_dict()
@@ -1586,6 +1596,9 @@ class Fortress:
 
         fort.crimes = [justice_mod.Crime.from_dict(c)
                        for c in d.get("crimes", [])]
+        fort.held = {int(k): int(v) for k, v in (d.get("held") or {}).items()}
+        cell = d.get("cell")
+        fort.cell = tuple(int(v) for v in cell) if cell else None
         from . import social as social_mod
 
         fort.bonds = {}

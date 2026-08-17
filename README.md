@@ -194,7 +194,7 @@ python -m ascii_warriors --dump-world - --size small --history 200 | less
 | `p` `w` `n` | place a stockpile / mark the safe burrow / paint a pasture |
 | `o` | queue work orders at a workshop |
 | `m` `h` `L` | the militia / health / levers and gates |
-| `c` | crime: the sheriff's book, trials and pardons |
+| `c` `J` | crime: the sheriff's book / mark the cell you hold suspects in |
 | `u` `z` `j` | units / stocks / outstanding jobs |
 | `k` `t` | look / trade with the caravan |
 | `?` | help |
@@ -372,6 +372,14 @@ looks peaky for three nights before anybody finds a body — and the murder goes
 into the sheriff's book with no name on it, because nobody saw. Unless
 somebody did: sleep your dwarves in a dormitory and a witness names the
 culprit, while a corridor of fine private bedrooms never catches anyone.
+
+Knowing is not the same as doing something about it, and waiting for the law
+is usually the wrong choice — a sheriff needs eighteen dwarves, and a vampire
+is very good at keeping a fortress under eighteen dwarves. Mark a cell with
+`J`, open the units list with `u`, and press `h` on the one you have decided
+about. They are taken there and kept there, fed out of your stores, and no
+trial happens at all. They will not forgive you, nor will their friends, and
+if you picked the wrong dwarf you have jailed a mason and the deaths go on.
 
 **Friends, families and the tavern.** Build a tavern and the dwarves with
 nothing to do go there instead of standing in a corridor, and that is where

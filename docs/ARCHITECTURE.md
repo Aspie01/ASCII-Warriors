@@ -4474,7 +4474,84 @@ The lesson is the milestone. Reading code finds what contradicts itself. Only
 playing the game finds what is perfectly consistent and wrong — and only the
 re-break pass finds the test that was agreeing with you for free.
 
-## 107. Style
+## 107. The accusation (v3.47)
+
+The fortress v3.46 left running was thriving: eighty-five thousand in wealth,
+seven thousand units of ale, two artifacts, two hundred and forty days. Ten of
+its twelve dwarves were dead. One vampire killed all of them.
+
+It was not hidden. A vampire that feeds where somebody is awake to see it puts
+its own name in the log — *"X wakes to find Y bent over Z"* — and then in the
+sheriff's book. Forty-seven of those nights were written down with the killer
+named on every one. The player could read the name of the thing killing the
+fortress and there was no verb in the game to act on it.
+
+**Why the law never came.** A sheriff is appointed at a population of eighteen.
+This fortress peaked at twelve, because the vampire was eating it. That is not
+a bug in the threshold — it is documented in the help and on the justice screen
+— but it does mean the fortress most in need of a sheriff is the one that
+cannot have one, and the defence the help recommends (sleep in a dormitory so
+there are witnesses) produces evidence nobody can act on.
+
+**The verb.** `justice.confine` holds a dwarf on nothing but the player's
+say-so. No trial, no evidence, no sentence: `u` for the units list, `h` on
+whoever you have decided about. It costs what that costs — the held dwarf takes
+a bad thought and so does anybody who was close to them, and if you are wrong
+you have jailed a mason and the deaths go on.
+
+**Holding has to be a place.** The first version stopped a held dwarf working
+and left it where it stood, and that does nothing to a vampire: it was still
+sleeping in the dormitory, still next to the beds, still feeding. `J` marks the
+cell, and a held dwarf walks there and stays. The test states the reason out
+loud rather than trusting the map — the cell must be further from the beds than
+`sim.FEED_RANGE`, which is thirty.
+
+**And a cell has to feed its occupant.** `take_turn` ran the needs *before*
+`_serving_time`, so a held dwarf left the cell the moment it was hungry and was
+back in the dormitory every night — held on paper and at large in fact. The
+order is now reversed and `_keep` answers the needs where the dwarf stands,
+out of the same stores everybody else eats from. A cell that starves its
+occupant is not a punishment, and holding somebody now costs the fortress food
+as well as a pair of hands.
+
+**One funnel.** `justice.is_jailed` answers for both kinds of holding —
+sentenced and merely suspected. `dwarf._serving_time` and the units list were
+already asking it, so neither had to learn about the new one, and the two kinds
+cannot come apart.
+
+### 107.1. Three hypotheses the measurements killed
+
+The chain took four probes to find and the first three were wrong, each
+plausibly so.
+
+**"They are brawling."** `_start_brawl` calls `melee_attack(..., weapon=None)`,
+and `weapon=None` in that function means *use whatever you are wielding* — so a
+docstring promising "barehanded... a bruise, not an execution" appeared to be
+handing brawlers their axes. A perfect promise-versus-reality defect, and
+entirely irrelevant: instrumenting the function recorded **zero brawls** in two
+hundred days. Stress never reached the tantrum threshold at all. The reading
+was right about the code and wrong about the game.
+
+**"The court is broken."** With the crime book full and every case open, the
+obvious suspect was `hold_court`. It works: called directly it convicts on the
+first try. Two experiments then failed to disprove it for two different reasons
+of my own making — one checked for an expedition leader before any had been
+appointed, so it never appointed the sheriff it thought it had; the next
+appointed one and never noticed the sheriff had died, since a dead noble still
+holds the position. A probe that silently does nothing looks exactly like a
+probe that found nothing.
+
+**"Every map is dry."** Fourteen embarks, zero water tiles, and dwarves dying of
+thirst beside a `_drink_water` function that never fires. Fourteen for fourteen
+is the tell: `tests.embark` copies one shared world and calls `suggest_site`, so
+every seed is the *same square* — the seed varies the fortress's dice, not where
+it stands. The survey measured the test fixture. `embark(water=True)` exists
+for exactly this reason.
+
+What survived all of that is the thing that needed no inference: the game names
+the killer and offers nothing to do about it.
+
+## 108. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

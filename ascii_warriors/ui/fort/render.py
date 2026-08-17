@@ -184,7 +184,7 @@ def _draw_fire(scr, fort, ox, oy, w, h, cam_x, cam_y) -> None:
 
 
 def _draw_zones(scr, fort, ox, oy, w, h, cam_x, cam_y) -> None:
-    """Stockpile and burrow rectangles, tinted behind whatever is on them."""
+    """Stockpile, cell and burrow rectangles, tinted behind what is on them."""
     for pile in fort.stockpiles:
         if pile.z != fort.z:
             continue
@@ -195,6 +195,18 @@ def _draw_zones(scr, fort, ox, oy, w, h, cam_x, cam_y) -> None:
                 continue
             ch, fg, _bg = scr.get(ox + sx, oy + sy)
             scr.put(ox + sx, oy + sy, ch, fg, colors.darken(tint, 0.22))
+
+    if getattr(fort, "cell", None) is not None:
+        from ...fortress import justice
+
+        for cx, cy, cz in justice.cell_cells(fort):
+            if cz != fort.z:
+                continue
+            sx, sy = cx - cam_x, cy - cam_y
+            if not (0 <= sx < w and 0 <= sy < h):
+                continue
+            ch, fg, _bg = scr.get(ox + sx, oy + sy)
+            scr.put(ox + sx, oy + sy, ch, fg, colors.Color(64, 40, 28))
 
     burrow = getattr(fort, "military", None)
     if burrow is None or burrow.burrow is None:
