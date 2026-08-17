@@ -4029,7 +4029,190 @@ burrow that is *reachable* rather than merely walkable, and asking for winter
 before claiming the deep is warmer than the roof. Six tests that had been
 silently skipping with "this embark has no open water" now actually run.
 
-## 102. Style
+## 102. Soil (v3.42)
+
+Version 3.41 gave the world deserts, badlands and swamps that had never
+occurred before. The question that raised was whether embarking in one is a
+*different game*, and the honest answer was no: the first thing anybody does
+in a fortress is farm, and `can_place` had no soil requirement at all. A farm
+plot went on any walkable non-water tile. A probe confirmed it: a plot built
+on bare granite six levels under the surface grew plump helmets on schedule,
+while the building's own description said "Plump helmets grow underground on
+nothing but mud and patience."
+
+So soil is now a thing the map has, and a thing a farm needs.
+
+**What soil is.** A `SOIL` flag in `world/tiles.py`, on `dirt`, `sand`, `mud`,
+`grass`, `grass_dead` and the two farm tiles. Not on `floor` (dug rock), not on
+`stone_floor` (cavern floor), not on `snow`, `ice` or anything constructed.
+`SOIL_TILES` maps a biome's soil name to the tile that soil looks like, and
+`soil_tile()` is the only place that mapping lives: `_fill_columns`, the web
+that gets brushed off a floor, and a freshly dug soil wall all ask it.
+
+**Where soil is.** `_fill_columns` has always laid three levels of `soil_wall`
+under every column, but nothing preserved it: `_carve_caves` hollowed out
+anything below the surface, topsoil included. Measured on the shared test map,
+1730 of 4800 columns had any soil left, and the whole eighty-by-sixty map
+offered **one** legal three-by-three farm plot. A cave has a rock roof —
+topsoil does not arch over an empty room, it falls into it — so the carver now
+skips `soil_wall`. That takes the sheet to 4795 of 4800 columns intact and 641
+diggable soil rooms within twenty tiles of the wagon.
+
+**What a dig leaves.** `_finish_dig` used to write `"floor"` whatever it cut
+through, which threw away the distinction the moment it mattered. It now asks
+`_dug_floor`: soil leaves the biome's soil, rock leaves bare floor. Stairs,
+ramps and channels are unchanged — nobody farms a staircase.
+
+**Why the surface is not the answer.** The outdoors is 41% `ramp_up` and
+another 27% trees and shrubs; nine flat tiles of grass in a row is rare enough
+that the map above offered one of them. That is not a bug to fix, it is the
+shape of the game: the fortress digs a room in the soil a level down and farms
+there, which is where a Dwarf Fortress player puts the farm anyway, and it is
+safer from whatever is outside. The founding log says so in as many words, and
+so does the build menu when it refuses a plot.
+
+**Irrigation.** Below the soil there is only stone, and a fortress that wants
+to farm at depth floods the chamber. `sim._irrigate` runs after every water
+step: any cell in `water.moving()` holding at least `MUD_DEPTH` over `floor`
+or `stone_floor` becomes `mud`. Only the moving set, so a still map costs
+nothing and a river does not silt a whole level at once; only bare rock, so a
+floor the player smoothed stays smoothed. It goes through `dig_out` like every
+other tile change, where it takes the "changes nothing the water cares about"
+early return. This is what the v2.5 engineering was always for: a channel from
+the river, a floodgate, a lever, and a decision about when to shut it.
+
+**What the player is told.** The embark report gains a `Soil` row — loam, sand,
+mud, or "ice, and no crop" — so a glacier can be recognised before seven
+dwarves are committed to it. The founding names the soil and says it is under
+their feet rather than at them. The refusal names the way out: "Nothing grows
+on bare rock. Flood it and let the mud dry, or dig down to the soil."
+
+`TestSoil` pins fifteen of these, including the three that would silently rot:
+that the soil sheet survives cave carving (measured as a fraction of columns,
+so a regression in `_carve_caves` fails it), that every biome's soil names a
+real tile, and that a smoothed floor does not soak. Each was re-broken in turn
+to confirm the guard fails when the fix is removed.
+
+## 102.1. The tests that were farming granite
+
+`test_farm_grows_and_is_harvested` and `test_economy` both searched near the
+dwarves for anywhere `can_place` would take a farm, and both had been quietly
+building on cavern `stone_floor` — the very thing this milestone forbids. They
+now use a `soil_room` helper that mines a room out of the soil sheet starting
+from a wall the dwarves could already walk up to, so what it digs is connected
+to where they are, and re-checks reachability afterwards because rock inside
+the block can cut a corner off. It tries the two dozen nearest soil walls in
+turn rather than the single closest, because a block against the map edge can
+hold no square nine at all — which is what a player does too.
+
+`_open_spot` — the "somewhere near the dwarves this would fit" helper the
+workshop, tavern and temple tests use — had the same problem for a different
+reason. It only ever looked outdoors at the wagon's level, and the surface it
+was looking at only ever had room because the caverns had eaten it. It now
+falls back to mining a room, which is where a fortress puts a workshop anyway.
+
+`TestArt._wall` took the first `rock_wall` in scan order, which after the map
+change was on the map border with nowhere to stand beside it: the engraving
+was designated, no dwarf could take the job, and the test blamed the engraver.
+It now asks for a wall with reachable ground next to it.
+
+Three helpers, one lesson, and it is the same one as §101.1: a test that hunts
+the generated map for something convenient is calibrated against that map, and
+the next generator change breaks it. A test that *builds* or *digs* what it
+needs does not care.
+
+## 102.2. Five sieges that could not work
+
+Keeping the soil sheet whole moved every walkable surface cell on the map,
+and with them the corner an army arrives at. On the shared test map the
+raiders now land on high ground in the north-east and walk down a slope to
+reach the fortress — and that turned up five defects that had been sitting
+behind a lucky spawn point. Four of them are the same sentence: *an invader
+that cannot get to the fortress is not a siege.*
+
+**A goblin that never moved.** Measured, on the shared map: dropped at the
+north-east corner, twenty-five tiles from the dwarves, it stood on its spawn
+tile for a hundred and twenty steps. Three things were wrong at once.
+
+`_hostile_step` re-planned whenever the goal changed, and the goal is the
+prey's exact cell, which moves every tick — so A* ran once per tick per
+invader, which is why its node cap was 2500, and 2500 nodes will not cross
+this map with a hill in the way. It now re-plans when the route stops
+applying: `REPATH_SLACK` tiles of drift, a change of level, or running off
+the end of its own path. That buys `HOSTILE_SEARCH` at 20000 nodes *and* it
+is faster — six invaders cost 1.12 ms a step instead of 3.90, because a
+search that fails burns its whole budget and these mostly succeed.
+
+The fallback for when there is no route at all was a single step in the
+compass direction of the prey, taken only if that exact tile was walkable.
+`_shove_towards` replaces it: the best neighbour *on the creature's own
+graph*, which is a swerve rather than a shrug. That is also what an invader
+does now when the next tile of its route is occupied by somebody it came
+with — five raiders following one route in single file used to spend the
+siege blocking each other, covering seventeen tiles in two hundred and fifty
+steps.
+
+And a flier that ran out of greedy moves fell back to the *walking* planner,
+which is no use to something hovering over a hillside: no walking
+neighbours, no route, nothing walkable to step onto. A roc flew two thirds of
+the way to the dwarves and then hovered in one cell for eighty steps. It
+plans on the flying graph now. Pathing a flier every step is what `_flier_step`'s own
+comment records as measured and rejected; pathing it on the rare step where
+greed fails, and keeping the route, is not.
+
+**A retreat that could not climb.** `war.retreat_step` stepped in x or y on
+the invader's own z. An army that had walked *down* to reach the gate could
+therefore never walk back up, and a goblin that broke at the bottom of the
+slope stood on that tile for the rest of the fortress's life.
+
+The first fix was "take any neighbour strictly closer to the edge", on the
+walking graph so ramps and stairs count. That is wrong in a way worth writing
+down: the distance to the edge is a function of x and y only, so a step that
+*only* changes z — which is exactly what climbing a ramp out of a pit is —
+never looks like progress, and the invader stays in the pit. Greedy on the
+wrong metric is not better than greedy on the wrong axes.
+
+So the route is searched for: `pathfind.path_to` breadth-first to the first
+cell on the map border, cached in the same scratch state the approach uses
+and re-searched only when the invader is no longer standing on its own path.
+"Any edge of the map" is a goal you can describe and cannot point at, which
+is why this is a BFS to a predicate and not A* to a cell. An invader with no
+route out at all stops moving, which is what a besieger in a sealed corridor
+should do, and `FLEE_TICKS` clears it eventually.
+
+**A siege that outlived everybody in it.** `fort.siege` was only cleared in the
+routed branch, which needs `ROUT_LOSSES` of the army dead. A raid of two never
+gets there: its members lose their nerve one at a time, walk off the map
+individually, and the alarm went on ringing over an empty map. `_hostiles` now
+ends a siege when there is nobody left on the map who came with it, however
+they went, and records the battle the same way a rout does.
+
+Neither was caused by the soil work; both were found by it, which is the usual
+way. The measurement that separated them from "the map changed and a test got
+unlucky" was reverting `_carve_caves` alone and watching the same siege finish
+in 67 steps.
+
+## 102.3. Nine wrappers nobody called
+
+Adding `soil_tile` and `is_soil` to `world/tiles.py` meant looking at what else
+was in there, and the answer was nine one-line predicates with zero callers:
+`walkable`, `blocks_sight`, `is_wall`, `is_open`, `is_water`, `is_stair_up`,
+`is_stair_down`, `is_diggable` and `by_flag`. Every site in the game reaches
+for `tile_data.get(tid).has("WALL")` directly and always has. `LocalMap` has
+its own `walkable(x, y, z)`, which is what the two hundred call sites mean when
+they say walkable, and which is why the module-level one looked used from a
+distance and never was. Deleted, with a comment saying which nine went so the
+next person adding a wrapper knows the house does not use them.
+
+`engine/pathfind.py` had two of its own. `path_cost` was never asked what a
+path cost, and is gone. `path_to` was never called either — and its `goal`
+parameter was dead *inside* it, because a BFS to a predicate has no single
+cell to aim at and the body never looked at the argument. It got a caller
+instead of a funeral: the routed invader above needs a route to "any edge of
+the map", which is exactly the shape `path_to` is for and exactly the shape
+A* cannot take. The dead parameter went with the fix.
+
+## 103. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

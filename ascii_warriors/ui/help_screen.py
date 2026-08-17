@@ -79,6 +79,8 @@ WHAT TO DO FIRST
   d      designate. Press d again for mining, i for a stairway. Enter marks one
          corner of a rectangle, Enter again paints it. Dig into a hillside.
   b      build. A still first, then a farm plot, then beds, then a tavern.
+         A farm plot has to stand on soil, and the soil is under the map
+         rather than on it: dig a room a level or two down and put it there.
   p      place a stockpile so loose goods get carried indoors.
   o      queue work at a workshop. A still with a repeating 'brew ale' order is
          the difference between a fortress and a graveyard.
@@ -106,6 +108,20 @@ complain about it. On a dry embark there is no such mercy: brew, or die.
 
 Your workshops will not touch the last week of food, and your farmers will not
 eat the last of the seed.
+
+SOIL
+
+Nothing grows on rock. Every map has a sheet of soil a level or two under the
+surface -- loam in the green places, sand in the desert, mud in a swamp, and
+on a glacier nothing at all. The outdoors is ramps, trees and undergrowth and
+will rarely take a plot; dig a room out of the soil instead, and the floor the
+miners leave behind them is what you farm.
+
+Below the soil there is only stone. If you want to farm down there, flood the
+chamber -- a channel from the river, or an aquifer you were going to have to
+deal with anyway -- and the water leaves mud on the rock. Mud takes a crop.
+Shut the gate, let it drain, and plant. A floor you have already smoothed will
+not soak, which is the point of smoothing it.
 
 ENGRAVINGS
 

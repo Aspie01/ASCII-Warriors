@@ -63,7 +63,14 @@ def embark(seed: str = "fort", *, water: bool = False) -> Fortress:
 
 
 def _open_spot(fort, kind: str):
-    """Somewhere near the dwarves a building of this kind would fit."""
+    """Somewhere near the dwarves a building of this kind would fit.
+
+    Outdoors first, then underground. The surface of a fortress map is ramps,
+    trees and undergrowth and frequently has no three-by-three of open ground
+    anywhere near the wagon, which is a large part of why a fortress digs; a
+    test that gives up at the treeline is testing the terrain rather than the
+    building.
+    """
     d = fort.dwarves()[0]
     for radius in range(1, 16):
         for dx in range(-radius, radius + 1):
@@ -73,7 +80,7 @@ def _open_spot(fort, kind: str):
                                                   fort.buildings)
                 if ok:
                     return (x, y, d.z)
-    return None
+    return soil_room(fort, kind)
 
 
 def item_for(fort, def_id: str):
@@ -100,6 +107,56 @@ def dig_room(fort, radius: int = 6) -> int:
         if total:
             break
     return total
+
+
+def soil_room(fort, kind: str = "farm"):
+    """Mine a room out of the soil sheet and return a corner a building fits.
+
+    The surface of a fortress map is ramps, trees and undergrowth, and almost
+    none of it is nine flat tiles of open ground; the farmland is the soil a
+    level or two underneath. A player paints a room there and the miners cut
+    it. This does the same thing without spending the simulation time on it,
+    starting from a soil wall the dwarves could already walk up to, so what
+    it digs is connected to where they are. Returns None if this map has no
+    soil within reach.
+    """
+    from ascii_warriors.engine.pathfind import bfs_reachable
+
+    lm = fort.local
+    d = fort.dwarves()[0]
+    defn = building_mod.KINDS[kind]
+    size = max(defn.width, defn.height)
+    start = (d.x, d.y, d.z)
+    doors = []
+    for x, y, z in bfs_reachable(start, fort.path_neighbours, max_nodes=20000):
+        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            cell = (x + dx, y + dy, z)
+            if lm.in_bounds(*cell) and lm.tile(*cell) == "soil_wall":
+                doors.append((abs(x - d.x) + abs(y - d.y)
+                              + abs(z - d.z) * 4, cell))
+    span = size + 3
+    for _far, (ex, ey, ez) in sorted(doors)[:24]:
+        if lm.tile(ex, ey, ez) != "soil_wall":
+            continue        # a nearer attempt already opened this one
+        for yy in range(ey - span, ey + span + 1):
+            for xx in range(ex - span, ex + span + 1):
+                cell = (xx, yy, ez)
+                if lm.in_bounds(*cell) and lm.tile(*cell) == "soil_wall":
+                    fort.dig_out(cell, fort._dug_floor(cell))
+        # Rock inside the block can cut a corner of it off from the rest, and
+        # a block against the map edge may hold no square nine at all. Only
+        # offer a spot the dwarves can walk every tile of; otherwise try the
+        # next soil wall along, which is what a player does too.
+        reach = bfs_reachable(start, fort.path_neighbours, max_nodes=20000)
+        for yy in range(ey - span, ey + span + 1):
+            for xx in range(ex - span, ex + span + 1):
+                ok, _why = building_mod.can_place(lm, kind, xx, yy, ez,
+                                                  fort.buildings)
+                if ok and all((xx + dx, yy + dy, ez) in reach
+                              for dy in range(defn.height)
+                              for dx in range(defn.width)):
+                    return (xx, yy, ez)
+    return None
 
 
 class TestLabors(unittest.TestCase):
@@ -442,10 +499,11 @@ class TestSimulation(unittest.TestCase):
         If it does not sustain seven dwarves, nothing else matters.
         """
         fort = embark("economy")
-        d = fort.dwarves()[0]
         placed = 0
         for kind in ("farm", "farm", "still"):
-            spot = _open_spot(fort, kind)
+            # Farms go in the soil under the map, which is where a fortress
+            # puts them now that bare rock will not take one.
+            spot = soil_room(fort) if kind == "farm" else _open_spot(fort, kind)
             if spot is None:
                 continue
             fort.buildings.append(Building(kind, *spot))
@@ -608,21 +666,7 @@ class TestFarming(unittest.TestCase):
     def test_farm_grows_and_is_harvested(self):
         """Plant, wait, harvest, replant."""
         fort = embark("farming")
-        d = fort.dwarves()[0]
-        spot = None
-        for radius in range(1, 12):
-            for dx in range(-radius, radius + 1):
-                for dy in range(-radius, radius + 1):
-                    ok, _why = building_mod.can_place(
-                        fort.local, "farm", d.x + dx, d.y + dy, d.z,
-                        fort.buildings)
-                    if ok:
-                        spot = (d.x + dx, d.y + dy, d.z)
-                        break
-                if spot:
-                    break
-            if spot:
-                break
+        spot = soil_room(fort)
         self.assertIsNotNone(spot, "nowhere to farm")
         farm = Building("farm", *spot)
         fort.buildings.append(farm)
@@ -645,6 +689,210 @@ class TestFarming(unittest.TestCase):
         d.needs.hunger = 99999
         found = fort.find_consumable(d, drink=False)
         self.assertTrue(found is None or found.def_id != "plump_helmet")
+
+
+class TestSoil(unittest.TestCase):
+    """What will grow where, and what it takes to make more of it."""
+
+    def _rock_room(self, fort, size=3):
+        """A dug-out chamber in bare rock, well below the soil, and reachable.
+
+        Digging is what makes it bare: everything a pick opens below the soil
+        sheet is rock, and rock is the thing a farm plot is not allowed on.
+        """
+        lm = fort.local
+        for z in range(lm.zmin + 3, -4):
+            for y in range(4, lm.height - size - 4):
+                for x in range(4, lm.width - size - 4):
+                    cells = [(x + dx, y + dy, z)
+                             for dy in range(size) for dx in range(size)]
+                    if any(lm.tile(*c) != "rock_wall" for c in cells):
+                        continue
+                    for c in cells:
+                        fort.dig_out(c, fort._dug_floor(c))
+                    return cells
+        return []
+
+    # -- what a dig leaves behind ------------------------------------------ #
+
+    def test_digging_soil_leaves_soil(self):
+        """A pick through topsoil leaves the ground the biome is made of."""
+        from ascii_warriors.world import tiles as tile_data
+
+        fort = embark("dug-soil")
+        lm = fort.local
+        cell = next(((x, y, z)
+                     for z in range(lm.zmax, lm.zmin, -1)
+                     for y in range(lm.height) for x in range(lm.width)
+                     if lm.tile(x, y, z) == "soil_wall"), None)
+        self.assertIsNotNone(cell, "the map has no soil in it at all")
+        fort.dig_out(cell, fort._dug_floor(cell))
+        self.assertEqual(lm.tile(*cell), tile_data.soil_tile(lm.soil))
+        self.assertTrue(tile_data.is_soil(lm.tile(*cell)))
+
+    def test_digging_rock_leaves_rock(self):
+        """A pick through stone leaves bare floor, and nothing grows on it."""
+        from ascii_warriors.world import tiles as tile_data
+
+        fort = embark("dug-rock")
+        room = self._rock_room(fort)
+        self.assertTrue(room, "nowhere in this map is solid rock")
+        self.assertEqual(fort.local.tile(*room[0]), "floor")
+        self.assertFalse(tile_data.is_soil("floor"))
+
+    def test_the_soil_sheet_is_whole(self):
+        """Caves have rock roofs, so the soil under the map survives them.
+
+        Without this the cellular-automaton caverns eat the topsoil wherever
+        they reach it and a fortress has nowhere to farm at all: measured at
+        one legal farm plot on a whole eighty-by-sixty map.
+        """
+        fort = embark("sheet")
+        lm = fort.local
+        with_soil = sum(
+            1
+            for y in range(lm.height) for x in range(lm.width)
+            if any(lm.tile(x, y, lm.surface_z(x, y) - dz) == "soil_wall"
+                   for dz in (1, 2, 3))
+        )
+        self.assertGreater(with_soil, lm.width * lm.height * 0.9,
+                           "the caverns have eaten the soil")
+
+    # -- what a farm plot will stand on ------------------------------------ #
+
+    def test_a_farm_will_not_go_on_bare_rock(self):
+        """The whole rule, in one placement."""
+        fort = embark("rockfarm")
+        room = self._rock_room(fort)
+        self.assertTrue(room)
+        x, y, z = room[0]
+        ok, why = building_mod.can_place(fort.local, "farm", x, y, z,
+                                         fort.buildings)
+        self.assertFalse(ok)
+        self.assertIn("rock", why)
+
+    def test_a_workshop_will_go_on_bare_rock(self):
+        """Only farms care. A mason is happy on stone."""
+        fort = embark("rockshop")
+        room = self._rock_room(fort)
+        self.assertTrue(room)
+        x, y, z = room[0]
+        ok, _why = building_mod.can_place(fort.local, "mason", x, y, z,
+                                          fort.buildings)
+        self.assertTrue(ok)
+
+    def test_a_farm_goes_in_a_room_dug_out_of_the_soil(self):
+        """And that is where a fortress puts them."""
+        fort = embark("soilfarm")
+        spot = soil_room(fort)
+        self.assertIsNotNone(spot, "no soil within reach of the dwarves")
+        ok, why = building_mod.can_place(fort.local, "farm", *spot,
+                                         buildings=fort.buildings)
+        self.assertTrue(ok, why)
+
+    def test_every_tile_a_farm_covers_has_to_be_soil(self):
+        """One corner of rock is enough to refuse the whole plot."""
+        fort = embark("cornerfarm")
+        spot = soil_room(fort)
+        self.assertIsNotNone(spot)
+        x, y, z = spot
+        fort.local.set_tile(x + 2, y + 2, z, "floor")
+        ok, _why = building_mod.can_place(fort.local, "farm", x, y, z,
+                                          fort.buildings)
+        self.assertFalse(ok)
+
+    # -- irrigation --------------------------------------------------------- #
+
+    def test_water_leaves_mud_on_bare_rock(self):
+        """Flood a rock chamber and the floor of it turns to mud."""
+        fort = embark("irrigate")
+        room = self._rock_room(fort, 3)
+        self.assertTrue(room)
+        for cell in room:
+            fort.water.set(cell, sim.MUD_DEPTH + 2)
+        fort.water.wake_all()
+        sim._flow(fort, sim.STEP_TICKS)
+        self.assertTrue(any(fort.local.tile(*c) == "mud" for c in room),
+                        "the water left the rock as it found it")
+
+    def test_a_damp_floor_is_not_a_muddy_one(self):
+        """One unit of water is a puddle, not an irrigation."""
+        fort = embark("puddle")
+        room = self._rock_room(fort, 3)
+        self.assertTrue(room)
+        for cell in room:
+            fort.water.set(cell, sim.MUD_DEPTH - 1)
+        fort.water.wake_all()
+        sim._flow(fort, sim.STEP_TICKS)
+        self.assertTrue(all(fort.local.tile(*c) == "floor" for c in room))
+
+    def test_a_smoothed_floor_does_not_soak(self):
+        """Sealing a room is a decision, and flooding it does not undo it."""
+        fort = embark("smoothed")
+        room = self._rock_room(fort, 3)
+        self.assertTrue(room)
+        for cell in room:
+            fort.local.set_tile(*cell, "floor_constructed")
+            fort.water.set(cell, sim.MUD_DEPTH + 2)
+        fort.water.wake_all()
+        sim._flow(fort, sim.STEP_TICKS)
+        self.assertTrue(all(fort.local.tile(*c) == "floor_constructed"
+                            for c in room))
+
+    def test_a_farm_goes_on_ground_the_water_has_muddied(self):
+        """The way out of the trap: flood the rock, then farm it."""
+        fort = embark("mudfarm")
+        room = self._rock_room(fort, 5)
+        self.assertTrue(room)
+        for cell in room:
+            fort.water.set(cell, sim.MUD_DEPTH + 3)
+        for _ in range(6):
+            fort.water.wake_all()
+            sim._flow(fort, sim.STEP_TICKS)
+        x, y, z = room[0]
+        ok, why = building_mod.can_place(fort.local, "farm", x, y, z,
+                                         fort.buildings)
+        self.assertTrue(ok, why)
+
+    def test_the_mud_survives_a_save(self):
+        """Irrigation is terrain, and terrain is saved."""
+        fort = embark("mudsave")
+        room = self._rock_room(fort, 3)
+        self.assertTrue(room)
+        for cell in room:
+            fort.water.set(cell, sim.MUD_DEPTH + 2)
+        fort.water.wake_all()
+        sim._flow(fort, sim.STEP_TICKS)
+        muddy = [c for c in room if fort.local.tile(*c) == "mud"]
+        self.assertTrue(muddy)
+        back = Fortress.from_dict(fort.to_dict())
+        self.assertTrue(all(back.local.tile(*c) == "mud" for c in muddy))
+
+    # -- what the player is told -------------------------------------------- #
+
+    def test_the_founding_says_where_the_soil_is(self):
+        """A rule nobody is told about is a bug in the interface."""
+        fort = embark("told")
+        said = " ".join(m.text for m in fort.log.all())
+        self.assertIn("soil", said.lower())
+
+    def test_every_biome_soil_names_a_real_tile(self):
+        """The soil table is the one place that says what soil looks like."""
+        from ascii_warriors.data import biomes as biome_data
+        from ascii_warriors.world import tiles as tile_data
+
+        for b in biome_data.BIOMES.values():
+            self.assertIn(b.soil, tile_data.SOIL_TILES, b.id)
+            self.assertTrue(tile_data.exists(tile_data.soil_tile(b.soil)),
+                            b.id)
+
+    def test_the_embark_report_names_the_soil(self):
+        """You can tell sand from loam before you commit seven dwarves."""
+        from ascii_warriors.ui.fort import embark as embark_ui
+
+        self.assertEqual(embark_ui._soil("desert"), "sand")
+        self.assertEqual(embark_ui._soil("temperate_forest"), "loam")
+        self.assertIn("no crop", embark_ui._soil("glacier"))
 
 
 class TestProduction(unittest.TestCase):
@@ -1009,16 +1257,31 @@ class TestArt(unittest.TestCase):
         self.engraver.skills.set_level("engraving", 10)
 
     def _wall(self, fort, smoothed=True):
-        """A wall cell, smoothed if asked."""
+        """A wall an engraver can walk up to, smoothed if asked.
+
+        The first `rock_wall` in scan order is usually against the map border,
+        where there is nowhere to stand beside it: the job gets designated,
+        nobody can take it, and the test blames the engraving code. Ask for
+        one with reachable ground next to it instead.
+        """
+        from ascii_warriors.engine.pathfind import bfs_reachable
+
         lm = fort.local
-        for z in (fort.z, fort.z - 1, fort.z - 2):
-            for y in range(lm.height):
-                for x in range(lm.width):
-                    if lm.tile(x, y, z) == "rock_wall":
-                        if smoothed:
-                            fort.dig_out((x, y, z), "wall_constructed")
-                        return (x, y, z)
-        return None
+        d = fort.dwarves()[0]
+        best = None
+        for x, y, z in bfs_reachable((d.x, d.y, d.z), fort.path_neighbours,
+                                     max_nodes=20000):
+            for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                cell = (x + dx, y + dy, z)
+                if lm.in_bounds(*cell) and lm.tile(*cell) == "rock_wall":
+                    far = abs(x - d.x) + abs(y - d.y) + abs(z - d.z) * 4
+                    if best is None or (far, cell) < best:
+                        best = (far, cell)
+        if best is None:
+            return None
+        if smoothed:
+            fort.dig_out(best[1], "wall_constructed")
+        return best[1]
 
     # -- what gets carved --------------------------------------------------- #
 
@@ -1252,6 +1515,52 @@ class TestWar(unittest.TestCase):
                 fort.dwarves()[0].z
         sim.step(fort)
         self.assertEqual(fort.hostiles(), [])
+
+    def test_a_routed_invader_can_climb_out(self):
+        """Retreat follows the ground, not a compass.
+
+        An army walks down off the hillside it arrived on to reach the gate.
+        A retreat that only ever steps in x or y on its own level cannot go
+        back up, so the invader stands where it broke until the end of time.
+        """
+        from ascii_warriors.engine.pathfind import bfs_reachable
+
+        fort = self.fort
+        _plan, army = self._army(fort)
+        foe = army[0]
+        d = fort.dwarves()[0]
+        # Put it as deep under the fortress as the dwarves themselves can
+        # walk. Every step of the way back out is a ramp or a staircase, and
+        # a retreat that cannot change level has no way to take one.
+        reach = bfs_reachable((d.x, d.y, d.z), fort.path_neighbours,
+                              max_nodes=20000)
+        deep = min((c for c in reach if fort.creature_at(*c) is None),
+                   key=lambda c: (c[2], c))
+        self.assertLess(deep[2], d.z, "nothing under this fortress to be in")
+        foe.x, foe.y, foe.z = deep
+        self.war.rout(fort)
+        for _ in range(400):
+            if self.war.retreat_step(fort, foe):
+                break
+        self.assertNotIn(foe.id, fort.creatures,
+                         "the invader never found its way back out")
+
+    def test_a_siege_nobody_stayed_for_is_over(self):
+        """However they left, an empty map is not a siege.
+
+        A small raid never routs as an army -- its members lose their nerve
+        one at a time and walk off -- and the alarm used to go on ringing
+        over a map with nothing on it.
+        """
+        fort = self.fort
+        _plan, army = self._army(fort)
+        fort.military.alert = "combat"
+        for foe in army:
+            fort.creatures.pop(foe.id, None)
+        self.assertIsNotNone(fort.siege)
+        sim._hostiles(fort, sim.STEP_TICKS)
+        self.assertIsNone(fort.siege, "the siege outlived everybody in it")
+        self.assertEqual(fort.military.alert, "civilian")
 
     # -- what it costs them -------------------------------------------------- #
 
@@ -2218,17 +2527,100 @@ class TestEvents(unittest.TestCase):
             self.assertTrue(fort.local.walkable(foe.x, foe.y, foe.z))
 
     def test_hostiles_close_on_dwarves(self):
-        """Enemies must actually come for you."""
-        fort = embark("hostiles")
-        foe = sim.spawn_attack(fort, 1)[0]
-        target = fort.dwarves()[0]
+        """Enemies must actually come for you.
+
+        A raiding party rather than one attacker: a creature with nobody
+        beside it loses its nerve on the first step and walks back off the
+        map, which is a different rule working correctly and says nothing
+        about whether invaders advance.
+        """
         from ascii_warriors.engine import geometry
 
-        start = geometry.chebyshev(foe.x, foe.y, target.x, target.y)
+        fort = embark("hostiles")
+        foes = sim.spawn_attack(fort, 6)
+        target = fort.dwarves()[0]
+
+        def nearest():
+            live = [f for f in foes
+                    if f.id in fort.creatures and not f.body.dead]
+            return min((geometry.chebyshev(f.x, f.y, target.x, target.y)
+                        for f in live), default=None)
+
+        start = nearest()
         for _ in range(200):
             sim._hostiles(fort, sim.STEP_TICKS)
-        now = geometry.chebyshev(foe.x, foe.y, target.x, target.y)
-        self.assertLess(now, start, "the goblin never moved towards anybody")
+        now = nearest()
+        self.assertIsNotNone(now, "every attacker left or died on the way in")
+        self.assertLess(now, start, "the raiders never moved towards anybody")
+
+    def test_hostiles_cross_the_whole_map(self):
+        """From the far corner, not from wherever the dice put them.
+
+        An invader that cannot find the fortress is not a siege. Re-planning
+        the route on every tick meant the search had to be cheap, cheap meant
+        a cap of 2500 nodes, and 2500 nodes will not cross an eighty by sixty
+        map with a hill in the way: measured at a goblin that stood on its
+        spawn tile for a hundred and twenty steps while the dwarves went
+        about their business twenty-five tiles below it.
+        """
+        from ascii_warriors.engine import geometry
+
+        fort = embark("crossmap")
+        target = fort.dwarves()[0]
+        entry = max(
+            (fort.local.edge_entry(fort.rng, side)
+             for side in ("north", "south", "east", "west")),
+            key=lambda c: geometry.chebyshev(c[0], c[1], target.x, target.y),
+        )
+        foes = []
+        for i in range(3):
+            foe = make_creature(fort.rng, "goblin", faction="hostile", level=3)
+            foe.x, foe.y, foe.z = fort._free_spot(entry, i)
+            foe.wx, foe.wy = fort.wx, fort.wy
+            fort.add_creature(foe)
+            foes.append(foe)
+
+        def nearest():
+            live = [f for f in foes
+                    if f.id in fort.creatures and not f.body.dead]
+            return min((geometry.chebyshev(f.x, f.y, target.x, target.y)
+                        for f in live), default=None)
+
+        self.assertGreater(nearest(), 15, "they started next door")
+        for _ in range(200):
+            sim._hostiles(fort, sim.STEP_TICKS)
+        now = nearest()
+        self.assertIsNotNone(now, "every attacker left or died on the way in")
+        self.assertLess(now, 5, "the raiders never crossed the map")
+
+    def test_an_army_on_the_map_is_cheap(self):
+        """A siege runs every step, so the invaders cannot cost the earth.
+
+        The route is planned when it stops applying rather than every time
+        the prey moves, which is what allows the search budget to be big
+        enough to cross the map. Measured on this embark with six goblins
+        walking in: 3.90 ms a step re-planning every tick against a 2500 node
+        cap, 1.12 ms planning on drift against 20000.
+        """
+        import time
+
+        # The same embark and corner the measurement was taken on: this is
+        # a map where the direct line in is blocked, which is exactly when
+        # a search that runs out of budget costs the most.
+        fort = embark("flyapproach")
+        entry = fort.local.edge_entry(fort.rng, "north")
+        for i in range(6):
+            foe = make_creature(fort.rng, "goblin", faction="hostile", level=3)
+            foe.x, foe.y, foe.z = fort._free_spot(entry, i)
+            foe.wx, foe.wy = fort.wx, fort.wy
+            fort.add_creature(foe)
+        start = time.time()
+        for _ in range(120):
+            sim._hostiles(fort, sim.STEP_TICKS)
+        per_step = (time.time() - start) * 1000 / 120
+        self.assertLess(per_step, 3.0,
+                        "%.2f ms a step with six invaders is too slow"
+                        % per_step)
 
     def test_a_mood_makes_an_artifact(self):
         """The dwarf comes out of it holding something legendary."""
@@ -2583,19 +2975,31 @@ class TestMilitary(unittest.TestCase):
         """Under alarm, a civilian heads for the safe room."""
         fort = embark("burrow")
         d = fort.dwarves()[0]
-        # A burrow a few tiles away, on walkable ground.
-        # Reachable, not merely walkable: a patch of floor across a chasm is
-        # somewhere the dwarf can see and never get to, and the test then
-        # measures the map rather than the retreat.
+        # A room the miners cut, which is what a safe burrow is. The surface
+        # of the map has no three by three of open ground anywhere near the
+        # wagon -- trees and ramps take all of it -- and a burrow with rock
+        # in two thirds of it is a dwarf standing outside looking at a wall.
         from ascii_warriors.engine.pathfind import bfs_reachable
 
-        near = bfs_reachable((d.x, d.y, d.z), fort.path_neighbours,
-                             max_nodes=4000)
-        cells = [(c[0], c[1]) for c in near
-                 if c[2] == d.z and 3 <= max(abs(c[0] - d.x),
-                                             abs(c[1] - d.y)) <= 8]
-        self.assertTrue(cells, "no reachable ground for a burrow")
-        fort.military.burrow = (cells[0][0], cells[0][1], d.z, 3, 3)
+        spot = soil_room(fort, "carpenter")
+        self.assertIsNotNone(spot, "nowhere to cut a safe room")
+        fort.military.burrow = (spot[0], spot[1], spot[2], 3, 3)
+        # Standing in it already would test nothing, so step outside -- just
+        # outside. A civilian sent on a forty-tile trek is measuring the
+        # length of the walk and the traffic on it, not the retreat.
+        if fort.military.in_burrow(d.x, d.y, d.z):
+            out = sorted(
+                (c for c in bfs_reachable((d.x, d.y, d.z),
+                                          fort.path_neighbours,
+                                          max_nodes=4000)
+                 if not fort.military.in_burrow(*c)
+                 and fort.creature_at(*c) is None),
+                key=lambda c: (abs(c[0] - spot[0]) + abs(c[1] - spot[1])
+                               + abs(c[2] - spot[2]) * 4, c),
+            )
+            self.assertTrue(out, "nowhere outside the burrow to start from")
+            d.x, d.y, d.z = out[0]
+        self.assertFalse(fort.military.in_burrow(d.x, d.y, d.z))
         # Needs come before shelter, and rightly: a dwarf that dies of thirst
         # inside the safe room is not sheltered. Clearing them first means
         # this measures the retreat rather than the length of the walk to the
@@ -2604,8 +3008,13 @@ class TestMilitary(unittest.TestCase):
         d.needs.hunger = 0
         d.needs.drowsy = 0
         fort.military.sound_alarm()
+        # Everybody takes a turn, not just the one being watched. A dwarf
+        # left standing still is furniture: it sits on the corridor the
+        # retreat runs down, `step_along` reports blocked for ever, and the
+        # test blames the burrow.
         for _ in range(120):
-            dwarf_mod.take_turn(fort, d, sim.STEP_TICKS)
+            for other in fort.dwarves():
+                dwarf_mod.take_turn(fort, other, sim.STEP_TICKS)
         self.assertTrue(fort.military.in_burrow(d.x, d.y, d.z),
                         "%s never reached shelter" % d.name)
 
@@ -2805,8 +3214,14 @@ class TestRooms(unittest.TestCase):
         self.fort = embark("rooms")
 
     def _furnish(self, kinds):
-        """Put furniture down around one spot and call it built."""
-        spot = _open_spot(self.fort, "bed")
+        """Put furniture down around one spot and call it built.
+
+        Underground, in a room the miners cut, because that is what a bedroom
+        is. A bed dropped on the surface has trees and ramps around it, the
+        flood fill that measures the room stops at them, and the cabinet you
+        put beside the bed is not in the same room as the bed.
+        """
+        spot = soil_room(self.fort, "bed")
         self.assertIsNotNone(spot, "nowhere to furnish")
         first = None
         for i, kind in enumerate(kinds):
@@ -3703,15 +4118,31 @@ class TestWater(unittest.TestCase):
 
         # A stretch of bank with solid rock beside it: where a player would
         # dig the trench that brings the river indoors.
+        # The deepest reservoir cell there is, the bank beside it, and solid
+        # rock beyond that. Starting from the bank instead finds sealed cells
+        # beside shallow pockets and dry ledges, and then nothing comes in
+        # because there was nothing behind it to come: what a shallow source
+        # pushes through is one unit, which is also what evaporates.
         shore = wall = None
-        for cell in sorted(fort.water.sealed):
-            x, y, z = cell
-            for side in ((x - 1, y, z), (x + 1, y, z),
-                         (x, y - 1, z), (x, y + 1, z)):
-                if not lm.in_bounds(*side) or self.fluids.can_hold(lm, side):
+        for src in sorted(fort.water.infinite,
+                          key=lambda c: (-fort.water.infinite[c], c)):
+            if fort.water.infinite[src] < 4:
+                continue
+            sx, sy, sz = src
+            for cell in ((sx - 1, sy, sz), (sx + 1, sy, sz),
+                         (sx, sy - 1, sz), (sx, sy + 1, sz)):
+                if cell not in fort.water.sealed:
                     continue
-                shore, wall = cell, side
-                break
+                x, y, z = cell
+                for side in ((x - 1, y, z), (x + 1, y, z),
+                             (x, y - 1, z), (x, y + 1, z)):
+                    if not lm.in_bounds(*side) \
+                            or self.fluids.can_hold(lm, side):
+                        continue
+                    shore, wall = cell, side
+                    break
+                if wall is not None:
+                    break
             if wall is not None:
                 break
         self.assertIsNotNone(wall, "no solid rock beside the water at all")

@@ -36,6 +36,11 @@ ROUT_LOSSES = 0.55
 #: What the survivors do about it: leave, by the shortest route out.
 RETREAT_SPEED = 2
 
+#: How hard a routed invader looks for a way off the map before giving up.
+#: Generous, because it only runs when the cached route has been broken and
+#: a besieger that stands in the corridor for ever is the worse outcome.
+RETREAT_SEARCH = 8000
+
 #: A routed army that cannot find its way out is gone anyway after this long.
 #: Something wedged in a corridor must not leave the alarm ringing for ever.
 FLEE_TICKS = 3000
@@ -260,38 +265,54 @@ def rout(fort) -> None:
     record(fort, won=True)
 
 
-def retreat_step(fort, foe) -> bool:
-    """Move one routed invader towards the nearest map edge. True if it left."""
-    lm = fort.local
-    dx = -1 if foe.x < lm.width // 2 else 1
-    dy = -1 if foe.y < lm.height // 2 else 1
-    if min(foe.x, lm.width - 1 - foe.x) > min(foe.y, lm.height - 1 - foe.y):
-        dx = 0
-    else:
-        dy = 0
-    # Straight out if it can, round the obstacle if it cannot -- but never
-    # back the way it came. A list that contains the reverse of the heading
-    # walks one step out and one step back for ever, and the retreat never
-    # ends.
-    if dx:
-        steps = ((dx, dy), (dx, -1), (dx, 1), (0, -1), (0, 1))
-    else:
-        steps = ((dx, dy), (-1, dy), (1, dy), (-1, 0), (1, 0))
+def _edge_distance(lm, x: int, y: int) -> int:
+    """How far a cell is from the nearest edge of the map."""
+    return min(x, y, lm.width - 1 - x, lm.height - 1 - y)
 
+
+def retreat_step(fort, foe) -> bool:
+    """Move one routed invader towards the nearest map edge. True if it left.
+
+    Along the walking graph, not along a compass. The first version stepped
+    in x or y on the invader's own level, which meant an army that had walked
+    down a hillside to reach the fortress could never walk back up it: a
+    goblin routed at the bottom of a slope stood on the spot for the rest of
+    the fortress's life, and because a siege only ends when the map is clear
+    of it, the alarm never stopped either. Ramps and stairs are part of the
+    way out, so the route is searched for rather than guessed at -- breadth
+    first, because "any edge of the map" is a goal you can describe and
+    cannot point at, which is what A* would want.
+
+    The route is kept in the same scratch state the approach uses and only
+    re-searched when the invader is no longer standing on it. An invader
+    walled in with no way out at all stops moving, which is what a besieger
+    in a sealed corridor should do; `FLEE_TICKS` clears it eventually.
+    """
+    from ..engine.pathfind import path_to
+
+    lm = fort.local
+    state = fort.hostile_state.setdefault(foe.id, {"path": [], "goal": None})
     for _ in range(RETREAT_SPEED):
-        if foe.x <= 0 or foe.y <= 0 or foe.x >= lm.width - 1 \
-                or foe.y >= lm.height - 1:
+        pos = (foe.x, foe.y, foe.z)
+        if _edge_distance(lm, *pos[:2]) <= 0:
             fort.creatures.pop(foe.id, None)
             return True
-        for step in steps:
-            cell = (foe.x + step[0], foe.y + step[1], foe.z)
-            if cell[:2] == (foe.x, foe.y):
-                continue
-            if lm.walkable(*cell) and fort.creature_at(*cell) is None:
-                foe.x, foe.y, foe.z = cell
-                break
-        else:
+        route = state.get("out") or []
+        if pos not in route:
+            route = path_to(
+                pos, fort.path_neighbours,
+                lambda c: _edge_distance(lm, c[0], c[1]) <= 0,
+                max_nodes=RETREAT_SEARCH,
+            ) or []
+            state["out"] = route
+        idx = route.index(pos) if pos in route else -1
+        if idx < 0 or idx + 1 >= len(route):
             break
+        nxt = route[idx + 1]
+        if not lm.walkable(*nxt) or fort.creature_at(*nxt) is not None:
+            state["out"] = []
+            break
+        foe.x, foe.y, foe.z = nxt
     return False
 
 

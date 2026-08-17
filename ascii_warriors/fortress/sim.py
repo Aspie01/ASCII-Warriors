@@ -64,6 +64,24 @@ DROWN_STEPS = 6
 #: tunnel that clips a riverbank lets a little in; that is not a flood.
 FLOOD_WARN = 1200
 
+#: How deep water has to stand before it leaves mud behind it. One unit is a
+#: damp patch; two is a flooded room, and a flooded room is how a fortress
+#: makes farmland out of a chamber it dug through solid rock.
+MUD_DEPTH = 2
+
+#: Floors that soak. Smoothed and constructed floors do not: sealing a room
+#: is a thing the player chose to do, and it should stay sealed.
+SOAKS: Tuple[str, ...] = ("floor", "stone_floor")
+
+#: How far the prey may drift before an invader plans its route again. A
+#: siege is a walk across the map; the last few tiles of it are a fight, and
+#: the fight is what the re-plan is for.
+REPATH_SLACK = 4
+
+#: How hard an invader looks for a way to the dwarves. Big, because it only
+#: runs when the last route stopped applying -- see `_hostile_step`.
+HOSTILE_SEARCH = 20000
+
 #: Training outranks ordinary work. A squad ordered to train is a squad taken
 #: off the labour force; set it to defend instead if you need the hands.
 TRAIN_PRIORITY = 8
@@ -180,6 +198,7 @@ def _flow(fort, ticks: int) -> None:
 
     water = fort.water
     water.step(fort.local)
+    _irrigate(fort)
     _magma(fort, ticks)
 
     for c in list(fort.creatures.values()):
@@ -215,6 +234,25 @@ def _flow(fort, ticks: int) -> None:
     if water.total() > fort._water_mark + FLOOD_WARN and not water.flooded:
         water.flooded = True
         fort.log.bad("The fortress is flooding!")
+
+
+def _irrigate(fort) -> None:
+    """Standing water leaves mud on bare rock, and mud will grow a crop.
+
+    This is the way out of the trap the soil rule sets: dig below the soil
+    layers and there is nowhere to farm, unless you cut a channel from the
+    river, flood the chamber, and shut the gate again. Only the cells the
+    water actually moved through are considered, so a still map costs
+    nothing and a river does not silt up the whole level at once.
+    """
+    lm = fort.local
+    water = fort.water
+    for cell in water.moving():
+        if water.at(*cell) < MUD_DEPTH or lm.tile(*cell) not in SOAKS:
+            continue
+        fort.dig_out(cell, "mud")
+        fort.warn_once(
+            "mud", "The water has left mud on the rock. Mud will take a crop.")
 
 
 def _magma(fort, ticks: int) -> None:
@@ -362,6 +400,17 @@ def _hostiles(fort, ticks: int) -> None:
             continue
         _hostile_step(fort, foe, (prey.x, prey.y, prey.z))
 
+    # A siege is over when there is nobody left on the map who came with it,
+    # however they went. The routed branch above says so for an army that
+    # broke as an army; an army small enough that its members lose their
+    # nerve one at a time never routs, and used to leave the alarm ringing
+    # over an empty map for the rest of the fortress's life.
+    if fort.siege is not None and not fort.hostiles():
+        war.record(fort, won=True)
+        fort.siege = None
+        fort.military.alert = "civilian"
+        fort.log.good("The last of them is gone.")
+
 
 def _flier_step(fort, foe, goal: Cell) -> bool:
     """One step of a flying enemy's approach: straight at it, over whatever.
@@ -398,36 +447,87 @@ def _flier_distance(a: Cell, b: Cell) -> float:
 
 
 def _hostile_step(fort, foe, goal: Cell) -> None:
-    """One step of an enemy's approach."""
+    """One step of an enemy's approach.
+
+    The route is re-planned when it stops applying, not every time the prey
+    takes a step. That distinction is the whole of it: an invader walks in
+    from the edge of the map aiming at a dwarf that moves every tick, and
+    re-running A* once per tick per invader is what forced the search cap
+    down to 2500 nodes -- which is not enough to cross an eighty by sixty map
+    with a hill in the way. Measured: a goblin dropped at the north-east
+    corner never moved at all for a hundred and twenty steps while the
+    dwarves stood twenty-five tiles away, because every single search ran out
+    of budget and the greedy fallback walked it into the hillside.
+    """
     from ..game import flight
 
-    if flight.can_fly(foe) and _flier_step(fort, foe, goal):
+    flies = flight.can_fly(foe)
+    if flies and _flier_step(fort, foe, goal):
         return
+    # A flier that has run out of greedy moves plans on the *flying* graph.
+    # It cannot plan on the walking one: it is standing in mid-air over a
+    # hillside, which has no walking neighbours at all, so the walking
+    # planner returns nothing and the greedy fallback finds nothing walkable
+    # to step onto. Measured as a roc that flew two thirds of the way to the
+    # dwarves and then hovered in the same cell for eighty steps. Pathing the
+    # flying graph every step is what was rejected as too expensive; pathing
+    # it on the rare step where greed fails, and keeping the route, is not.
+    graph = fort.flier_neighbours if flies else fort.path_neighbours
 
     state = fort.hostile_state.setdefault(foe.id, {"path": [], "goal": None})
     pos = (foe.x, foe.y, foe.z)
     path = state["path"]
-    if state["goal"] != goal or pos not in path:
+    idx = path.index(pos) if pos in path else -1
+    aim = state["goal"]
+    stale = (
+        idx < 0 or idx + 1 >= len(path) or aim is None or aim[2] != goal[2]
+        or geometry.chebyshev(aim[0], aim[1], goal[0], goal[1]) > REPATH_SLACK
+    )
+    if stale:
         from ..engine.pathfind import astar
 
-        route = astar(pos, goal, fort.path_neighbours,
-                      dwarf_mod._heuristic, max_nodes=2500)
+        route = astar(pos, goal, graph, dwarf_mod._heuristic,
+                      max_nodes=HOSTILE_SEARCH)
         if not route:
-            dx, dy = geometry.normalize_dir(goal[0] - foe.x, goal[1] - foe.y)
-            cell = (foe.x + dx, foe.y + dy, foe.z)
-            if fort.local.walkable(*cell) and fort.creature_at(*cell) is None:
-                foe.x, foe.y, foe.z = cell
+            _shove_towards(fort, foe, goal, graph)
             return
         state["path"], state["goal"] = route, goal
         path = route
-    idx = path.index(pos)
-    if idx + 1 >= len(path):
-        return
+        idx = path.index(pos)
     nxt = path[idx + 1]
-    if not fort.local.walkable(*nxt) or fort.creature_at(*nxt) is not None:
+    if not fort.local.walkable(*nxt) and not flies:
         state["path"] = []
         return
+    if fort.creature_at(*nxt) is not None:
+        # Somebody it came with is standing on the next tile. Go round it
+        # rather than stop: five invaders following one route in single file
+        # spend the siege blocking each other, and the fortress watches an
+        # army cover seventeen tiles in two hundred and fifty steps.
+        state["path"] = []
+        _shove_towards(fort, foe, goal, graph)
+        return
     foe.x, foe.y, foe.z = nxt
+
+
+def _shove_towards(fort, foe, goal: Cell, graph) -> bool:
+    """One greedy step towards the goal when the plan is unavailable.
+
+    On whichever graph the creature travels, so a flier is not asked to find
+    a floor and a walker is not offered thin air. Returns whether it moved.
+    """
+    here = (foe.x, foe.y, foe.z)
+    near = _flier_distance(here, goal)
+    best = None
+    for cell, _cost in graph(here):
+        if fort.creature_at(*cell) is not None:
+            continue
+        far = _flier_distance(cell, goal)
+        if far < near and (best is None or (far, cell) < best):
+            best = (far, cell)
+    if best is None:
+        return False
+    foe.x, foe.y, foe.z = best[1]
+    return True
 
 
 #: Odds per checked cell that magma sets a flammable neighbour alight. Low:

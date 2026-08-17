@@ -9,7 +9,7 @@ from __future__ import annotations
 import heapq
 from collections import deque
 from typing import (
-    Any, Callable, Dict, Hashable, Iterable, List, Optional, Sequence, Set, Tuple,
+    Any, Callable, Dict, Hashable, Iterable, List, Optional, Set, Tuple,
 )
 
 Node = Hashable
@@ -196,12 +196,16 @@ def nearest(
 
 def path_to(
     start: Node,
-    goal: Node,
     neighbors: Neighbors,
     predicate: Callable[[Any], bool],
     max_nodes: int = 20000,
 ) -> Optional[List[Any]]:
-    """BFS path from *start* to the first node satisfying *predicate*."""
+    """BFS path from *start* to the first node satisfying *predicate*.
+
+    For a goal you can describe but cannot name -- the nearest edge of the
+    map, the nearest open air, the nearest anything -- where A* has no single
+    cell to aim its heuristic at.
+    """
     if predicate(start):
         return [start]
     came: Dict[Any, Any] = {}
@@ -226,9 +230,4 @@ def path_to(
     return None
 
 
-def path_cost(path: Sequence[Any], cost_fn: Callable[[Any, Any], float]) -> float:
-    """Total cost of walking *path* using *cost_fn* per edge."""
-    total = 0.0
-    for i in range(len(path) - 1):
-        total += cost_fn(path[i], path[i + 1])
-    return total
+# `path_cost` used to live here and nothing ever asked it what a path cost.

@@ -6,7 +6,7 @@ drink, wood to burn, and how much of the mountain is worth having.
 
 from __future__ import annotations
 
-from typing import List, Tuple
+from typing import Dict, List, Tuple
 
 from ...data import biomes as biome_data
 from ...engine import colors, keys
@@ -146,6 +146,7 @@ class EmbarkScene(Scene):
             ("Temperature", _temperature(t.temperature), None),
             ("Savagery", _band(t.savagery / 100.0,
                                ("calm", "settled", "wild", "savage")), None),
+            ("Soil", _soil(t.biome), None),
         ]
         for label, value, _ in rows:
             scr.text(x, row, "%-12s %s" % (label, value), colors.UI["fg"])
@@ -262,6 +263,17 @@ def _band(value: float, words: Tuple[str, ...]) -> str:
     """Turn a 0..1 number into one of a few words."""
     idx = min(len(words) - 1, max(0, int(value * len(words))))
     return words[idx]
+
+
+#: What the soil under a biome is worth to a farmer.
+_SOIL_WORDS: Dict[str, str] = {
+    "dirt": "loam", "sand": "sand", "mud": "mud", "ice": "ice, and no crop",
+}
+
+
+def _soil(biome: str) -> str:
+    """The soil a biome lies on, in a word a farmer would use."""
+    return _SOIL_WORDS.get(biome_data.get(biome).soil, "loam")
 
 
 def _temperature(t: float) -> str:

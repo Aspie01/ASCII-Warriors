@@ -1007,6 +1007,14 @@ class TestPrayer(unittest.TestCase):
             os.environ["ASCII_WARRIORS_SAVE_DIR"] = self._old
 
     def _at_an_altar(self):
+        """A player standing on an altar in the first settlement there is.
+
+        Whether a generated town happens to have laid one is not this test's
+        business, and skipping when it has not is how two tests went quiet:
+        any change to the map generator moves the buildings and the coverage
+        vanishes without anything going red. If there is no altar, put one
+        down and stand on it.
+        """
         from ascii_warriors.game.entity import make_creature
 
         player = make_creature(RNG("p"), "human", faction="player")
@@ -1021,6 +1029,13 @@ class TestPrayer(unittest.TestCase):
             for y in range(lm.height):
                 for x in range(lm.width):
                     if lm.tile(x, y, z) == "altar":
+                        player.x, player.y, player.z = x, y, z
+                        return game, player
+        for z in sorted(lm.levels, reverse=True):
+            for y in range(1, lm.height - 1):
+                for x in range(1, lm.width - 1):
+                    if lm.walkable(x, y, z) and not lm.is_outside(x, y, z):
+                        lm.set_tile(x, y, z, "altar")
                         player.x, player.y, player.z = x, y, z
                         return game, player
         return game, None

@@ -199,8 +199,28 @@ class Fortress:
         perform_mod.teach_embark(fort)
         fort.log.good("%s has been founded." % fort.name)
         fort.log.info("Seven dwarves, and everything they could carry.")
+        fort._say_what_the_ground_is()
         fort.log.info("Press ? for help. Space starts and stops time.")
         return fort
+
+    def _say_what_the_ground_is(self) -> None:
+        """Tell the player where the farmland is, because it is not obvious.
+
+        The surface of a fortress map is ramps, trees and undergrowth, and
+        almost none of it is nine flat tiles of open ground. The soil is
+        underneath it, a level or two down, and finding that out by failing
+        to place a farm plot is a worse way to learn it.
+        """
+        tid = tile_data.soil_tile(self.local.soil)
+        ground = tile_data.get(tid)
+        if not tile_data.is_soil(tid):
+            self.log.bad(
+                "There is nothing but %s under the snow here. Nothing will "
+                "grow in it." % ground.name)
+            return
+        self.log.info(
+            "Crops want soil. There is %s a level or two under your feet."
+            % ground.name)
 
     def _lay_aquifer(self, rng: RNG) -> None:
         """Soak one layer of rock, in a wet enough place.
@@ -1025,6 +1045,17 @@ class Fortress:
             return ""
         return self.local.stone
 
+    def _dug_floor(self, cell: Cell) -> str:
+        """The ground a dug-out wall leaves behind.
+
+        Soil leaves soil, and soil is what a crop grows in. Rock leaves bare
+        rock, which is why the farms are in the top few levels and everything
+        below them is a fortress rather than a field.
+        """
+        if self.local.tile(*cell) == "soil_wall":
+            return tile_data.soil_tile(self.local.soil)
+        return "floor"
+
     def _mined_item(self, cell: Cell, material: str) -> Optional[Item]:
         """What falls out of a wall when it is dug: ore, coal, gem or rock."""
         if not material:
@@ -1043,7 +1074,7 @@ class Fortress:
         material = self._stone_here(cell)
         found = self._mined_item(cell, material)
         rich = self.local.tile(*cell) in ("ore_vein", "gem_vein")
-        self.dig_out(cell, "floor")
+        self.dig_out(cell, self._dug_floor(cell))
         if found is not None:
             self.drop_item(found, *cell)
             if rich:

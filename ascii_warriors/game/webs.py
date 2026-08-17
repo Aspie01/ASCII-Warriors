@@ -129,11 +129,13 @@ def struggle(game, creature, rng) -> Tuple[bool, str]:
 
 def clear(game, cell: Cell) -> None:
     """Take the web off a cell and put the floor back."""
+    from ..world import tiles as tile_data
+
     lm = getattr(game, "local", None)
     strands(game).pop(cell, None)
     if lm is None or lm.tile(*cell) != WEB_TILE:
         return
-    lm.set_tile(cell[0], cell[1], cell[2], lm.soil or "dirt")
+    lm.set_tile(cell[0], cell[1], cell[2], tile_data.soil_tile(lm.soil))
 
 
 def maybe_spin(game, spinner, target, rng) -> Optional[Cell]:

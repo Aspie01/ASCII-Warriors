@@ -433,9 +433,7 @@ def _fill_columns(lm: LocalMap, world, rng: RNG) -> None:
     """Lay down rock, soil and surface terrain for every column."""
     here = world.tile(lm.wx, lm.wy)
     b = biome_data.get(lm.biome)
-    surface_tile = {
-        "sand": "sand", "mud": "mud", "ice": "ice", "dirt": "dirt",
-    }.get(b.soil, "dirt")
+    surface_tile = tile_data.soil_tile(b.soil)
     if b.grass and here.temperature > 5:
         surface_tile = "grass"
     if b.has("FROZEN") and here.temperature < 10:
@@ -562,8 +560,15 @@ def _carve_caves(lm: LocalMap, rng: RNG) -> None:
                     continue
                 if y in (0, lm.height - 1) or x in (0, lm.width - 1):
                     continue
-                if z < lm.surface_z(x, y):
-                    lm.set_tile(x, y, z, "stone_floor")
+                if z >= lm.surface_z(x, y):
+                    continue
+                if lm.tile(x, y, z) == "soil_wall":
+                    # A cave has a rock roof. Topsoil does not arch over an
+                    # empty room, it falls into it -- and the whole soil
+                    # sheet surviving intact is what gives a fortress
+                    # somewhere to farm once it goes underground.
+                    continue
+                lm.set_tile(x, y, z, "stone_floor")
 
 
 def _connect_levels(lm: LocalMap, rng: RNG) -> None:

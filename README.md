@@ -63,6 +63,10 @@ fortnight of both, and no more. A farm plot of plump helmets feeds six dwarves;
 a second plot gives the still enough surplus to brew. Get that loop running
 before the wagon empties, because a fortress without drink is a short one.
 
+Nothing grows on rock, and the outdoors is ramps, trees and undergrowth. The
+farmland is the sheet of soil a level or two under the surface, so the first
+thing a fortress does is dig for it.
+
 Then migrants arrive and eat it all. Then goblins arrive, and you find out
 whether your militia trained. Then somebody is seized by a strange mood and
 locks themselves in a workshop; later the mayor demands a statue, nobody
@@ -276,6 +280,16 @@ water deep enough to swim in — so a flooded corridor cuts your fortress in
 half whether you meant it to or not. Build a floodgate, a drawbridge, a door
 or a hatch, link it to a lever, and pull the lever: a dwarf walks over and
 throws it. The same drawbridge that keeps the water out keeps the goblins out.
+
+**Soil, and what it costs to make more.** A farm plot only stands on ground
+something will grow in: loam, sand, mud, or the grass over them. Every map has
+a sheet of soil a level or two below the surface, whole from edge to edge
+because caves have rock roofs; dig a room out of it and the floor the miners
+leave is farmland. Below that there is only stone, and a fortress that wants
+to farm at depth has to flood the chamber and let the water leave mud on the
+rock — a channel from the river, a lever, a gate, and a decision about when to
+shut it. A floor you have already smoothed will not soak. On a glacier there
+is no soil at all, and the embark report says so before you commit anybody.
 
 **A metal industry.** Veins are made of something in particular — copper,
 iron, tin, silver, gold, coal, gems — decided when the map is made and drawn

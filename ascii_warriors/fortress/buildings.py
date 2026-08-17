@@ -209,6 +209,11 @@ WORKSHOP_KINDS: Tuple[str, ...] = (
 #: Workshops that burn magma instead of fuel, and so have to sit on top of it.
 MAGMA_KINDS: Tuple[str, ...] = ("magma_smelter", "magma_forge")
 
+#: Buildings that need earth under every tile of them. Nothing grows on rock:
+#: a fortress farms the soil it embarked on, digs down into the soil layers
+#: under it, or floods a rock chamber and farms the mud that dries out of it.
+SOIL_KINDS: Tuple[str, ...] = ("farm",)
+
 BUILD_CATEGORIES: Tuple[str, ...] = (
     "Workshops", "Furniture", "Construction", "Defence",
 )
@@ -453,6 +458,9 @@ def can_place(lm, kind: str, x: int, y: int, z: int, buildings,
                     return (False, "There is already a wall there.")
             elif not tile.walk or tile.has("WATER"):
                 return (False, "The ground there will not take it.")
+            if kind in SOIL_KINDS and not tile.has("SOIL"):
+                return (False, "Nothing grows on bare rock. Flood it and let "
+                               "the mud dry, or dig down to the soil.")
             if tile.has("FURNITURE"):
                 return (False, "Something is already built there.")
             for b in buildings:

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, FrozenSet, List, Optional
+from typing import Dict, FrozenSet, Optional
 
 from ..engine import colors
 from ..engine.colors import Color
@@ -51,15 +51,15 @@ TILES: Dict[str, TileDef] = {
         _t("air", "open space", " ", colors.NIGHT, False, True, "OPEN"),
         _t("floor", "floor", ".", _GROUND, True, True, "FLOOR"),
         _t("dirt", "dirt", ".", colors.SOIL, True, True, "FLOOR", "DIGGABLE",
-           material="dirt"),
+           "SOIL", material="dirt"),
         _t("grass", "grass", ".", colors.GRASS_GREEN, True, True, "FLOOR",
-           "GRASS", "DIGGABLE"),
+           "GRASS", "DIGGABLE", "SOIL"),
         _t("grass_dead", "dead grass", ".", colors.Color(146, 134, 88), True,
-           True, "FLOOR", "GRASS", "DIGGABLE"),
+           True, "FLOOR", "GRASS", "DIGGABLE", "SOIL"),
         _t("sand", "sand", ".", colors.SAND, True, True, "FLOOR", "SAND",
-           "DIGGABLE", material="sand"),
+           "DIGGABLE", "SOIL", material="sand"),
         _t("mud", "mud", ",", colors.Color(96, 76, 56), True, True, "FLOOR",
-           "DIGGABLE", material="mud"),
+           "DIGGABLE", "SOIL", material="mud"),
         _t("snow", "snow", ".", colors.SNOW, True, True, "FLOOR", "DIGGABLE"),
         _t("stone_floor", "stone floor", ".", colors.STONE, True, True, "FLOOR"),
         _t("rock_wall", "rock wall", "#", colors.Color(122, 118, 112), False,
@@ -180,11 +180,20 @@ TILES: Dict[str, TileDef] = {
         _t("hatch", "hatch cover", "+", colors.Color(150, 140, 130), True,
            False, "FLOOR", "DOOR", "CONSTRUCTED"),
         _t("farm", "farm plot", "=", colors.Color(120, 92, 58), True, True,
-           "FLOOR", "FARM", material="dirt"),
+           "FLOOR", "FARM", "SOIL", material="dirt"),
         _t("farm_planted", "planted field", '"', colors.Color(120, 172, 96),
-           True, True, "FLOOR", "FARM", material="dirt"),
+           True, True, "FLOOR", "FARM", "SOIL", material="dirt"),
         _t("web", "web", "*", colors.Color(210, 212, 218), True, True, "WEB"),
     )
+}
+
+
+#: What each kind of soil looks like once something exposes it. Biomes name
+#: their soil; this is the one place that says which tile that means, so a
+#: dug soil wall, a spider's cleared web and a freshly generated surface all
+#: leave the same ground behind them.
+SOIL_TILES: Dict[str, str] = {
+    "dirt": "dirt", "sand": "sand", "mud": "mud", "ice": "ice",
 }
 
 
@@ -193,51 +202,29 @@ def get(tid: str) -> TileDef:
     return TILES.get(tid) or TILES["floor"]
 
 
+def soil_tile(soil: str) -> str:
+    """The ground a named soil leaves. Anything unknown is plain dirt."""
+    return SOIL_TILES.get(soil, "dirt")
+
+
+def is_soil(tid: str) -> bool:
+    """True if a crop would take root here.
+
+    Soil, sand, mud and the grass growing on them. Bare rock will not do,
+    which is why a fortress that digs past the soil has to flood a chamber
+    and let it dry before it can farm down there.
+    """
+    return get(tid).has("SOIL")
+
+
 def exists(tid: str) -> bool:
     """True if *tid* names a known tile."""
     return tid in TILES
 
 
-def walkable(tid: str) -> bool:
-    """True if creatures can walk on this tile."""
-    return get(tid).walk
-
-
-def blocks_sight(tid: str) -> bool:
-    """True if this tile stops line of sight."""
-    return not get(tid).sight
-
-
-def is_wall(tid: str) -> bool:
-    """True for solid walls."""
-    return get(tid).has("WALL")
-
-
-def is_open(tid: str) -> bool:
-    """True for empty air a creature would fall through."""
-    return get(tid).has("OPEN")
-
-
-def is_water(tid: str) -> bool:
-    """True for any water tile."""
-    return get(tid).has("WATER")
-
-
-def is_stair_up(tid: str) -> bool:
-    """True if you can climb up here."""
-    return get(tid).has("STAIR_UP")
-
-
-def is_stair_down(tid: str) -> bool:
-    """True if you can climb down here."""
-    return get(tid).has("STAIR_DOWN")
-
-
-def is_diggable(tid: str) -> bool:
-    """True if a pick can remove this tile."""
-    return get(tid).has("DIGGABLE")
-
-
-def by_flag(flag: str) -> List[TileDef]:
-    """Every tile carrying *flag*."""
-    return [t for t in TILES.values() if t.has(flag)]
+# Nine one-line wrappers used to live here -- `walkable`, `blocks_sight`,
+# `is_wall`, `is_open`, `is_water`, `is_stair_up`, `is_stair_down`,
+# `is_diggable` and `by_flag`. Every caller in the game asks
+# `get(tid).has(...)` directly and always has; not one of them was ever
+# called. `is_soil` above is not one of them: it is a rule with a reason,
+# and it is used.
