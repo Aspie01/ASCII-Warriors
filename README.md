@@ -189,7 +189,7 @@ python -m ascii_warriors --dump-world - --size small --history 200 | less
 | `+` `-` | faster, slower |
 | `< >` | up and down a level |
 | arrows | scroll the view (`PgUp`/`PgDn`/`Home`/`End` to scroll fast) |
-| `d` | designate: dig, channel, stairs, ramp, smooth, chop, gather |
+| `d` | designate: dig, channel, stairs, ramp, smooth, engrave, chop, gather |
 | `b` | build a workshop, furniture, wall or trap |
 | `p` `w` `n` | place a stockpile / mark the safe burrow / paint a pasture |
 | `o` | queue work orders at a workshop |
@@ -407,13 +407,19 @@ all, and every season it stays open the fortress thinks about it and gets
 angrier. Press `c` for the book — you can hold a trial now instead of waiting
 for the season, or pardon somebody and wear what the rest of them think of it.
 
-**Engravings.** Smooth a wall, then carve it. An engraver picks something that
-actually happened out of the world's history — the siege you survived last
-spring, a beast slain three hundred years before you arrived — and the look
-cursor reads it back: *"On the wall is a masterful engraving of Smenok the
-goblin. They are fighting. The artwork relates to the battle at Boatspring in
-the year 16."* Quality depends on the engraver, good work makes a room worth
-more, and dwarves are cheered up by walking past it.
+**Stonework.** A mason dresses bare rock — walls, and the floors a pick left
+behind. Soil takes no chisel and nothing you built needs one. A smoothed room
+is worth more to whoever sleeps in it, and a dressed floor will never take
+mud, so a grand hall is a decision not to farm there.
+
+**Engravings.** Smooth a wall or a floor, then carve it. An engraver picks
+something that actually happened out of the world's history — the siege you
+survived last spring, a beast slain three hundred years before you arrived —
+and the look cursor reads it back: *"On the wall is a masterful engraving of
+Smenok the goblin. They are fighting. The artwork relates to the battle at
+Boatspring in the year 16."* Quality depends on the engraver, good work makes
+a room worth more, and dwarves are cheered up by walking past it or standing
+on it.
 
 **Animals.** You embark with dogs, a cat, cows and sheep. The pets belong to
 particular dwarves and follow them about; the livestock grazes, breeds, gives

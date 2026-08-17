@@ -86,10 +86,15 @@ class Designations:
                 return t.walk or t.has("WALL")
             return t.has("WALL") or t.walk
         if kind == "smooth":
-            return t.has("WALL") and not t.has("CONSTRUCTED")
+            # Walls and floors both, which is what this designation has said
+            # it did since it was written. Bare rock only: nothing dresses
+            # soil, and a floor somebody built is already finished.
+            if t.has("WALL"):
+                return not t.has("CONSTRUCTED")
+            return tile_data.is_bare_rock(tid)
         if kind == "engrave":
             # Smoothed first: you cannot carve a picture into rough rock.
-            return tid == "wall_constructed"
+            return tid in ("wall_constructed", "floor_constructed")
         if kind == "chop":
             return t.has("TREE")
         if kind == "gather":

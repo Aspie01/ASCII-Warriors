@@ -1117,8 +1117,11 @@ class Fortress:
 
     def _finish_smooth(self, dwarf, job: Job) -> None:
         cell = job.cell
-        self.dig_out(cell, "wall_constructed")
-        dwarf.needs.add_thought("admired a smoothed wall", -1)
+        wall = tile_data.get(self.local.tile(*cell)).has("WALL")
+        self.dig_out(cell, "wall_constructed" if wall else "floor_constructed")
+        dwarf.needs.add_thought(
+            "admired a smoothed wall" if wall else "walked on a smooth floor",
+            -1)
 
     def _finish_engrave(self, dwarf, job: Job) -> None:
         """Carve something that happened into a wall that has been smoothed."""

@@ -123,16 +123,24 @@ deal with anyway -- and the water leaves mud on the rock. Mud takes a crop.
 Shut the gate, let it drain, and plant. A floor you have already smoothed will
 not soak, which is the point of smoothing it.
 
-ENGRAVINGS
+SMOOTHING AND ENGRAVING
 
-Smooth a wall with d, then engrave it with d again. An engraver carves
-something that actually happened -- a siege you survived, a beast somebody
-killed, a nation founded four hundred years ago -- out of the same history the
-legends screen reads from, and the look cursor will read it back to you.
+Press d for designations, then s to smooth and e to engrave.
+
+A mason dresses bare rock: walls, and the floors a pick left behind. Soil
+takes no chisel, and neither does anything you built. A smoothed room is
+worth more to whoever sleeps in it than the same room rough, and it is worth
+more again carved -- but a floor you have dressed will never take mud, so a
+grand hall is a decision not to farm there.
+
+An engraver carves something that actually happened -- a siege you survived, a
+beast somebody killed, a nation founded four hundred years ago -- out of the
+same history the legends screen reads from, into a wall or a floor that has
+been smoothed first. The look cursor will read it back to you.
 
 Quality depends on the engraver. A masterful engraving makes the room it is in
-worth considerably more, and dwarves who walk past good work are cheered up by
-it. Rough scratchings do nothing for anybody.
+worth considerably more, and dwarves who walk past good work -- or stand on it
+-- are cheered up by it. Rough scratchings do nothing for anybody.
 
 ANIMALS
 

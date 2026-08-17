@@ -159,6 +159,27 @@ def soil_room(fort, kind: str = "farm"):
     return None
 
 
+def rock_room(fort, size: int = 3):
+    """Mine a chamber out of solid rock and return its floor cells.
+
+    Digging is what makes it bare: everything a pick opens below the soil
+    sheet is stone, which is the floor a farm plot will not stand on and the
+    floor a mason can dress.
+    """
+    lm = fort.local
+    for z in range(lm.zmin + 3, -4):
+        for y in range(4, lm.height - size - 4):
+            for x in range(4, lm.width - size - 4):
+                cells = [(x + dx, y + dy, z)
+                         for dy in range(size) for dx in range(size)]
+                if any(lm.tile(*c) != "rock_wall" for c in cells):
+                    continue
+                for c in cells:
+                    fort.dig_out(c, fort._dug_floor(c))
+                return cells
+    return []
+
+
 class TestLabors(unittest.TestCase):
     """Labor sets and profession titles."""
 
@@ -292,6 +313,25 @@ class TestDesignations(unittest.TestCase):
             glyph, colour = designation_mod.render(kind)
             self.assertTrue(glyph)
             self.assertIsNotNone(colour)
+
+    def test_every_kind_has_a_key(self):
+        """A designation nobody can press is a designation nobody can give.
+
+        `engrave` went without one. Everything behind it -- the engravings,
+        their quality, the history they carve, what they are worth to the
+        room they are in, the README paragraph about them -- could not be
+        asked for from the keyboard at all, and the tests never noticed
+        because they set designations directly.
+        """
+        from ascii_warriors.ui.fort.designate import BINDINGS
+
+        bound = {kind for _key, kind in BINDINGS}
+        self.assertEqual(sorted(bound), sorted(designation_mod.KINDS),
+                         "a designation with no key, or a key with no "
+                         "designation")
+        letters = [key for key, _kind in BINDINGS]
+        self.assertEqual(len(letters), len(set(letters)), "two on one key")
+        self.assertNotIn("x", letters, "x already erases")
 
 
 class TestEmbark(unittest.TestCase):
@@ -695,23 +735,8 @@ class TestSoil(unittest.TestCase):
     """What will grow where, and what it takes to make more of it."""
 
     def _rock_room(self, fort, size=3):
-        """A dug-out chamber in bare rock, well below the soil, and reachable.
-
-        Digging is what makes it bare: everything a pick opens below the soil
-        sheet is rock, and rock is the thing a farm plot is not allowed on.
-        """
-        lm = fort.local
-        for z in range(lm.zmin + 3, -4):
-            for y in range(4, lm.height - size - 4):
-                for x in range(4, lm.width - size - 4):
-                    cells = [(x + dx, y + dy, z)
-                             for dy in range(size) for dx in range(size)]
-                    if any(lm.tile(*c) != "rock_wall" for c in cells):
-                        continue
-                    for c in cells:
-                        fort.dig_out(c, fort._dug_floor(c))
-                    return cells
-        return []
+        """A dug-out chamber in bare rock. See `rock_room`."""
+        return rock_room(fort, size)
 
     # -- what a dig leaves behind ------------------------------------------ #
 
@@ -1402,6 +1427,155 @@ class TestArt(unittest.TestCase):
         self.assertEqual(back.text, made.text)
         self.assertEqual(back.quality, made.quality)
         self.assertEqual(back.maker, made.maker)
+
+    def test_one_engraving_is_worth_one_engraving(self):
+        """Counted once, wherever it is.
+
+        It used to be counted once for every cell of the room that touched
+        it, so a wall in an alcove was worth double a wall in a corridor --
+        and a floor in the middle of a room would have been worth five times
+        one at the edge.
+        """
+        from ascii_warriors.fortress import rooms as rooms_mod
+
+        fort = self.fort
+        floor = rock_room(fort, 5)
+        self.assertTrue(floor, "nowhere in this map is solid rock")
+        for cell in floor:
+            fort.dig_out(cell, "floor_constructed")
+        bed = Building("bed", *floor[12])
+        bed.built = True
+        fort.buildings.append(bed)
+        room = rooms_mod.measure(fort, bed)
+        self.assertIn(floor[12], room.cells)
+
+        bare = room.quality
+        art = self.art.Engraving(6, "a dwarf.")
+        fort.engravings[floor[12]] = art
+        middle = rooms_mod.measure(fort, bed).quality
+        del fort.engravings[floor[12]]
+        fort.engravings[floor[0]] = art
+        corner = rooms_mod.measure(fort, bed).quality
+        self.assertGreater(middle, bare, "a carved floor is worth nothing")
+        self.assertEqual(middle, corner,
+                         "an engraving is worth more in the middle of a room")
+
+
+class TestStonework(unittest.TestCase):
+    """Dressing the rock: smoothing floors as well as walls, and carving them.
+
+    The designation has said "Smooth a rough wall or floor" since it was
+    written and refused every floor it was ever painted on, and `rooms.measure`
+    has always counted the smoothed cells of a room -- which are its floors,
+    which could not be smoothed. That term was zero in every fortress ever
+    built.
+    """
+
+    def _room(self, fort, size=5):
+        """A dug chamber of bare rock, and a bed in the middle of it."""
+        cells = rock_room(fort, size)
+        self.assertTrue(cells, "nowhere in this map is solid rock")
+        bed = Building("bed", *cells[len(cells) // 2])
+        bed.built = True
+        fort.buildings.append(bed)
+        return cells, bed
+
+    # -- what a chisel will touch ------------------------------------------- #
+
+    def test_a_bare_rock_floor_can_be_smoothed(self):
+        """Which is what the designation always said it did."""
+        fort = embark("dressfloor")
+        cells, _bed = self._room(fort)
+        self.assertTrue(
+            fort.designations.valid(fort.local, *cells[0], "smooth"))
+
+    def test_soil_cannot_be_smoothed(self):
+        """You do not put a chisel to dirt."""
+        fort = embark("dresssoil")
+        spot = soil_room(fort, "bed")
+        self.assertIsNotNone(spot, "no soil within reach")
+        self.assertFalse(
+            fort.designations.valid(fort.local, *spot, "smooth"))
+
+    def test_a_floor_somebody_built_is_already_finished(self):
+        """Constructed floors and workshop floors take no smoothing."""
+        fort = embark("dressbuilt")
+        cells, _bed = self._room(fort)
+        fort.dig_out(cells[0], "floor_constructed")
+        self.assertFalse(
+            fort.designations.valid(fort.local, *cells[0], "smooth"))
+
+    def test_smoothing_a_floor_leaves_a_smooth_floor(self):
+        """And the job knows the difference between a floor and a wall."""
+        fort = embark("dressjob")
+        cells, _bed = self._room(fort, 5)
+        # The chamber is cut out of solid rock and nothing connects it to the
+        # surface, so put the mason in it. What is being measured is what the
+        # job leaves behind, not whether anybody could walk there.
+        mason = fort.dwarves()[0]
+        mason.x, mason.y, mason.z = cells[-1]
+        for d in fort.dwarves():
+            d.fort.labors.enable("masonry")
+        self.assertTrue(
+            fort.designations.set(fort.local, *cells[0], "smooth"))
+        sim.run(fort, 1500)
+        self.assertEqual(fort.local.tile(*cells[0]), "floor_constructed",
+                         "the mason left it as it was")
+        self.assertNotIn(cells[0], fort.designations.cells)
+
+    # -- what it is worth --------------------------------------------------- #
+
+    def test_a_smoothed_room_is_a_better_room(self):
+        """The room-quality term that had never been anything but zero."""
+        from ascii_warriors.fortress import rooms as rooms_mod
+
+        fort = embark("dressroom")
+        cells, bed = self._room(fort)
+        bare = rooms_mod.measure(fort, bed)
+        self.assertEqual(bare.smoothed, 0)
+        for cell in bare.cells:
+            if fort.designations.valid(fort.local, *cell, "smooth"):
+                fort.dig_out(cell, "floor_constructed")
+        fine = rooms_mod.measure(fort, bed)
+        self.assertGreater(fine.smoothed, 0, "nothing in the room was dressed")
+        self.assertGreater(fine.quality, bare.quality)
+
+    def test_a_smooth_floor_can_be_carved(self):
+        """A rough one cannot, the same as a wall."""
+        fort = embark("carvefloor")
+        cells, _bed = self._room(fort)
+        self.assertFalse(
+            fort.designations.valid(fort.local, *cells[0], "engrave"))
+        fort.dig_out(cells[0], "floor_constructed")
+        self.assertTrue(
+            fort.designations.valid(fort.local, *cells[0], "engrave"))
+
+    def test_a_dwarf_admires_the_floor_it_stands_on(self):
+        """Art underfoot is art."""
+        from ascii_warriors.fortress import art as art_mod
+
+        fort = embark("admirefloor")
+        d = fort.dwarves()[0]
+        before = d.needs.stress
+        fort.engravings[(d.x, d.y, d.z)] = art_mod.Engraving(6, "a dwarf.")
+        art_mod.admire(fort, d)
+        self.assertLess(d.needs.stress, before)
+
+    def test_a_dressed_floor_will_not_take_mud(self):
+        """The choice the mason makes for you.
+
+        Bare rock soaks and can be farmed after a flood; dressed rock does
+        not. A grand dining hall is a decision not to grow anything there.
+        """
+        fort = embark("dressdry")
+        cells, _bed = self._room(fort, 3)
+        for cell in cells:
+            fort.dig_out(cell, "floor_constructed")
+            fort.water.set(cell, sim.MUD_DEPTH + 2)
+        fort.water.wake_all()
+        sim._flow(fort, sim.STEP_TICKS)
+        self.assertTrue(all(fort.local.tile(*c) == "floor_constructed"
+                            for c in cells))
 
 
 class TestWar(unittest.TestCase):

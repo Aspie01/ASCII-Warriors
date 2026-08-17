@@ -19,6 +19,7 @@ from ..engine import geometry
 from ..game import combat
 from ..game.entity import make_creature
 from ..game.item import Item
+from ..world import tiles as tile_data
 from . import animals
 from . import art
 from . import dwarf as dwarf_mod
@@ -69,9 +70,10 @@ FLOOD_WARN = 1200
 #: makes farmland out of a chamber it dug through solid rock.
 MUD_DEPTH = 2
 
-#: Floors that soak. Smoothed and constructed floors do not: sealing a room
-#: is a thing the player chose to do, and it should stay sealed.
-SOAKS: Tuple[str, ...] = ("floor", "stone_floor")
+#: Floors that soak: bare rock, the same set a mason can dress. A smoothed
+#: floor does not take mud, which is the whole of the choice -- a fine dining
+#: hall or a field, not both.
+SOAKS: Tuple[str, ...] = tile_data.BARE_ROCK
 
 #: How far the prey may drift before an invader plans its route again. A
 #: siege is a walk across the map; the last few tiles of it are a fight, and

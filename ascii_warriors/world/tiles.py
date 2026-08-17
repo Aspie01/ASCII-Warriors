@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, FrozenSet, Optional
+from typing import Dict, FrozenSet, Optional, Tuple
 
 from ..engine import colors
 from ..engine.colors import Color
@@ -215,6 +215,19 @@ def is_soil(tid: str) -> bool:
     and let it dry before it can farm down there.
     """
     return get(tid).has("SOIL")
+
+
+#: Floors that are bare stone: what a pick leaves behind it and what a cavern
+#: is made of. They are the floors a mason can dress and the floors water can
+#: leave mud on, which are the same floors for the same reason -- and the
+#: reason a fortress has to choose. A smoothed floor is a floor that will
+#: never take a crop.
+BARE_ROCK: Tuple[str, ...] = ("floor", "stone_floor")
+
+
+def is_bare_rock(tid: str) -> bool:
+    """True for an undressed stone floor."""
+    return tid in BARE_ROCK
 
 
 def exists(tid: str) -> bool:

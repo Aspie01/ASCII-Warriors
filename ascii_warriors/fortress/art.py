@@ -230,24 +230,40 @@ def at(fort, cell: Cell) -> Optional[Engraving]:
 
 
 def room_value(fort, cells) -> int:
-    """What the engravings in a room add to it."""
+    """What the engravings in a room add to it: its floor and its walls.
+
+    Each engraving counted once. It used to be counted once per room cell
+    that touched it, so a wall in an alcove with floor on two sides of it was
+    worth twice a wall in a straight corridor -- and now that a floor can be
+    engraved too, an engraving in the middle of a room would have been worth
+    five times one at the edge.
+    """
+    inside = set(cells)
+    walls = set()
     total = 0
     for cell in cells:
+        art = fort.engravings.get(cell)
+        if art is not None:
+            total += art.value
         for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
-            art = fort.engravings.get((cell[0] + dx, cell[1] + dy, cell[2]))
-            if art is not None:
-                total += art.value
+            side = (cell[0] + dx, cell[1] + dy, cell[2])
+            if side not in inside:
+                walls.add(side)
+    for side in walls:
+        art = fort.engravings.get(side)
+        if art is not None:
+            total += art.value
     return total
 
 
 def admire(fort, dwarf) -> None:
-    """A dwarf notices what is on the wall beside it.
+    """A dwarf notices what is on the wall beside it, or under its feet.
 
     Only good work gets noticed, and only occasionally: a fortress full of
     masterpieces should be a happy one, not a stream of log messages.
     """
     x, y, z = dwarf.x, dwarf.y, dwarf.z
-    for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+    for dx, dy in ((0, 0), (1, 0), (-1, 0), (0, 1), (0, -1)):
         art = fort.engravings.get((x + dx, y + dy, z))
         if art is None or art.quality < ADMIRE_AT:
             continue

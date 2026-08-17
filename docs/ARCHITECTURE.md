@@ -4212,7 +4212,55 @@ instead of a funeral: the routed invader above needs a route to "any edge of
 the map", which is exactly the shape `path_to` is for and exactly the shape
 A* cannot take. The dead parameter went with the fix.
 
-## 103. Style
+## 103. Smooth stone (v3.43)
+
+The audit this time was of the *interface*: for everything the game defines,
+can the player ask for it? Nine designation kinds, four build categories, ten
+stockpile types, eleven workshops' worth of recipes, twenty-two labours,
+fifteen keys the help promises on the fortress screen. All of it reachable —
+except one.
+
+**`engrave` had no key.** `ui/fort/designate.py` binds each designation to a
+letter in a `BINDINGS` tuple, and `engrave` was not in it; `extra_key` reads
+nothing else. So `fortress/art.py`, `world/artforms.py`, engraving quality,
+the history an engraver carves, what an engraving is worth to the room it is
+in, the dwarves cheered by walking past one, the look cursor that reads it
+back, a README paragraph and a help section — none of it
+could be asked for from the keyboard. `TestArt` never noticed because it calls
+`fort.designations.set` directly, which is the lesson: a test that reaches
+past the interface cannot tell you the interface is missing.
+
+`TestDesignations.test_every_kind_has_a_key` now holds `BINDINGS` against
+`KINDS` in both directions, and checks no two share a letter and none of them
+is `x`, which erases.
+
+**Floors take a chisel now.** The designation has described itself as "Smooth
+a rough wall or floor" since it was written, and `valid()` answered
+`t.has("WALL")`. Two things followed from that. One: the mason could dress the
+walls of a hall and never its floor. Two — and this is the measurable one —
+`rooms.measure` counts the *smoothed cells of a room*, and a room's cells are
+its floors, so that term was zero in every fortress ever built. Measured on a
+five-by-five chamber: quality 12 rough, 31 with the floor dressed.
+
+The rule is bare rock only: `floor` and `stone_floor`, which `world/tiles.py`
+now names once as `BARE_ROCK` because `sim.SOAKS` is the same set for the same
+reason. Soil takes no chisel; a constructed floor is already finished. And
+that shared constant is a decision the player now makes: **a floor you have
+dressed will never take mud**, so a grand dining hall is a decision not to
+farm there.
+
+**And they take an engraving.** `engrave` accepts `floor_constructed` as well
+as `wall_constructed`; `art.admire` looks at the cell the dwarf is standing on
+as well as the four beside it.
+
+`art.room_value` had to change to allow it. It walked every cell of the room
+and added the value of anything engraved on the four cells around it — so a
+wall in an alcove, touched by two room cells, was worth twice a wall in a
+straight corridor, and a *floor* engraving in the middle of a room would have
+been worth five times one at the edge. It now counts the room's own cells once
+and the ring of walls around it once.
+
+## 104. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

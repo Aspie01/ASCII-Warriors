@@ -10,12 +10,18 @@ from ...fortress.designations import KINDS
 from .cursor import CursorScene
 
 #: The key each designation hangs off, in the order the prompt lists them.
+#: Every kind in `KINDS` needs one. `engrave` went without for a long time,
+#: which meant the whole of `fortress/art.py` -- the engravings, their
+#: quality, the history they carve, the rooms they are worth something to --
+#: could not be asked for from the keyboard at all. `TestDesignations` now
+#: holds this list against `KINDS` so it cannot happen again.
 BINDINGS: Tuple[Tuple[str, str], ...] = (
     ("d", "dig"),
     ("h", "channel"),
     ("i", "stairs"),
     ("r", "ramp"),
     ("s", "smooth"),
+    ("e", "engrave"),
     ("t", "chop"),
     ("g", "gather"),
     ("n", "remove"),
