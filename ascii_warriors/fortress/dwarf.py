@@ -275,25 +275,91 @@ def step_along(fort, dwarf) -> bool:
     return True
 
 
+def _urgency(dwarf) -> float:
+    """How badly this dwarf needs to be somewhere other than here."""
+    needs = getattr(dwarf, "needs", None)
+    if needs is None:
+        return 0.0
+    return max(needs.thirst / float(THIRST_URGENT),
+               needs.hunger / float(HUNGER_URGENT),
+               needs.drowsy / float(SLEEP_URGENT))
+
+
+def _may_stand(fort, creature, cell: Cell) -> bool:
+    """Whether a creature shoved into a cell can be in it at all.
+
+    The tile a dwarf is standing on is walkable by construction, so this is
+    only ever about what a *particular* creature needs of it. A carp does not
+    leave the water anywhere else in the game, and it does not leave it
+    because a dwarf wanted past either.
+    """
+    if not creature.defn.has("AQUATIC"):
+        return True
+    from ..world import tiles as tile_data
+
+    if tile_data.get(fort.local.tile(*cell)).has("WATER"):
+        return True
+    return fort.water.at(*cell) > 0
+
+
+def _outranks(dwarf, other) -> bool:
+    """Whether this dwarf gets to shoulder past that one.
+
+    Somebody has to yield, and it has to be the same somebody every time.
+    Letting either of a pair shove the other is what a symmetric rule buys
+    you: two dwarves heading the same way down a one-tile corridor trade
+    places for ever, each of them reporting a successful step, so nothing
+    escalates, nobody re-plans and neither ever arrives.
+
+    Measured on a year of fortress: at day ninety every dwarf was dead of
+    thirst in the corridor outside a stockpile holding two thousand units of
+    ale, each one calling `_go_drink` every step and each one being told it
+    had moved. In isolation two dwarves six tiles from a goal settle into a
+    three-turn cycle and stay in it.
+
+    The order is need first -- the one dying of thirst gets past the one who
+    is merely walking somewhere -- and id as the tiebreak, so it is total and
+    a pair can never disagree about which of them is yielding.
+    """
+    if getattr(other, "fort", None) is None:
+        return True
+    mine, theirs = _urgency(dwarf), _urgency(other)
+    if mine != theirs:
+        return mine > theirs
+    return dwarf.id < other.id
+
+
 def _step_around(fort, dwarf, other, nxt: Cell) -> bool:
     """Somebody is in the way.
 
     Waiting politely is what deadlocks a fortress: seven dwarves queue for the
     same barrel of ale and none of them ever reaches it. So a dwarf waits one
-    beat, then shoulders past its colleague, then gives up on the route
-    entirely.
+    beat, then shoulders past whoever is in front of it, then gives up on the
+    route entirely.
+
+    *Whoever*, not *whichever dwarf*. This only ever pushed past other dwarves,
+    and livestock does not queue, does not path and does not get out of the
+    way: measured on a year of fortress, three cows standing in the corridor
+    between the dwarves and the drink were a wall, and every dwarf died of
+    thirst behind them with two thousand units of ale on the other side --
+    each one asking for a drink every single step and being told it had moved.
+    A hostile is not shouldered aside. That is what the axe is for.
     """
     state = dwarf.fort
     state.blocked += 1
     if state.blocked < 2:
         return True
 
-    if getattr(other, "fort", None) is not None:
-        here = (dwarf.x, dwarf.y, dwarf.z)
+    here = (dwarf.x, dwarf.y, dwarf.z)
+    if (getattr(other, "faction", "") != "hostile"
+            and _may_stand(fort, other, here)
+            and _outranks(dwarf, other)):
         other.x, other.y, other.z = here
-        other.fort.path = []
-        other.fort.path_goal = None
-        other.fort.blocked = 0
+        theirs = getattr(other, "fort", None)
+        if theirs is not None:
+            theirs.path = []
+            theirs.path_goal = None
+            theirs.blocked = 0
         dwarf.x, dwarf.y, dwarf.z = nxt
         state.blocked = 0
         return True

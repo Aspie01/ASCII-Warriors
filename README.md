@@ -232,16 +232,18 @@ python -m ascii_warriors --dump-world - --size small --history 200 | less
 
 **Fortress mode.** Embark on a square of the world with seven dwarves and the
 supplies they could carry. Designate rock to be dug out, channel down, carve
-stairways and ramps, fell trees, smooth walls. Put up twenty-three kinds of
-building across workshops, furniture and construction; queue any of thirty-five
-recipes at them. Zone nine kinds of stockpile and dwarves haul goods into them.
-Plant farm plots, brew the harvest, forge what you dig up.
+stairways and ramps, fell trees, smooth walls and floors, engrave them, gather
+sand. Put up thirty-eight kinds of building across workshops, furniture,
+construction and defence; queue any of a hundred and twenty-five recipes at
+them. Zone ten kinds of stockpile and dwarves haul goods into them. Plant farm
+plots, brew the harvest, forge what you dig up.
 
-Every dwarf has twenty labors you can switch on and off individually, so your
-legendary weaponsmith does not spend the winter carrying rocks. The job board
-offers each dwarf only the nearest work its labors allow; dwarves look after
-their own hunger, thirst and sleep first, fight when cornered, and fall over
-when they are too tired to stand.
+Every dwarf has twenty-three labors you can switch on and off individually, so
+your legendary weaponsmith does not spend the winter carrying rocks. The job
+board offers each dwarf only the nearest work its labors allow; dwarves look
+after their own hunger, thirst and sleep first, shoulder past whatever is
+standing in the corridor, fight when cornered, and fall over when they are too
+tired to stand.
 
 Time runs in real time at four speeds, and pauses whenever you want to think.
 Everything is saved, including who was halfway through what.

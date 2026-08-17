@@ -4361,7 +4361,120 @@ because `rise` refuses too; the rule is guarded in both places and the test
 only fails when both go. Worth knowing which of the two a green test was
 actually resting on.
 
-## 106. Style
+## 106. The corridor (v3.46)
+
+Every previous milestone was found by auditing the code. This one was found by
+playing the game: a year of fortress, competently set up, left running. On day
+ninety every dwarf was dead of thirst. There were two thousand one hundred and
+ninety-three units of ale in the stockpile.
+
+Nothing in the fortress reported a problem, because nothing in the fortress
+believed there was one. Instrumenting the drink loop showed `_go_drink`
+returning `True` three hundred times in a row for a dwarf that had not moved a
+tile. The dwarf asked for a drink every single step of its life and was told,
+every single step, that it was on its way.
+
+**The cause.** `_step_around` is the rule for what a dwarf does when something
+is standing where it wanted to step: wait one beat, then shoulder past, then
+give up on the route. Only the middle clause had a qualifier on it, and the
+qualifier was wrong — it shouldered past *another dwarf*, tested as "has fortress
+state". Livestock has no fortress state. Livestock also does not queue, does not
+path and does not get out of anybody's way. Of two hundred blocking events
+logged in the failing run, a hundred and fifty-six were cows.
+
+So three cows in a corridor were a wall with no door in it, and the fortress
+starved to death behind them. `_step_around` now shoulders past anything that
+is not `hostile`; a hostile is not shoved aside, because that is what the axe
+is for.
+
+**Why nobody noticed.** `_step_around` returns `True` on every path through it,
+including the one where the dwarf does not move. That value is `step_along`'s
+answer to "did I get anywhere", and it is what the need loops watch to decide
+whether a plan is working. A blocked dwarf therefore reported success for ever,
+so nothing escalated, nothing re-planned, and no warning fired. A failure that
+reports itself as a success is invisible to every test that asks the system how
+it is doing; the only thing that catches it is asking the *world* — which is
+what "is anybody dead of thirst while there is ale in the barrel" does.
+
+**Somebody has to yield, and it has to be the same somebody.** Widening the
+shove exposed the reason it had been narrow. Two dwarves heading the same way
+down a one-tile corridor, each free to shove the other, trade places for ever —
+and each reports a successful step, so again nothing escalates. `_outranks` makes
+the relation total and antisymmetric: need first, so the one dying of thirst
+gets past the one out for a walk, then id as the tiebreak. A pair can never
+disagree about which of them is yielding.
+
+**What a shoved creature needs of the tile.** The tile a dwarf vacates is
+walkable — but that is a fact about dwarves. Everywhere else in the game an
+`AQUATIC` creature cannot enter a tile without water in it, so `_may_stand`
+keeps the shove from putting a carp on the riverbank. When it refuses, the
+third clause of `_step_around` is still there to route the dwarf around.
+
+**A test that could not fail.** The first version of the rank test asserted
+that two dwarves sent down one corridor both arrive. It was green with
+`_outranks` deleted entirely — because they start one behind the other, so the
+front one simply walks to the goal and the back one follows, and the rule under
+test is never reached. Worse, the assertion is false on its face: one tile
+holds one dwarf. The replacement counts how many times the goal *changes hands*
+after somebody first reaches it — twenty-six in forty turns with a symmetric
+rule, none with a ranked one. That is the thing a symmetric rule actually does
+to a fortress: the dwarf that reaches the barrel is shoved off it by the next
+one to want it, for ever, and neither of them ever gets a drink.
+
+**What the fix uncovered.** The same two hundred and forty days, re-run: the
+fortress lives the whole year, ale reaches seven thousand, wealth eighty-five
+thousand, two artifacts get made. Nobody dies of thirst. What kills them now is
+each other — forty-seven assaults, one murder and one theft on the crime
+register, ten dwarves bled to death and one drained of blood. That is a
+different fortress with a different problem, and it was invisible while they
+were all dying of thirst by day ninety first. Fixing the thing in front of you
+is how you find out what is behind it.
+
+### 106.1. Three tests that were measuring the seed
+
+Widening the shove changes when a dwarf takes a step, which changes what the
+RNG is asked next, which changes the weather and the whole trajectory of a
+fortress. Three tests went red. None of them was a regression, and all three
+were asserting something narrower or luckier than the thing they were named
+for.
+
+**A cow's thirst was asserted to be exactly what it had been.** It was 74.
+`sim._bodies` deliberately does not tick dwarf needs on an animal — "ticking
+dwarf needs on a cow kills the whole herd of thirst in three days" — but
+`world/heat.py` writes `needs.thirst` directly on everything with a body,
+animals included, so a hot afternoon moves the number and the cow grazes it
+back off. Measured over fifteen hundred steps on five embarks, a cow peaks at
+306 against the 9000 that counts as thirsty; with the exemption in `_bodies`
+removed, the same cows reach 15306. The assertion is now "below thirsty",
+which is fifty times clear of the noise and still catches the defect it exists
+for.
+
+**A roc's chase was asserted on one embark.** It reached a dwarf there and the
+test said fliers beat walkers. Measured across eight embarks it is not true:
+the roc reaches somebody on four of them, the goblin on seven. `_flier_step`
+is greedy by design — the flying graph was measured and rejected — and a
+greedy chaser orbits a local minimum. On the seeds where it fails it is still
+moving on every one of a hundred and twenty steps: never stuck, never closer.
+That is a real defect, it is the flier's, and it was hidden behind one lucky
+map. The test now pins what flight does provide and names what it does not.
+
+**A tavern's attendance was asserted on one embark.** The test already carried
+a comment about an earlier version of itself passing on map luck. Attendance
+swings from none of the fortress to all of it depending on the layout — one of
+five seeds puts nobody in the room under any version of the pathing rules — so
+it is counted across five now: 66% of dwarves, against a few percent for
+wandering at random into a nine-tile room.
+
+The pattern is one thing three times. A test pinned to a single seed is pinned
+to the RNG, and the RNG is downstream of every behavioural change in the
+program. When such a test goes red, the question is never only "did I break
+this" — it is also "was this ever measuring what it says".
+
+The lesson is the milestone. Reading code finds what contradicts itself. Only
+playing the game finds what is perfectly consistent and wrong — and only the
+re-break pass finds the test that was agreeing with you for free.
+
+## 107. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).
