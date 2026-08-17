@@ -391,6 +391,102 @@ def _make_elevation(rng: RNG, w: int, h: int) -> List[List[float]]:
     return grid
 
 
+#: How far drainage swings either side of the middle, and how much the height
+#: of the ground tilts it. Together these have to reach past 0.72 on dry high
+#: ground and under 0.22 in wet hollows or two biomes cannot exist.
+DRAINAGE_SPREAD = 0.85
+DRAINAGE_SLOPE = 0.55
+
+#: How wet the world is before latitude, distance and mountains have their say.
+#: Tuned so that the median land tile still ends up in forest or grassland --
+#: this is a temperate world with deserts in it, not a desert world.
+RAIN_BASE = 0.70
+
+#: How far inland rain carries before a continent is simply dry, in tiles of
+#: the world map. Beyond this the interior gets none of the sea's help.
+CONTINENT_REACH = 7.0
+
+#: What total continentality costs at its worst.
+CONTINENT_DRYNESS = 0.12
+
+#: How far upwind a mountain still casts a rain shadow, and what the shadow is
+#: worth at its deepest. A range that rises a full kilometre in front of the
+#: wind takes most of the rain out of everything behind it, which is the only
+#: way a temperate world gets a desert.
+SHADOW_REACH = 6
+SHADOW_STRENGTH = 0.25
+
+#: The latitude rainfall bands, as (latitude, multiplier) with latitude 1 at
+#: the equator and 0 at the poles. The wet equator and the dry belt on either
+#: side of it are the horse latitudes -- the reason Earth's great deserts sit
+#: where they do, and the reason this world had none: nothing here was ever
+#: allowed to be dry on purpose.
+RAIN_BANDS: Tuple[Tuple[float, float], ...] = (
+    (0.00, 0.55),   # poles: cold and dry
+    (0.30, 1.05),   # mid-latitudes: the westerlies, wet
+    (0.55, 0.38),   # subtropical high: the deserts live here
+    (0.72, 0.60),
+    (1.00, 1.20),   # equator: the rain belt
+)
+
+
+def _rain_band(lat: float) -> float:
+    """The latitude multiplier, interpolated between `RAIN_BANDS`."""
+    prev_lat, prev_mul = RAIN_BANDS[0]
+    for band_lat, mul in RAIN_BANDS[1:]:
+        if lat <= band_lat:
+            span = band_lat - prev_lat
+            t = (lat - prev_lat) / span if span else 0.0
+            return prev_mul + (mul - prev_mul) * t
+        prev_lat, prev_mul = band_lat, mul
+    return RAIN_BANDS[-1][1]
+
+
+def _sea_distance(world: World) -> List[List[int]]:
+    """Tiles from each land square to the nearest sea, by flood fill."""
+    w, h = world.width, world.height
+    far = w + h
+    dist = [[far] * w for _ in range(h)]
+    frontier: List[Tuple[int, int]] = []
+    for y in range(h):
+        for x in range(w):
+            if world.tiles[y][x].is_ocean:
+                dist[y][x] = 0
+                frontier.append((x, y))
+    head = 0
+    while head < len(frontier):
+        x, y = frontier[head]
+        head += 1
+        for nx, ny in world.neighbours(x, y):
+            if dist[ny][nx] > dist[y][x] + 1:
+                dist[ny][nx] = dist[y][x] + 1
+                frontier.append((nx, ny))
+    return dist
+
+
+def _rain_shadow(elevation, x: int, y: int, wind: Tuple[int, int],
+                 w: int, h: int) -> float:
+    """How much of this tile's rain the ground upwind has already taken.
+
+    Walks back along the wind and keeps the highest ground it passes. Air that
+    has been lifted over a mountain arrives dry, and everything in the lee of a
+    range stays dry -- which is the whole mechanism the comment above this
+    function used to claim and the code never had.
+    """
+    here = elevation[y][x]
+    highest = here
+    dx, dy = wind
+    for step in range(1, SHADOW_REACH + 1):
+        ux, uy = x - dx * step, y - dy * step
+        if not (0 <= ux < w and 0 <= uy < h):
+            break
+        highest = max(highest, elevation[uy][ux])
+    climb = max(0.0, highest - here)
+    # Scaled against the whole range above sea level, so a 0.2 rise out of a
+    # 0.58 span is a third of the possible shadow.
+    return min(1.0, climb / max(0.01, 1.0 - SEA_LEVEL)) * SHADOW_STRENGTH
+
+
 def _make_climate(
     rng: RNG, world: World, elevation: List[List[float]]
 ) -> None:
@@ -415,29 +511,50 @@ def _make_climate(
             temp += rain_noise.noise2(x * scale * 0.7, y * scale * 0.7) * 8.0
             t.temperature = max(-30.0, min(110.0, temp))
 
-            # Orographic rainfall: wet near the sea, dry in rain shadows.
-            base_rain = 0.5 + rain_noise.fbm(x * scale, y * scale, 5) * 0.42
-            base_rain += (1.0 - abs(lat - 0.5) * 2.0) * 0.10
-            base_rain -= altitude * 0.20
+            # Rainfall in three parts: the latitude belt a tile sits in, the
+            # texture of weather over it, and what the ground upwind has
+            # already taken. The old version was 0.5 plus a little noise and
+            # could not produce a value below 0.236 -- the classifier wants
+            # 0.16 for a desert, so the world had none, and badlands with it.
+            base_rain = _rain_band(lat) * (
+                RAIN_BASE + rain_noise.fbm(x * scale, y * scale, 5) * 0.55)
+            base_rain -= altitude * 0.18
             t.rainfall = max(0.0, min(1.0, base_rain))
 
-            t.drainage = max(0.0, min(1.0, 0.5 + drain_noise.fbm(
-                x * scale * 1.6, y * scale * 1.6, 4) * 0.5))
+            # Drainage decides swamp against marsh at the wet end and badlands
+            # against desert at the dry one, and the classifier wants below
+            # 0.22 and above 0.72 for those. The old `0.5 + fbm * 0.5` spanned
+            # 0.21 to 0.80 and in practice sat between 0.35 and 0.65, so a
+            # swamp needed the single wettest tile in a world and badlands
+            # never happened at all. Widened, and tilted by the ground itself:
+            # high land sheds water and flat low land holds it.
+            drain = 0.5 + drain_noise.fbm(
+                x * scale * 1.6, y * scale * 1.6, 4) * DRAINAGE_SPREAD
+            drain += (e - SEA_LEVEL) * DRAINAGE_SLOPE
+            t.drainage = max(0.0, min(1.0, drain))
             v = volc_noise.ridged(x * scale * 1.3, y * scale * 1.3, 3)
             t.volcanism = max(0.0, (v - 0.55) / 0.45) if v > 0.55 else 0.0
 
-    # Coastal tiles get more rain; deep inland gets less.
+    # The prevailing wind, and what the land does to the rain it carries. One
+    # direction for the whole world: enough to put a wet side and a dry side on
+    # every range, which is what a rain shadow is for.
+    wind = rng.choice(((1, 0), (-1, 0), (0, 1), (0, -1)))
+    dist = _sea_distance(world)
     for y in range(h):
         for x in range(w):
             t = world.tiles[y][x]
             if t.is_ocean:
                 t.rainfall = 1.0
                 continue
-            sea_near = any(
-                world.tiles[ny][nx].is_ocean for nx, ny in world.neighbours(x, y)
-            )
-            if sea_near:
-                t.rainfall = min(1.0, t.rainfall + 0.12)
+            rain = t.rainfall
+            # Deep inland gets less. This is what the old comment promised and
+            # the old code never did: it only ever added to the coast.
+            inland = min(1.0, dist[y][x] / CONTINENT_REACH)
+            rain -= inland * CONTINENT_DRYNESS
+            rain -= _rain_shadow(elevation, x, y, wind, w, h)
+            if dist[y][x] <= 1:
+                rain += 0.12
+            t.rainfall = max(0.0, min(1.0, rain))
 
 
 def _carve_rivers(rng: RNG, world: World) -> None:

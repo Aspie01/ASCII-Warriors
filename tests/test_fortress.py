@@ -31,8 +31,17 @@ def world():
     return _WORLD
 
 
-def embark(seed: str = "fort") -> Fortress:
+def embark(seed: str = "fort", *, water: bool = False) -> Fortress:
     """Found a test fortress on the most promising square.
+
+    With *water*, on a square with a river on it even if somebody already
+    lives there. A 33x33 world carves exactly two river squares -- four
+    candidate sources, half of them used -- and civilizations settle where the
+    water is, so `suggest_site` often has no watered square left to offer. A
+    test fortress may stand where a player's could not: what a flooding test
+    needs is a map with a river on it, not a legal embark. Only the tests that
+    say so get one, because founding on an occupied square puts a second site
+    on the tile and the legacy tests count those.
 
     Every embark gets its own copy of the shared world, because a fortress
     changes the world it stands in: it writes itself into history, and every
@@ -40,11 +49,16 @@ def embark(seed: str = "fort") -> Fortress:
     between tests means a long-running test can burn down the town another
     test was about to embark next to. The copy costs about five milliseconds.
     """
-    from ascii_warriors.ui.fort.embark import suggest_site
+    from ascii_warriors.ui.fort.embark import site_score, suggest_site
     from ascii_warriors.world.worldgen import World
 
     w = World.from_dict(world().to_dict())
     x, y = suggest_site(w)
+    if water and not w.tile(x, y).river:
+        rivers = [(rx, ry) for ry in range(w.height) for rx in range(w.width)
+                  if w.tile(rx, ry).river and not w.tile(rx, ry).is_ocean]
+        if rivers:
+            x, y = max(rivers, key=lambda c: site_score(w, *c))
     return Fortress.embark(w, x, y, RNG(seed))
 
 
@@ -1976,10 +1990,15 @@ class TestSaveLoad(unittest.TestCase):
         """Dwarves pick their jobs back up after a load."""
         fort = embark("resume")
         d = fort.dwarves()[0]
+        # Down as far as it takes. Two fixed levels under the wagon is fifty
+        # walls on some maps and eighteen on others, depending on where the
+        # caverns fell.
         painted = 0
-        for z in (fort.z - 2, fort.z - 3):
+        for z in range(fort.z - 1, max(fort.local.zmin, fort.z - 9) - 1, -1):
             painted += fort.designations.paint_rect(
                 fort.local, d.x - 9, d.y - 9, d.x + 9, d.y + 9, z, "dig")
+            if painted > 50:
+                break
         self.assertGreater(painted, 50)
         sim.run(fort, 200)
         again = Fortress.from_dict(fort.to_dict())
@@ -2565,9 +2584,17 @@ class TestMilitary(unittest.TestCase):
         fort = embark("burrow")
         d = fort.dwarves()[0]
         # A burrow a few tiles away, on walkable ground.
-        cells = [(d.x + dx, d.y + dy) for dx in range(3, 6) for dy in range(0, 3)
-                 if fort.local.walkable(d.x + dx, d.y + dy, d.z)]
-        self.assertTrue(cells, "no walkable ground for a burrow")
+        # Reachable, not merely walkable: a patch of floor across a chasm is
+        # somewhere the dwarf can see and never get to, and the test then
+        # measures the map rather than the retreat.
+        from ascii_warriors.engine.pathfind import bfs_reachable
+
+        near = bfs_reachable((d.x, d.y, d.z), fort.path_neighbours,
+                             max_nodes=4000)
+        cells = [(c[0], c[1]) for c in near
+                 if c[2] == d.z and 3 <= max(abs(c[0] - d.x),
+                                             abs(c[1] - d.y)) <= 8]
+        self.assertTrue(cells, "no reachable ground for a burrow")
         fort.military.burrow = (cells[0][0], cells[0][1], d.z, 3, 3)
         # Needs come before shelter, and rightly: a dwarf that dies of thirst
         # inside the safe room is not sheltered. Clearing them first means
@@ -3615,7 +3642,7 @@ class TestWater(unittest.TestCase):
 
     def test_water_falls(self):
         """It goes down before it goes sideways."""
-        fort = embark("falls")
+        fort = embark("falls", water=True)
         room = self._sealed_room(fort, 3)
         self.assertTrue(room)
         top = room[0]
@@ -3629,7 +3656,7 @@ class TestWater(unittest.TestCase):
 
     def test_water_spreads(self):
         """A deep pile evens out with its neighbours."""
-        fort = embark("spread")
+        fort = embark("spread", water=True)
         room = self._sealed_room(fort, 3)
         self.assertTrue(room)
         fort.water.set(room[4], 7)
@@ -3640,7 +3667,7 @@ class TestWater(unittest.TestCase):
 
     def test_water_is_conserved_when_it_has_nowhere_to_go(self):
         """A sealed room holds exactly what you poured into it."""
-        fort = embark("conserve")
+        fort = embark("conserve", water=True)
         room = self._sealed_room(fort, 3)
         self.assertTrue(room)
         # Seal the floor below so nothing drains away.
@@ -3655,7 +3682,7 @@ class TestWater(unittest.TestCase):
 
     def test_a_river_does_not_flood_the_map_on_its_own(self):
         """Left alone, natural water stays exactly where it is."""
-        fort = embark("river")
+        fort = embark("river", water=True)
         before = fort.water.total()
         for _ in range(300):
             fort.water.step(fort.local)
@@ -3670,7 +3697,7 @@ class TestWater(unittest.TestCase):
         actually open the rock up may break the bank, or the river pours over
         its own shore because somebody polished a wall beside it.
         """
-        fort = embark("bank")
+        fort = embark("bank", water=True)
         lm = fort.local
         self.assertTrue(fort.water.sealed, "this embark has no natural water")
 
@@ -3708,7 +3735,7 @@ class TestWater(unittest.TestCase):
         """It runs every simulation step, so it has to be nearly free."""
         import time
 
-        fort = embark("cheap")
+        fort = embark("cheap", water=True)
         for _ in range(20):
             fort.water.step(fort.local)
         start = time.time()
@@ -3720,7 +3747,7 @@ class TestWater(unittest.TestCase):
 
     def test_water_survives_a_save(self):
         """Depths, sources and the sealed bank all come back."""
-        fort = embark("watersave")
+        fort = embark("watersave", water=True)
         room = self._sealed_room(fort, 3)
         if room:
             fort.water.set(room[0], 5)
@@ -3750,7 +3777,7 @@ class TestWater(unittest.TestCase):
 
     def test_breaching_an_aquifer_floods_and_warns(self):
         """Digging into wet rock is supposed to be a disaster."""
-        fort = embark("breach")
+        fort = embark("breach", water=True)
         if not fort.aquifer:
             self.skipTest("this embark has no aquifer")
         cell = sorted(fort.aquifer)[len(fort.aquifer) // 2]
@@ -3770,7 +3797,7 @@ class TestWater(unittest.TestCase):
         it, so it must push past that: otherwise breaching one leaves a
         puddle and a shrug, and the danger the layer exists for never lands.
         """
-        fort = embark("puddle")
+        fort = embark("puddle", water=True)
         if not fort.aquifer:
             self.skipTest("this embark has no aquifer")
         cell = sorted(fort.aquifer)[len(fort.aquifer) // 2]
@@ -3786,7 +3813,7 @@ class TestWater(unittest.TestCase):
 
     def test_a_dwarf_drowns_in_a_flooded_room(self):
         """Deep water kills."""
-        fort = embark("drowned")
+        fort = embark("drowned", water=True)
         room = self._sealed_room(fort, 3)
         self.assertTrue(room)
         d = fort.dwarves()[0]
@@ -3803,7 +3830,7 @@ class TestWater(unittest.TestCase):
         """Wading is fine; swimming with a rock is not."""
         from ascii_warriors.world.fluids import SWIM_DEPTH
 
-        fort = embark("nopath")
+        fort = embark("nopath", water=True)
         d = fort.dwarves()[0]
         here = (d.x, d.y, d.z)
         neighbours = [c for c, _cost in fort.path_neighbours(here)]
@@ -3844,7 +3871,7 @@ class TestWater(unittest.TestCase):
 
     def test_pulling_a_lever_opens_a_gate(self):
         """And pulling it again shuts it."""
-        fort = embark("lever")
+        fort = embark("lever", water=True)
         lever, gate = self._gate_and_lever(fort)
         self.assertTrue(gate.shut)
         self.assertFalse(fort.local.walkable(*gate.center))
@@ -3861,7 +3888,7 @@ class TestWater(unittest.TestCase):
         The flag and the tile have to agree, or the first pull of the lever
         sets the flag the way it already looked and appears to do nothing.
         """
-        fort = embark("gatebuild")
+        fort = embark("gatebuild", water=True)
         for kind, shut in (("drawbridge", False), ("floodgate", True)):
             gate = Building(kind, *_open_spot(fort, kind))
             fort.buildings.append(gate)
@@ -3874,7 +3901,7 @@ class TestWater(unittest.TestCase):
 
     def test_a_dwarf_pulls_a_requested_lever(self):
         """The player asks; somebody walks over and does it."""
-        fort = embark("pull")
+        fort = embark("pull", water=True)
         lever, gate = self._gate_and_lever(fort)
         lever.pending = True
         sim.run(fort, 600)
@@ -3883,7 +3910,7 @@ class TestWater(unittest.TestCase):
 
     def test_a_shut_gate_holds_water_back(self):
         """The entire point of a floodgate."""
-        fort = embark("holdback")
+        fort = embark("holdback", water=True)
         room = self._sealed_room(fort, 3)
         self.assertTrue(room)
         # Put a floodgate in the doorway of a flooded cell's only exit.
@@ -3899,7 +3926,7 @@ class TestWater(unittest.TestCase):
 
     def test_linking_toggles(self):
         """Linking a lever twice unlinks it."""
-        fort = embark("link")
+        fort = embark("link", water=True)
         lever, gate = self._gate_and_lever(fort)
         self.assertIn(gate.id, lever.links)
         fort.link(lever, gate)
@@ -3907,7 +3934,7 @@ class TestWater(unittest.TestCase):
 
     def test_levers_survive_a_save(self):
         """Links and gate states come back."""
-        fort = embark("leversave")
+        fort = embark("leversave", water=True)
         lever, gate = self._gate_and_lever(fort)
         fort.pull_lever(lever)
         again = Fortress.from_dict(fort.to_dict())
@@ -4054,9 +4081,13 @@ class TestJustice(unittest.TestCase):
         """Which is the entire cost of having a law."""
         fort, law = self._with_sheriff("noworkjail")
         dig_room(fort)
-        sim.run(fort, 30)
-        working = [d for d in fort.dwarves()
-                   if d is not law and d.fort.job is not None]
+        working = []
+        for _ in range(30):
+            sim.run(fort, 10)
+            working = [d for d in fort.dwarves()
+                       if d is not law and d.fort.job is not None]
+            if working:
+                break
         self.assertTrue(working, "nothing to be taken away")
         guilty = working[0]
         self.justice.report(fort, "vandalism", guilty, "a table")
@@ -4159,7 +4190,21 @@ class TestJustice(unittest.TestCase):
 
         entry = fort.local.edge_entry(fort.rng, side)
         thief = make_creature(fort.rng, "kobold", faction="hostile", level=1)
-        thief.x, thief.y, thief.z = fort._free_spot(entry, 0)
+        # Somewhere it can walk back out of. `war.retreat_step` only lets a
+        # creature off the map from the border itself and only moves it on one
+        # level, so a kobold put down where the border column beside it is
+        # solid rock is wedged until `THIEF_GONE` five days later -- which is
+        # the documented fallback, not the behaviour these tests are timing.
+        lm = fort.local
+        spot = None
+        for zz in sorted(lm.levels, reverse=True):
+            for yy in range(1, lm.height - 1):
+                if lm.walkable(1, yy, zz) and lm.walkable(0, yy, zz):
+                    spot = (1, yy, zz)
+                    break
+            if spot:
+                break
+        thief.x, thief.y, thief.z = spot or fort._free_spot(entry, 0)
         thief.wx, thief.wy = fort.wx, fort.wy
         thief.thief = True
         thief.thief_since = fort.ticks
@@ -4179,7 +4224,7 @@ class TestJustice(unittest.TestCase):
         """And the fortress finds out from the gap where it used to be."""
         fort = embark("robbed")
         thief, gem = self._thief(fort)
-        for _ in range(60):
+        for _ in range(300):
             sim.step(fort)
             if thief.id not in fort.creatures:
                 break
@@ -5472,7 +5517,7 @@ class TestCold(unittest.TestCase):
     """What the season does to a fortress and the water around it."""
 
     def test_a_fortress_reads_a_temperature(self):
-        fort = embark("temp")
+        fort = embark("temp", water=True)
         cx, cy = fort.local.width // 2, fort.local.height // 2
         t = fort.temperature_at(cx, cy, fort.local.surface_z(cx, cy))
         self.assertIsInstance(t, float)
@@ -5483,7 +5528,7 @@ class TestCold(unittest.TestCase):
         from ascii_warriors.data.calendar import GameTime
         from ascii_warriors.world import heat
 
-        fort = embark("deep-temp")
+        fort = embark("deep-temp", water=True)
         cx, cy = fort.local.width // 2, fort.local.height // 2
         z = fort.local.surface_z(cx, cy) - heat.CAVE_DEPTH
         if not fort.local.in_bounds(cx, cy, z):
@@ -5503,7 +5548,7 @@ class TestCold(unittest.TestCase):
     def test_the_surface_does_care(self):
         from ascii_warriors.data.calendar import GameTime
 
-        fort = embark("season-temp")
+        fort = embark("season-temp", water=True)
         cx, cy = fort.local.width // 2, fort.local.height // 2
         z = fort.local.surface_z(cx, cy)
         fort.time = GameTime.at(fort.time.year, 4, 15, 12, 0)
@@ -5515,7 +5560,7 @@ class TestCold(unittest.TestCase):
     def test_magma_is_why_the_deeps_are_warm(self):
         from ascii_warriors.world import heat
 
-        fort = embark("magma-temp")
+        fort = embark("magma-temp", water=True)
         if not fort.magma.depth:
             self.skipTest("no magma on this embark")
         # Not "hotter than somewhere far away on the same level" -- the sea
@@ -5531,7 +5576,7 @@ class TestCold(unittest.TestCase):
         """Nine versions of tailoring and nobody had ever put any on."""
         from ascii_warriors.world import heat
 
-        fort = embark("dressed")
+        fort = embark("dressed", water=True)
         for d in fort.dwarves():
             worn = [i.defn.id for i in d.inventory.equipped.values() if i]
             self.assertTrue(
@@ -5541,18 +5586,24 @@ class TestCold(unittest.TestCase):
     def test_a_dwarf_underground_is_warmer_than_one_on_the_roof(self):
         from ascii_warriors.world import heat
 
-        fort = embark("shelter")
+        fort = embark("shelter", water=True)
         cx, cy = fort.local.width // 2, fort.local.height // 2
         surf = fort.local.surface_z(cx, cy)
         deep = surf - heat.CAVE_DEPTH
         if not fort.local.in_bounds(cx, cy, deep):
             self.skipTest("map is not deep enough")
+        # Deep winter, at night, in a blizzard. The deep sits near 52 whatever
+        # happens; a warm embark's surface stays above that in summer, so
+        # without a season this measured the latitude rather than the shelter.
+        from ascii_warriors.data.calendar import GameTime
+
+        fort.time = GameTime.at(fort.time.year, 11, 1, 2, 0)
         fort.weather.kind = "blizzard"
         self.assertGreater(fort.temperature_at(cx, cy, deep),
                            fort.temperature_at(cx, cy, surf))
 
     def test_a_cold_fortress_freezes_its_water_over(self):
-        fort = embark("freeze")
+        fort = embark("freeze", water=True)
         wet = [c for c in fort.water.depth if fort.local.is_outside(*c)]
         if not wet:
             self.skipTest("no open water on this embark")
@@ -5568,7 +5619,7 @@ class TestCold(unittest.TestCase):
     def test_the_ice_gives_the_water_back_when_it_thaws(self):
         from ascii_warriors.world import heat
 
-        fort = embark("thaw")
+        fort = embark("thaw", water=True)
         wet = [c for c in fort.water.depth if fort.local.is_outside(*c)]
         if not wet:
             self.skipTest("no open water on this embark")
@@ -5584,7 +5635,7 @@ class TestCold(unittest.TestCase):
         self.assertEqual(fort.water.at(*cell), depth)
 
     def test_frost_and_exposure_survive_a_save(self):
-        fort = embark("frost-save")
+        fort = embark("frost-save", water=True)
         wet = [c for c in fort.water.depth if fort.local.is_outside(*c)]
         if not wet:
             self.skipTest("no open water on this embark")
@@ -5756,7 +5807,7 @@ class TestFishing(unittest.TestCase):
         self.assertIn("fishing", PROFESSION_LABORS.get("hunter", ()))
 
     def test_a_fortress_by_water_posts_fishing_work(self):
-        fort = embark("fishjob")
+        fort = embark("fishjob", water=True)
         if not fort.water_sources():
             self.skipTest("this embark has no open water")
         for d in fort.dwarves():
@@ -5768,7 +5819,7 @@ class TestFishing(unittest.TestCase):
         self.fail("nobody was ever sent to the water")
 
     def test_and_the_fish_arrive(self):
-        fort = embark("fishcatch")
+        fort = embark("fishcatch", water=True)
         if not fort.water_sources():
             self.skipTest("this embark has no open water")
         for d in fort.dwarves():
@@ -5784,7 +5835,7 @@ class TestFishing(unittest.TestCase):
         from ascii_warriors.fortress import sim as sim_mod
         from ascii_warriors.game.item import Item
 
-        fort = embark("fishenough")
+        fort = embark("fishenough", water=True)
         for d in fort.dwarves():
             d.fort.labors.enable("fishing")
         spot = fort.dwarves()[0]
@@ -5795,7 +5846,7 @@ class TestFishing(unittest.TestCase):
     def test_never_more_than_a_couple_of_anglers(self):
         from ascii_warriors.fortress import sim as sim_mod
 
-        fort = embark("fishcrowd")
+        fort = embark("fishcrowd", water=True)
         if not fort.water_sources():
             self.skipTest("this embark has no open water")
         for d in fort.dwarves():

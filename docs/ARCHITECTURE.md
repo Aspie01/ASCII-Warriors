@@ -3950,7 +3950,86 @@ people the same thing. One stream, created once and advanced, is the fix — the
 same mistake as re-seeding an RNG inside a test loop, which was caught twice in
 v3.39.
 
-## 101. Style
+## 101. The biomes that could not happen (v3.41)
+
+A reachability sweep over the data tables — every creature, item, tile and
+biome, asking what a player can never meet — came back clean on creatures
+(0 of 80 unreachable) and items (0 of 115), and found this. Measured across
+**fifteen worlds and 73,615 tiles**:
+
+| biome | tiles |
+|---|---|
+| desert | **0** |
+| badlands | **0** |
+| swamp | **3** |
+| marsh | 35 |
+| lake | 49 |
+
+Not rare. *Impossible.* `biomes.classify` asks for `rainfall < 0.16` to make a
+desert; the generator produced rainfall in **0.236 – 0.941**. The two ranges do
+not overlap, so no world has ever contained a desert, and none ever could. Same
+story in drainage: the classifier wants below 0.22 for a swamp and above 0.72
+for badlands, and the generator produced 0.210 – 0.796 with 90% of tiles between
+0.35 and 0.65.
+
+**The comment was the tell.** `# Orographic rainfall: wet near the sea, dry in
+rain shadows` sat above three lines that were a noise field, a small latitude
+term and a small altitude term. **There was no rain shadow** — nothing looked
+upwind at all. The pass below it, commented "Coastal tiles get more rain; deep
+inland gets less", only ever *added* to the coast; nothing was ever reduced for
+being inland. Both halves of both comments were aspirations.
+
+**Rainfall is now three things.** A latitude band — wet at the equator, dry
+through the subtropical highs where Earth keeps its great deserts, wet again in
+the westerlies — multiplied by the weather noise; minus continentality, from a
+flood fill of distance to the nearest sea; minus a real rain shadow, which
+walks back along a per-world prevailing wind and takes rain out of anything
+standing in the lee of high ground. Drainage was widened at both ends and
+tilted by elevation, because high land sheds water and flat low land holds it,
+which is what puts badlands on dry uplands and swamps in wet hollows.
+
+**The first attempt overcorrected and the numbers said so.** Desert went from
+0% of land to about 60%, and temperate forest from 40% to 1.4% — a desert
+planet, wrong in the other direction. The constants were then swept against a
+target (`RAIN_BASE`, `SHADOW_STRENGTH`, `CONTINENT_DRYNESS`) rather than
+guessed at twice. Where it landed, as a share of land: desert 10%, badlands 3%,
+woodland 35%, and every one of the twenty-one terrain biomes present. Sites,
+civilizations and `suggest_site` were re-measured afterwards — 5 civs and 47–66
+sites per world, and the suggested embark is still a well-watered river tile.
+
+**`river` is not a terrain type and must not be "fixed" into one.** `classify`
+never returns it and no tile is ever one; it is a *habitat tag*, listed by carp,
+pike and alligators, which `Game._wildlife_for` asks for when a tile has a river
+running through it. The guard test names it as the one deliberate exception so
+the next reader does not spend an afternoon on it.
+
+### 101.1. What a worldgen change costs
+
+Ten tests broke, none of them about biomes. That is worth writing down, because
+the cause is structural: **the fortress suite is calibrated against one
+generated world**, and changing the generator moves the ground under it. The
+failures were an embark with no river, a box of rock that used to hold fifty
+diggable walls and now held eighteen, a kobold thief wedged at the map edge, a
+burrow across a chasm, and an underground dwarf who was *colder* than one on
+the roof because the surface had turned tropical.
+
+Two wrong ways to fix that, both tried and abandoned. Hunting for a seed whose
+world happens to satisfy every test is whack-a-mole -- each candidate passed a
+different subset, and the best one failed five. Moving the fixture to a 65x65
+world fixes the scarcity outright and costs the fortress suite about eight
+times as long, because every embark copies the world and a small one has four
+times the tiles.
+
+What worked was making each test establish what it needs: `embark(water=True)`
+for the dozen that want a river (the wet embark is opt-in, because founding on
+an occupied square puts a second site on the tile and the legacy tests count
+those), digging down until fifty walls are found rather than assuming two fixed
+levels, placing the thief where the border beside it is walkable, choosing a
+burrow that is *reachable* rather than merely walkable, and asking for winter
+before claiming the deep is warmer than the roof. Six tests that had been
+silently skipping with "this embark has no open water" now actually run.
+
+## 102. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

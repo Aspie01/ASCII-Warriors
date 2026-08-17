@@ -81,6 +81,101 @@ class TestWorldGen(unittest.TestCase):
         self.assertEqual(len(clone.artifacts), len(self.world.artifacts))
 
 
+class TestEveryBiomeCanHappen(unittest.TestCase):
+    """Three biomes were arithmetically impossible and two never happened.
+
+    `biomes.classify` wants rainfall below 0.16 for a desert and drainage
+    outside 0.22..0.72 for a swamp or badlands. The generator produced
+    rainfall in 0.236..0.941 and drainage in 0.210..0.796, so across fifteen
+    worlds and 73,615 tiles there were no deserts, no badlands, no swamps
+    worth the name -- and the comment above the rainfall code claimed a rain
+    shadow the code had never had.
+    """
+
+    #: `river` is a habitat tag rather than a terrain type: `classify` never
+    #: returns it and no tile is ever one. Carp and pike list it as where they
+    #: live, and `Game._wildlife_for` asks for river creatures when the tile
+    #: has a river on it. Anything else here must be real ground.
+    HABITAT_ONLY = {"river"}
+
+    @classmethod
+    def setUpClass(cls):
+        from ascii_warriors.data import biomes as biome_data
+
+        cls.biome_data = biome_data
+        cls.seen = {}
+        cls.rain = []
+        cls.drain = []
+        for seed in ("aa", "bb", "cc", "dd", "ee", "ff"):
+            world = _world(seed, size="small", years=5)
+            for row in world.tiles:
+                for t in row:
+                    cls.seen[t.biome] = cls.seen.get(t.biome, 0) + 1
+                    if not t.is_ocean:
+                        cls.rain.append(t.rainfall)
+                        cls.drain.append(t.drainage)
+
+    def test_every_terrain_biome_turns_up_somewhere(self):
+        missing = [b.id for b in self.biome_data.BIOMES.values()
+                   if b.id not in self.HABITAT_ONLY and b.id not in self.seen]
+        self.assertEqual(missing, [],
+                         "biomes no world can contain: %s" % missing)
+
+    def test_the_climate_reaches_the_thresholds_the_classifier_wants(self):
+        """The defect in one line: the ranges did not overlap."""
+        self.assertLess(min(self.rain), 0.16,
+                        "no tile is dry enough to be a desert")
+        self.assertGreater(max(self.rain), 0.70, "nowhere is properly wet")
+        self.assertLess(min(self.drain), 0.22, "nothing drains badly enough")
+        self.assertGreater(max(self.drain), 0.72, "nothing drains well enough")
+
+    def test_it_is_not_a_desert_planet(self):
+        """The first fix overcorrected: desert went from 0% to 60% of land
+        and temperate forest from 40% to 1.4%."""
+        land = len(self.rain)
+        desert = self.seen.get("desert", 0) + self.seen.get("badlands", 0)
+        self.assertLess(desert, land * 0.30,
+                        "the world is mostly desert")
+        wooded = sum(self.seen.get(b, 0) for b in
+                     ("temperate_forest", "temperate_broadleaf", "taiga",
+                      "tropical_forest", "jungle"))
+        self.assertGreater(wooded, land * 0.15, "the trees are gone")
+
+    def test_a_rain_shadow_actually_exists(self):
+        """The comment promised one for a long time before there was one."""
+        from ascii_warriors.world import worldgen
+
+        flat = [[0.5] * 12 for _ in range(12)]
+        ridge = [row[:] for row in flat]
+        for y in range(12):
+            ridge[y][5] = 0.95
+        wind = (1, 0)
+        # Downwind of the ridge is drier than the same spot without it.
+        with_ridge = worldgen._rain_shadow(ridge, 8, 6, wind, 12, 12)
+        without = worldgen._rain_shadow(flat, 8, 6, wind, 12, 12)
+        self.assertGreater(with_ridge, without)
+        # Upwind of it is not.
+        self.assertEqual(worldgen._rain_shadow(ridge, 2, 6, wind, 12, 12),
+                         without)
+
+    def test_dry_land_is_somewhere_in_particular(self):
+        """Not scattered noise: the dry belt and the lee of ranges."""
+        world = _world("bands", size="small", years=5)
+        dry = [(x, y) for y in range(world.height)
+               for x in range(world.width)
+               if not world.tiles[y][x].is_ocean
+               and world.tiles[y][x].rainfall < 0.20]
+        if len(dry) < 12:
+            self.skipTest("this world happens to be a wet one")
+        # Dry tiles should touch each other: a belt, not confetti.
+        dryset = set(dry)
+        touching = sum(1 for x, y in dry
+                       if any((nx, ny) in dryset
+                              for nx, ny in world.neighbours(x, y)))
+        self.assertGreater(touching, len(dry) * 0.6,
+                           "the dry ground is scattered noise")
+
+
 class TestHistory(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

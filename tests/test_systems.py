@@ -7669,6 +7669,18 @@ class TestThingsThatSaidSoAndDidNot(GameFixture):
         """"deliver" was listed and had no builder at all."""
         from ascii_warriors.game import quests
 
+        from ascii_warriors.world.history import Artifact
+
+        world = self.game.world
+        if not [a for a in world.artifacts if a.site_id is not None]:
+            # `_quest_retrieve` needs something to retrieve, and whether a
+            # 25-year pocket world forges one is luck. Give it one rather than
+            # let the seed decide whether this test tests anything.
+            art = Artifact(world.next_id("artifact"), "Testhammer", "",
+                           "warhammer", "steel")
+            art.site_id = world.sites[0].id
+            world.artifacts.append(art)
+
         made = set()
         givers = [c for c in self.game.creatures.values() if not c.is_player]
         self.assertTrue(givers)
