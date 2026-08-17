@@ -466,8 +466,6 @@ def _hostile_step(fort, foe, goal: Cell) -> None:
     from ..game import flight
 
     flies = flight.can_fly(foe)
-    if flies and _flier_step(fort, foe, goal):
-        return
     # A flier that has run out of greedy moves plans on the *flying* graph.
     # It cannot plan on the walking one: it is standing in mid-air over a
     # hillside, which has no walking neighbours at all, so the walking
@@ -487,6 +485,18 @@ def _hostile_step(fort, foe, goal: Cell) -> None:
         idx < 0 or idx + 1 >= len(path) or aim is None or aim[2] != goal[2]
         or geometry.chebyshev(aim[0], aim[1], goal[0], goal[1]) > REPATH_SLACK
     )
+    # Greed gets its turn only when there is no plan to follow. A flier's plan
+    # exists precisely because greed ran out of moves, so it is always a route
+    # around something -- and its first step is usually *away* from the goal,
+    # which is exactly the step greed undoes. Letting greed run first meant the
+    # two took turns: the plan stepped the roc out of the pocket, greed dragged
+    # it straight back in, and the plan was thrown away and re-planned every
+    # other step. Measured on the seed that showed it worst, a roc that flew
+    # sixty-four tiles' worth of map spent all hundred and twenty steps of a
+    # siege moving between the same two cells and never came closer than
+    # fifty-seven.
+    if flies and stale and _flier_step(fort, foe, goal):
+        return
     if stale:
         from ..engine.pathfind import astar
 

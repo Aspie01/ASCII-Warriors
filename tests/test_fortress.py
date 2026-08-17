@@ -3702,10 +3702,24 @@ class TestMilitary(unittest.TestCase):
     def _chase(self, seed, cid):
         """Let one hostile cross the map at the fortress.
 
-        Returns the closest it ever came to a dwarf, and how many of its
-        first thirty steps it either moved on or had arrived for. Standing
-        still next to a dwarf is fighting, which is the point; standing still
-        across the map from one is the failure.
+        Returns the closest it ever came to a dwarf, and how many steps it
+        spent standing still while still a long way off. Standing still near a
+        dwarf is fighting, or manoeuvring round one, which is the point;
+        standing still across the map is the failure -- that is the roc that
+        flew two thirds of the way and then hovered in one cell for eighty
+        steps. Measured over these eight embarks, every idle step a roc takes
+        during its approach is within six tiles of somebody, so eight is a
+        wide berth.
+
+        Counted up to its arrival and no further, because after that a roc is
+        in somebody else's system and three of them will stop it moving. On
+        one of these embarks it arrives at step twenty-one, kills four
+        dwarves, is beaten unconscious by the rest and lies there twenty-seven
+        steps before dying of it; on the same run it also spends twelve steps
+        awake with its morale broken, which `_hostiles` documents as "an
+        invader boxed in stops moving and stops fighting". Counting any of
+        that as hovering made a working flier look like a broken one -- which
+        is nearly what this measured, until the trace said `unconscious 170`.
         """
         fort = embark(seed)
         entry = fort.local.edge_entry(fort.rng, "north")
@@ -3718,42 +3732,121 @@ class TestMilitary(unittest.TestCase):
             return min([abs(foe.x - d.x) + abs(foe.y - d.y) + abs(foe.z - d.z)
                         for d in fort.dwarves()] or [10 ** 6])
 
-        best, busy, was = gap(), 0, (foe.x, foe.y, foe.z)
-        for step in range(120):
+        best, stalled, was = gap(), 0, (foe.x, foe.y, foe.z)
+        arrived = False
+        for _step in range(120):
             if foe.body.dead or fort.lost or not fort.dwarves():
-                if step < 30:
-                    busy += 30 - step      # the chase ended; it was not idle
                 break
             sim.step(fort)
-            if step < 30 and ((foe.x, foe.y, foe.z) != was or gap() <= 2):
-                busy += 1
-            was = (foe.x, foe.y, foe.z)
+            here = (foe.x, foe.y, foe.z)
+            if gap() <= self.FAR:
+                arrived = True
+            elif here == was and not arrived:
+                stalled += 1
+            was = here
             best = min(best, gap())
-        return best, busy
+        return best, stalled
+
+    #: Past this, a flier standing still is not fighting anybody.
+    FAR = 8
 
     #: Enough embarks that no single map's luck decides the answer.
     CHASE_SEEDS = ("flyapproach", "flyapproach2", "rocroost", "highwing",
                    "talon", "eyrie", "updraft", "thermal")
 
     def test_a_flier_crosses_the_map_and_reaches_the_fortress(self):
-        """It has to fly, and flying has to get it somewhere.
+        """It has to fly, and flying has to get it all the way there.
 
-        This used to assert that a roc closes better than a goblin, on one
-        embark. Measured across eight, that is not true: the roc reaches
-        somebody on four of them and the walker on seven, because
-        `_flier_step` is greedy and a greedy chaser orbits a local minimum
-        instead of arriving -- on the seeds where it fails it is still moving
-        on every one of a hundred and twenty steps, never stuck and never
-        closer. That is a real defect and it belongs to the flier, not here;
-        what is pinned here is that flight works at all.
+        Every embark, not most of them. This test has been through three
+        versions and the history is the point: it began as "a roc closes
+        better than a goblin" on one embark, which was true of that map and
+        false of the game; measured across eight it reached somebody on four
+        while the walking goblin managed seven, so v3.46 weakened it to "at
+        least three" and wrote the defect down. v3.48 fixed the defect, and
+        the number is eight out of eight.
         """
         results = [self._chase(s, "roc") for s in self.CHASE_SEEDS]
-        for (_best, busy), seed in zip(results, self.CHASE_SEEDS):
-            self.assertEqual(busy, 30,
-                             "the roc sat still across the map on %s" % seed)
-        reached = [b for b, _m in results if b <= 2]
-        self.assertGreaterEqual(len(reached), 3,
-                                "the roc reached nobody on any map")
+        for (_best, stalled), seed in zip(results, self.CHASE_SEEDS):
+            self.assertEqual(stalled, 0,
+                             "the roc hovered %d steps out in the open on %s"
+                             % (stalled, seed))
+        missed = [s for (b, _m), s in zip(results, self.CHASE_SEEDS) if b > 2]
+        self.assertEqual(missed, [], "the roc never arrived on %s" % missed)
+
+    def test_a_flier_does_not_pace_between_two_cells(self):
+        """The shape of the defect, named directly.
+
+        A flier's plan exists because greed ran out of moves, so it is always
+        a route around something and its first step is usually *away* from the
+        goal -- exactly the step greed undoes. With greed running first the
+        two took turns and the roc paced: on this embark it occupied three
+        cells in a hundred and twenty steps, moving every one of them, and
+        never came closer than fifty-seven of the sixty-four it started at.
+        """
+        fort = embark("talon")
+        entry = fort.local.edge_entry(fort.rng, "north")
+        foe = make_creature(fort.rng, "roc", faction="hostile", level=3)
+        foe.x, foe.y, foe.z = fort._free_spot(entry, 0)
+        foe.wx, foe.wy = fort.wx, fort.wy
+        fort.add_creature(foe)
+        seen, moves = set(), 0
+        was = (foe.x, foe.y, foe.z)
+        for _ in range(60):
+            if foe.body.dead or fort.lost or not fort.dwarves():
+                break
+            sim.step(fort)
+            here = (foe.x, foe.y, foe.z)
+            if here != was:
+                moves += 1
+                seen.add(here)
+            was = here
+        # Somewhere new nearly every time it moves. A pacing flier scores two.
+        self.assertGreater(len(seen), moves * 0.8,
+                           "it moved %d times and saw %d cells"
+                           % (moves, len(seen)))
+
+    def test_a_flier_that_is_planning_is_not_overruled_by_greed(self):
+        """The rule, stated where it can fail if somebody reorders the calls."""
+        fort = embark("planfirst")
+        d0 = fort.dwarves()[0]
+        foe = make_creature(fort.rng, "roc", faction="hostile", level=3)
+        foe.x, foe.y, foe.z = d0.x + 12, d0.y + 12, d0.z + 3
+        foe.wx, foe.wy = fort.wx, fort.wy
+        fort.add_creature(foe)
+        goal = (d0.x, d0.y, d0.z)
+        # Give it a plan whose first step is deliberately away from the goal,
+        # then check the step follows the plan rather than stepping greedily.
+        away = (foe.x + 1, foe.y + 1, foe.z)
+        here = (foe.x, foe.y, foe.z)
+        fort.hostile_state[foe.id] = {"path": [here, away, goal],
+                                      "goal": goal}
+        sim._hostile_step(fort, foe, goal)
+        self.assertEqual((foe.x, foe.y, foe.z), away,
+                         "greed overruled the plan")
+
+    def test_six_rocs_do_not_cost_the_fortress_its_step(self):
+        """Flier pathing was rejected once for being slow. It is not.
+
+        Following a plan is cheaper than re-planning every other step, so
+        this is faster than the pacing it replaced: measured 1.32 ms a step
+        against 1.92 for the same six rocs before.
+        """
+        import time
+
+        fort = embark("rocbench")
+        sim.run(fort, 40)
+        entry = fort.local.edge_entry(fort.rng, "north")
+        for i in range(6):
+            foe = make_creature(fort.rng, "roc", faction="hostile", level=3)
+            foe.x, foe.y, foe.z = fort._free_spot(entry, i)
+            foe.wx, foe.wy = fort.wx, fort.wy
+            fort.add_creature(foe)
+        t0 = time.perf_counter()
+        for _ in range(120):
+            sim.step(fort)
+        per_step = (time.perf_counter() - t0) / 120 * 1000
+        self.assertLess(per_step, 20.0, "%.2f ms a step with six rocs"
+                        % per_step)
 
     def test_a_flier_with_nowhere_better_to_go_still_moves(self):
         """`_flier_step` is greedy, so it has to hand back to the walking

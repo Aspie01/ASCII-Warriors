@@ -4457,6 +4457,8 @@ greedy chaser orbits a local minimum. On the seeds where it fails it is still
 moving on every one of a hundred and twenty steps: never stuck, never closer.
 That is a real defect, it is the flier's, and it was hidden behind one lucky
 map. The test now pins what flight does provide and names what it does not.
+(Fixed in v3.48 — §108. The cause was not the greedy step but greed and the
+plan overruling each other every other turn.)
 
 **A tavern's attendance was asserted on one embark.** The test already carried
 a comment about an earlier version of itself passing on map luck. Attendance
@@ -4551,7 +4553,69 @@ for exactly this reason.
 What survived all of that is the thing that needed no inference: the game names
 the killer and offers nothing to do about it.
 
-## 108. Style
+## 108. The roc that paced (v3.48)
+
+v3.46 measured the flier and wrote the result down rather than acting on it: a
+roc reaches somebody on four of eight embarks, a walking goblin on seven. On
+the seeds where it failed it was never stuck — it moved on every one of a
+hundred and twenty steps and never came closer. This is that defect.
+
+**What it was doing.** Tracing one chase: a hundred and twenty steps, **three
+distinct cells**. The roc paced between two of them for the whole siege, sixty
+steps forward and sixty steps back, ending fifty-seven tiles from a fortress it
+had started sixty-four from.
+
+**Greed and the plan were fighting.** `_hostile_step` tried the cheap greedy
+`_flier_step` first and only planned when greed ran out of moves. But a flier's
+plan exists *precisely because* greed ran out — so it is always a route around
+something, and the first step of a route around something is usually away from
+the goal. That is exactly the step greed undoes. The two alternated: the plan
+stepped the roc out of the pocket, greed dragged it straight back in, the plan
+was discarded as stale and re-planned, for ever.
+
+The fix is one condition. Greed only gets a turn when there is no plan to
+follow:
+
+```python
+if flies and stale and _flier_step(fort, foe, goal):
+    return
+```
+
+Eight of eight embarks now reach a dwarf, against four before, and the roc
+stops pacing: fourteen steps, fourteen distinct cells.
+
+**And it is cheaper.** Flier A* was rejected once on cost — six rocs took the
+step from 1.5 ms to 100 ms — and the fear was that leaning on it would bring
+that back. It does the opposite, because following a plan is cheaper than
+re-planning every other step: six rocs measured at **1.32 ms a step against
+1.92 before**. The pacing was not just useless, it was the expensive option.
+
+### 108.1. Three reasons a roc stands still, none of them hovering
+
+The guard for this is "a flier never stands still out in the open", and
+writing it took four attempts because a roc that *arrives* stops moving for
+three separate reasons that have nothing to do with flight:
+
+- it is **unconscious** — it reached the fortress at step twenty-one, killed
+  four dwarves and was beaten senseless by the rest, then lay there twenty-seven
+  steps and died of it. The trace said `unconscious 170`;
+- its **morale broke** — twelve more steps, awake, wounded, going nowhere,
+  which `_hostiles` already documents as "an invader boxed in stops moving and
+  stops fighting";
+- it is simply **fighting**, which is standing next to somebody and swinging.
+
+Every one of those looked like the bug when counted from outside, and the first
+version of the guard failed on all three. The honest boundary is arrival:
+count the approach, stop at the moment it gets there, and say so. What happens
+afterwards belongs to combat and morale, and a flier test that ranges into
+them is measuring the wrong system.
+
+The near-miss is worth keeping. Having just fixed a real pacing bug, a metric
+saying "still pacing" reads as confirmation, and the temptation is to fix
+harder. It took reading `unconscious 170` in a trace to notice that the second
+number was not the first defect at all.
+
+## 109. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).
