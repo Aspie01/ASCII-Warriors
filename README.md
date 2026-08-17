@@ -189,7 +189,7 @@ python -m ascii_warriors --dump-world - --size small --history 200 | less
 | `+` `-` | faster, slower |
 | `< >` | up and down a level |
 | arrows | scroll the view (`PgUp`/`PgDn`/`Home`/`End` to scroll fast) |
-| `d` | designate: dig, channel, stairs, ramp, smooth, engrave, chop, gather |
+| `d` | designate: dig, channel, stairs, ramp, smooth, engrave, chop, gather, sand |
 | `b` | build a workshop, furniture, wall or trap |
 | `p` `w` `n` | place a stockpile / mark the safe burrow / paint a pasture |
 | `o` | queue work orders at a workshop |
@@ -406,6 +406,18 @@ settles everybody else down. A crime nobody was caught at cannot be tried at
 all, and every season it stays open the fortress thinks about it and gets
 angrier. Press `c` for the book — you can hold a trial now instead of waiting
 for the season, or pardon somebody and wear what the rest of them think of it.
+
+**Glass, and what a desert is for.** Mark a patch of sand and somebody brings
+back a bag of it; the desert does not run out. A glass furnace burns sand and
+fuel into green glass tables, chairs, coffers, doors, statues, flasks and
+trinkets — no wood, no ore, no mountain required. An embark on sand with
+nothing growing on it can still furnish itself and still have something to
+sell the caravan.
+
+**What a metal is for.** Gold, platinum, lead and tin make armour, furniture
+and mechanisms; they do not make weapons, and the forge will not let you put
+three bars of gold into a sword that bends on the first parry. Copper, bronze,
+iron, steel, silver and adamantine make both.
 
 **Stonework.** A mason dresses bare rock — walls, and the floors a pick left
 behind. Soil takes no chisel and nothing you built needs one. A smoothed room

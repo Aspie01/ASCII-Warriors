@@ -4260,7 +4260,60 @@ straight corridor, and a *floor* engraving in the middle of a room would have
 been worth five times one at the edge. It now counts the room's own cells once
 and the ring of walls around it once.
 
-## 104. Style
+## 104. Glass, and what a material may become (v3.44)
+
+The audit that found the missing engrave key also produced a list of flags the
+data tables declare and no code reads. Two of them were a whole industry and a
+whole rule.
+
+**`GLASS` and `SAND`.** The `glass` material has been in the table since the
+beginning — density 2600, value 5, shear yield 800, `max_edge` 8000, a bright
+brittle thing — and nothing in the game could produce a single piece of it. The
+`SAND` flag sat on one tile and was read by nobody. So:
+
+- A `sand` designation, valid on anything flagged `SAND`, bound to `a`. The
+  job drops a bag and leaves the tile alone; `complete_job` clears the
+  designation for every designation kind, so a desert is infinite and you
+  re-paint it, which is what a desert is.
+- A `glass_furnace`, a `glassmaking` labour and a `glassmaking` skill.
+- Eight recipes, all `sand` + `FUEL` with `out_material="glass"`: table,
+  chair, coffer, cabinet, door, statue, crafts, flasks.
+
+None of it wants wood, ore or a mountain, which is the point. v3.41 made
+deserts occur and v3.42 made them hard to farm; this is the other side of that
+bargain. A fortress on sand with nothing growing on it can furnish itself and
+still have something for the autumn caravan.
+
+**`WEAPON_OK` and `ARMOR_OK`.** Declared on forty-four materials, read by
+nobody. Gold, platinum, lead and tin all say *not a weapon* and the forge
+would happily take three bars of gold and a load of charcoal and give you a
+sword that bends on the first parry. `production.material_allows` now asks,
+for any input that is not `FUEL` or `FLUX` — those are burned, not shaped, and
+checking them was the first version's bug: it rejected the coal and no recipe
+could be made at all.
+
+The rule found two gaps in the data rather than the other way round.
+`wood_shield` and `make_whip` are recipes that already existed and that no
+material could satisfy any more, because wood had no `ARMOR_OK` and leather no
+`WEAPON_OK`. A wooden shield and a leather whip are both real things. The test
+that caught it — "for each input, is there any material this item could
+plausibly be made of that the rule lets through?" — is worth more than the
+rule: a gate that forbids everything is not a rule, it is an outage.
+
+**Six tiles made of nothing.** `dirt`, `sand`, `mud` and three more named
+materials that did not exist. `mat_data.get` falls through to iron and
+`Item.__init__` silently swaps an unknown material for iron rather than
+complain, so a bag of sand would have been a bag of iron and nobody would have
+seen a traceback. The three soils are real materials now, and a test walks
+every tile's material name.
+
+`Item.base_name` needed one more line for it: it dropped the material
+adjective when the noun *started* with it, so "bag of sand" came out as "sand
+bag of sand". It now also drops it when the adjective appears as a word
+anywhere in the noun. A sand bag would be a bag made of sand, which is a
+different object.
+
+## 105. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

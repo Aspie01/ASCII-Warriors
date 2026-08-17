@@ -86,7 +86,10 @@ def _m(
 
 _METAL = ("METAL", "WEAPON_OK", "ARMOR_OK")
 _STONE = ("STONE",)
-_WOOD = ("WOOD", "FLAMMABLE", "WEAPON_OK")
+# `ARMOR_OK` because a shield is armour and a wooden shield is a real thing.
+# There is no recipe asking wood for a mail shirt, and the flag is a rule
+# about what a workshop may accept, not a claim that it would be any good.
+_WOOD = ("WOOD", "FLAMMABLE", "WEAPON_OK", "ARMOR_OK")
 _ORGANIC = ("ORGANIC",)
 
 MATERIALS: Dict[str, Material] = {}
@@ -199,7 +202,8 @@ for _wid, _wname, _wcol, _wval in (
 # -- organics --------------------------------------------------------------- #
 _add(_m("leather", "leather", "leather", "leather", 800, colors.LEATHER,
         11000, 11000, 11000, 11000, 0, 2,
-        ("LEATHER", "ORGANIC", "ARMOR_OK", "FLAMMABLE"), 10250))
+        ("LEATHER", "ORGANIC", "ARMOR_OK", "WEAPON_OK",
+         "FLAMMABLE"), 10250))
 _add(_m("bone", "bone", "bone", "bone", 500, colors.BONE,
         200000, 200000, 115000, 130000, 6000, 2,
         ("BONE", "ORGANIC", "WEAPON_OK", "ARMOR_OK"), 12000))
@@ -246,6 +250,18 @@ for _gid, _gname, _gcol, _gval in (
 ):
     _add(_m(_gid, _gname, _gname, "gem", 3000, _gcol,
             1000, 1000, 800, 800, 0, _gval, ("GEM",), 25000))
+
+# -- the ground ------------------------------------------------------------- #
+# The tiles have named these three since the tile table was written and there
+# was nothing behind the names: `mat_data.get("dirt")` fell through to iron,
+# and a bag of sand would have been a bag of iron, because `Item` quietly
+# swaps an unknown material for iron rather than complain.
+_add(_m("dirt", "dirt", "earthen", "soil", 1300, colors.SOIL,
+        1000, 1000, 200, 200, 0, 1, ("SOIL",), 12000))
+_add(_m("sand", "sand", "sand", "soil", 1600, colors.SAND,
+        1000, 1000, 200, 200, 0, 1, ("SOIL",), 13000))
+_add(_m("mud", "mud", "muddy", "soil", 1700, colors.Color(96, 76, 56),
+        1000, 1000, 200, 200, 0, 1, ("SOIL",), 12000))
 
 # -- miscellaneous ---------------------------------------------------------- #
 _add(_m("glass", "glass", "glass", "glass", 2600, colors.Color(178, 214, 218),

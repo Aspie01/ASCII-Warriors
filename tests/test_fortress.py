@@ -333,6 +333,13 @@ class TestDesignations(unittest.TestCase):
         self.assertEqual(len(letters), len(set(letters)), "two on one key")
         self.assertNotIn("x", letters, "x already erases")
 
+    def test_every_kind_says_what_it_is_doing(self):
+        """The units list and the job screen both name the job."""
+        from ascii_warriors.fortress.jobs import JOB_LABELS
+
+        for kind in designation_mod.KINDS:
+            self.assertIn(kind, JOB_LABELS, kind)
+
 
 class TestEmbark(unittest.TestCase):
     """What you get when the wagon stops."""
@@ -971,6 +978,184 @@ class TestProduction(unittest.TestCase):
         recipe = production.RECIPES["wood_bed"]
         log = Item("log", "oak")
         self.assertEqual(production.output_material(recipe, [(log, 1)]), "oak")
+
+
+class TestGlass(unittest.TestCase):
+    """Sand off the desert floor, and what a furnace does with it.
+
+    The `glass` material has been in the table from the beginning -- value,
+    brittleness, a `GLASS` flag -- and nothing in the game could produce a
+    single piece of it. The `SAND` tile flag was read by nobody.
+    """
+
+    def _sand_by_the_dwarves(self, fort):
+        """A sand tile within reach, wherever this embark landed."""
+        d = fort.dwarves()[0]
+        cell = (d.x + 1, d.y, d.z)
+        fort.local.set_tile(*cell, "sand")
+        return cell
+
+    def test_sand_is_gathered_where_there_is_sand(self):
+        """And nowhere else."""
+        fort = embark("sanddig")
+        cell = self._sand_by_the_dwarves(fort)
+        self.assertTrue(fort.designations.valid(fort.local, *cell, "sand"))
+        rock = fort.dwarves()[0]
+        self.assertFalse(fort.designations.valid(
+            fort.local, rock.x, rock.y, rock.z, "sand"))
+
+    def test_gathering_sand_fills_a_bag_and_leaves_the_desert(self):
+        """A desert does not run out. The designation clears; the sand stays."""
+        fort = embark("sandbag")
+        cell = self._sand_by_the_dwarves(fort)
+        for d in fort.dwarves():
+            d.fort.labors.enable("glassmaking")
+        self.assertTrue(fort.designations.set(fort.local, *cell, "sand"))
+        sim.run(fort, 900)
+        bags = [i for pile in fort.items_on_ground.values() for i in pile
+                if i.def_id == "sand"]
+        self.assertTrue(bags, "nobody brought back any sand")
+        self.assertEqual(fort.local.tile(*cell), "sand", "it dug the desert up")
+        self.assertNotIn(cell, fort.designations.cells)
+
+    def test_a_bag_of_sand_is_a_bag_of_sand(self):
+        """Not a sand bag of sand."""
+        self.assertEqual(item_for(embark("sandname"), "sand").name(),
+                         "bag of sand")
+
+    def test_the_furnace_turns_sand_into_glass(self):
+        """The whole industry, end to end."""
+        from ascii_warriors.game.item import Item
+
+        fort = embark("glassmake")
+        spot = soil_room(fort, "glass_furnace")
+        self.assertIsNotNone(spot, "nowhere to put a glass furnace")
+        shop = Building("glass_furnace", *spot)
+        shop.built = True
+        fort.buildings.append(shop)
+        fort.drop_item(Item("sand", "sand", count=6), *shop.center)
+        fort.drop_item(Item("coal", "coal", count=6), *shop.center)
+        for d in fort.dwarves():
+            d.fort.labors.enable("glassmaking")
+        shop.orders.append({"recipe": "glass_statue", "count": 1,
+                            "repeat": False})
+        sim.run(fort, 3000)
+        made = [i for pile in fort.items_on_ground.values() for i in pile
+                if i.def_id == "statue"]
+        self.assertTrue(made, "the furnace made nothing")
+        self.assertEqual(made[0].material, "glass")
+
+    def test_a_desert_has_sand_and_a_forest_has_none(self):
+        """Which is the point of the industry."""
+        from ascii_warriors.data import biomes as biome_data
+        from ascii_warriors.world import tiles as tile_data
+
+        for bid in ("desert", "badlands", "beach"):
+            self.assertEqual(
+                tile_data.soil_tile(biome_data.get(bid).soil), "sand", bid)
+        for bid in ("temperate_forest", "grassland"):
+            self.assertNotEqual(
+                tile_data.soil_tile(biome_data.get(bid).soil), "sand", bid)
+        self.assertTrue(tile_data.get("sand").has("SAND"))
+
+    def test_every_glass_recipe_makes_glass(self):
+        """And makes a real item out of a real input."""
+        from ascii_warriors.data import items as item_data
+
+        recipes = production.recipes_for("glass_furnace")
+        self.assertTrue(recipes)
+        for r in recipes:
+            self.assertIn(r.output, item_data.ITEMS, r.id)
+            self.assertEqual(r.out_material, "glass", r.id)
+            self.assertIn("sand", [req for req, _n in r.inputs], r.id)
+            self.assertIn("FUEL", [req for req, _n in r.inputs], r.id)
+
+
+class TestWhatAMaterialMayBecome(unittest.TestCase):
+    """`WEAPON_OK` and `ARMOR_OK`: declared on forty-four materials, read by
+    nobody, and so a fortress would put three bars of gold into a sword."""
+
+    def _bars(self, material, count=9):
+        from ascii_warriors.game.item import Item
+
+        return Item("bar", material, count=count)
+
+    def _fuel(self):
+        from ascii_warriors.game.item import Item
+
+        return Item("coal", "coal", count=9)
+
+    def test_gold_makes_no_sword(self):
+        """The data has always said so."""
+        pool = [self._bars("gold"), self._fuel()]
+        self.assertIsNone(
+            production.find_inputs(production.RECIPES["iron_longsword"], pool))
+
+    def test_gold_makes_armour(self):
+        """It is a terrible breastplate and a legal one."""
+        pool = [self._bars("gold"), self._fuel()]
+        self.assertIsNotNone(
+            production.find_inputs(production.RECIPES["iron_mail"], pool))
+
+    def test_iron_makes_both(self):
+        """The rule must not have shut the forge."""
+        for rid in ("iron_longsword", "iron_mail", "iron_bolts"):
+            pool = [self._bars("iron"), self._fuel()]
+            self.assertIsNotNone(
+                production.find_inputs(production.RECIPES[rid], pool), rid)
+
+    def test_the_fuel_is_burned_not_forged(self):
+        """Coal is not a weapon metal and does not need to be."""
+        self.assertTrue(production.material_allows(
+            production.RECIPES["iron_longsword"], "FUEL", self._fuel()))
+
+    def test_every_recipe_can_still_be_made(self):
+        """A rule that forbids everything is not a rule, it is a bug.
+
+        For each input, is there any material the item could plausibly be
+        made of that the rule lets through? Wood gained `ARMOR_OK` and
+        leather gained `WEAPON_OK` because of this test: a wooden shield and
+        a leather whip are both real things and both were recipes already.
+        """
+        from ascii_warriors.data import items as item_data
+        from ascii_warriors.data import materials as mat_data
+        from ascii_warriors.game.item import Item
+
+        for r in production.RECIPES.values():
+            for req, _n in r.inputs:
+                if req in production.CONSUMED or ":" in req:
+                    continue
+                ids = production.CLASS_ITEMS.get(req, (req,))
+                ok = False
+                for did in ids:
+                    defn = item_data.ITEMS.get(did)
+                    if defn is None:
+                        continue
+                    for mat in mat_data.MATERIALS.values():
+                        if not any(f in mat.flags for f in defn.materials):
+                            continue
+                        item = Item(did, mat.id)
+                        if production.satisfies(item, req) \
+                                and production.material_allows(r, req, item):
+                            ok = True
+                            break
+                    if ok:
+                        break
+                self.assertTrue(ok, "%s can no longer be made: %s" % (r.id, req))
+
+    def test_every_tile_is_made_of_something_real(self):
+        """`mat_data.get` falls through to iron, so a wrong name is silent.
+
+        Six tiles named `dirt`, `sand` and `mud` when no such materials
+        existed, which made a bag of sand a bag of iron -- `Item` swaps an
+        unknown material for iron rather than complain about it.
+        """
+        from ascii_warriors.data import materials as mat_data
+        from ascii_warriors.world import tiles as tile_data
+
+        for defn in tile_data.TILES.values():
+            if defn.material:
+                self.assertIn(defn.material, mat_data.MATERIALS, defn.id)
 
 
 class TestIndustry(unittest.TestCase):

@@ -108,6 +108,8 @@ _s("cooking", "Cook", "craft", ("creativity", "kinesthetic_sense"), "")
 _s("brewing", "Brewer", "craft", ("creativity", "patience"), "")
 _s("smelting", "Furnace Operator", "craft", _CRAFT_ATTRS,
    "Turning ore and fuel into metal.")
+_s("glassmaking", "Glassmaker", "craft", _CRAFT_ATTRS,
+   "Melting sand into green glass, and green glass into whatever is wanted.")
 _s("smithing", "Metalcrafter", "craft", _CRAFT_ATTRS, "")
 _s("weaponsmithing", "Weaponsmith", "craft", _CRAFT_ATTRS, "")
 _s("armorsmithing", "Armorsmith", "craft", _CRAFT_ATTRS, "")

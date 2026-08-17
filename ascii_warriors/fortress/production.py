@@ -152,6 +152,32 @@ _r("make_steel", "Make steel", "smelter", "smelting",
    "Iron, flux stone and a great deal of fuel. The best a fortress makes.",
    out_material="steel")
 
+# -- glass furnace ----------------------------------------------------------- #
+# Sand and fuel, and out comes something green. Nothing here wants wood, stone,
+# ore or a mountain: an embark on sand with no trees on it can still furnish
+# itself and still have something to sell the caravan.
+_r("glass_table", "Green glass table", "glass_furnace", "glassmaking",
+   (("sand", 1), ("FUEL", 1)), "table", 1, 260, out_material="glass")
+_r("glass_chair", "Green glass chair", "glass_furnace", "glassmaking",
+   (("sand", 1), ("FUEL", 1)), "chair", 1, 260, out_material="glass")
+_r("glass_coffer", "Green glass coffer", "glass_furnace", "glassmaking",
+   (("sand", 1), ("FUEL", 1)), "coffer", 1, 280, out_material="glass")
+_r("glass_cabinet", "Green glass cabinet", "glass_furnace", "glassmaking",
+   (("sand", 1), ("FUEL", 1)), "cabinet", 1, 280, out_material="glass")
+_r("glass_door", "Green glass door", "glass_furnace", "glassmaking",
+   (("sand", 1), ("FUEL", 1)), "chest", 1, 260, out_material="glass")
+_r("glass_statue", "Green glass statue", "glass_furnace", "glassmaking",
+   (("sand", 2), ("FUEL", 1)), "statue", 1, 380,
+   "Dwarves are unreasonably cheered by a good statue, and glass is a good "
+   "statue.", out_material="glass")
+_r("glass_crafts", "Green glass crafts", "glass_furnace", "glassmaking",
+   (("sand", 1), ("FUEL", 1)), "gem", 2, 240,
+   "Trinkets, and worth more than the stone ones.", out_material="glass")
+_r("glass_flask", "Green glass flasks", "glass_furnace", "glassmaking",
+   (("sand", 1), ("FUEL", 1)), "flask", 2, 240,
+   "Something to carry a drink in that is not a barrel.",
+   out_material="glass")
+
 # -- forge ------------------------------------------------------------------- #
 # Everything here takes bars and fuel. A forge with no smelter behind it is an
 # expensive floor.
@@ -294,6 +320,32 @@ def satisfies(item, requirement: str) -> bool:
     return item.def_id == requirement
 
 
+#: Inputs that are burned or fluxed away rather than shaped. What they are
+#: made of has nothing to do with what comes out of the workshop.
+CONSUMED: Tuple[str, ...] = ("FUEL", "FLUX")
+
+
+def material_allows(recipe: Recipe, requirement: str, item) -> bool:
+    """Whether this material may become what the recipe is making.
+
+    Every material in the table has said for a long time whether it is a
+    weapon metal and whether it is an armour metal, and nothing had ever
+    asked: a fortress would put three bars of gold and a load of charcoal
+    into a sword that bends on the first parry. Gold, platinum, lead and tin
+    are armour and furniture and nothing else, which is what the data has
+    always said and now what the forge does.
+    """
+    if requirement in CONSUMED:
+        return True
+    defn = item_data.get(recipe.output)
+    mat = item.mat
+    if defn.category in ("weapon", "ammo") and not mat.has("WEAPON_OK"):
+        return False
+    if defn.category in ("armor", "shield") and not mat.has("ARMOR_OK"):
+        return False
+    return True
+
+
 def find_inputs(recipe: Recipe, pool: Sequence) -> Optional[List]:
     """Pick items from *pool* satisfying a recipe, or ``None`` if short."""
     chosen: List = []
@@ -304,6 +356,8 @@ def find_inputs(recipe: Recipe, pool: Sequence) -> Optional[List]:
             if id(item) in used:
                 continue
             if not satisfies(item, requirement):
+                continue
+            if not material_allows(recipe, requirement, item):
                 continue
             take = min(count - found, item.count)
             if take <= 0:

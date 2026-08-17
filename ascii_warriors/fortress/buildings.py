@@ -71,6 +71,11 @@ KINDS: Dict[str, BuildingKind] = {
            3, 3, ("STONE",), 1, 220, "building", "smelting",
            "floor_constructed", "Workshops", True,
            "Burns logs into charcoal, which is what everything else burns."),
+        _b("glass_furnace", "Glass furnace", "&", colors.Color(150, 205, 210),
+           3, 3, ("STONE",), 1, 240, "building", "glassmaking",
+           "floor_constructed", "Workshops", True,
+           "Sand and fuel in, green glass out. A fortress with no trees and "
+           "no ore still has a desert."),
         _b("magma_smelter", "Magma smelter", "&", colors.Color(240, 110, 50),
            3, 3, ("STONE",), 1, 300, "building", "smelting",
            "floor_constructed", "Workshops", True,
@@ -203,7 +208,8 @@ GATE_TILES: Dict[str, Tuple[str, str]] = {
 
 WORKSHOP_KINDS: Tuple[str, ...] = (
     "carpenter", "mason", "craftsdwarf", "smith", "smelter", "wood_furnace",
-    "magma_smelter", "magma_forge", "still", "kitchen", "butcher",
+    "magma_smelter", "magma_forge", "glass_furnace", "still", "kitchen",
+    "butcher",
 )
 
 #: Workshops that burn magma instead of fuel, and so have to sit on top of it.

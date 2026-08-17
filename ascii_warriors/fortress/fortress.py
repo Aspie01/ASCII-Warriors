@@ -1155,6 +1155,11 @@ class Fortress:
         self.drop_item(Item("plump_helmet", "plant",
                             count=self.rng.randint(2, 5)), *cell)
 
+    def _finish_sand(self, dwarf, job: Job) -> None:
+        """A bag of sand off the desert floor. The desert stays where it is."""
+        self.drop_item(Item("sand", "sand"), *job.cell)
+        dwarf.add_exp("glassmaking", 8)
+
     def _finish_remove(self, dwarf, job: Job) -> None:
         cell = job.cell
         self.dig_out(cell, "floor")

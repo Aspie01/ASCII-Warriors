@@ -169,7 +169,10 @@ class Item:
         if d.category == "corpse":
             return noun
         adjective = self.mat.adjective
-        if noun.lower().startswith(adjective.lower()):
+        low, adj = noun.lower(), adjective.lower()
+        if low.startswith(adj) or adj in low.split():
+            # "a bag of sand", not "a sand bag of sand" -- and a sand bag
+            # would be a bag made of sand, which is a different object.
             return noun
         return "%s %s" % (adjective, noun)
 

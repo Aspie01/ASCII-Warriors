@@ -123,6 +123,24 @@ deal with anyway -- and the water leaves mud on the rock. Mud takes a crop.
 Shut the gate, let it drain, and plant. A floor you have already smoothed will
 not soak, which is the point of smoothing it.
 
+GLASS
+
+Sand is worth something. Press d then a to mark a patch of sand, and somebody
+with the glassmaking labor brings back a bag of it; the desert stays where it
+is, so mark it again. A glass furnace burns sand and fuel into green glass
+tables, chairs, coffers, cabinets, doors, statues, flasks and trinkets.
+
+It wants no wood, no ore and no mountain. An embark on sand with nothing
+growing on it can still furnish itself and still have something to sell the
+autumn caravan, which is most of what a desert is for.
+
+WHAT A METAL IS FOR
+
+Gold, platinum, lead and tin make armour, furniture and mechanisms. They do
+not make weapons, and the forge will no longer let you put three bars of gold
+into a sword that bends on the first parry. Copper, bronze, iron, steel,
+silver and adamantine make both.
+
 SMOOTHING AND ENGRAVING
 
 Press d for designations, then s to smooth and e to engrave.

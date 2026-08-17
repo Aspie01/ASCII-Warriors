@@ -43,6 +43,8 @@ LABORS: Dict[str, Labor] = {
         Labor("crafting", "Stonecrafting", "Crafts", "crafting", ""),
         Labor("smelting", "Furnace operating", "Crafts", "smelting",
               "Run the smelter and the wood furnace."),
+        Labor("glassmaking", "Glassmaking", "Crafts", "glassmaking",
+              "Gather sand and work the glass furnace."),
         Labor("smithing", "Metalsmithing", "Crafts", "smithing", ""),
         Labor("weaponsmithing", "Weaponsmithing", "Crafts", "weaponsmithing", ""),
         Labor("armorsmithing", "Armorsmithing", "Crafts", "armorsmithing", ""),

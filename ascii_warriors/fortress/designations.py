@@ -57,6 +57,10 @@ KINDS: Dict[str, DesignationKind] = {
         DesignationKind("gather", "Gather plants", '"',
                         colors.Color(150, 210, 150), "herbalism", "herbalism", 50,
                         "Pick shrubs for food and seeds."),
+        DesignationKind("sand", "Gather sand", "·",
+                        colors.Color(226, 206, 150), "glassmaking",
+                        "glassmaking", 60,
+                        "Scoop up a bag of sand for the glass furnace."),
         DesignationKind("remove", "Remove construction", "X",
                         colors.Color(200, 140, 130), "building", "masonry", 60,
                         "Tear down a wall or floor you built."),
@@ -99,6 +103,11 @@ class Designations:
             return t.has("TREE")
         if kind == "gather":
             return tid == "shrub"
+        if kind == "sand":
+            # The one thing the `SAND` flag has ever been for. A desert does
+            # not run out of it: the designation clears when the bag is
+            # filled, and you paint it again.
+            return t.has("SAND")
         if kind == "remove":
             return t.has("CONSTRUCTED")
         return False

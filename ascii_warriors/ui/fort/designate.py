@@ -24,6 +24,7 @@ BINDINGS: Tuple[Tuple[str, str], ...] = (
     ("e", "engrave"),
     ("t", "chop"),
     ("g", "gather"),
+    ("a", "sand"),
     ("n", "remove"),
 )
 
