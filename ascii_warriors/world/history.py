@@ -449,12 +449,40 @@ def _spawn_megabeast(world, rng: RNG, year: int) -> Optional[HistoricalFigure]:
     fig.flags.add("monster")
     fig.titles.append(name_data.title_for(rng, "monster"))
     fig.stats["prowess"] = rng.randint(12, 25)
+    # It has to live somewhere. A megabeast used to be a name and a body count
+    # and nothing else -- it raided a settlement each year from nowhere in
+    # particular -- so the quest to kill one had nowhere to send you and made a
+    # cave up, `rng.choice(lairs)`, unrelated to the beast. The lair is now the
+    # beast's own, `site_id` being a field every figure has already had.
+    lairs = [s for s in world.sites
+             if s.kind in ("lair", "cave") and not s.is_ruin
+             and not _lair_of(world, s.id, year)]
+    if lairs:
+        fig.site_id = rng.choice(lairs).id
     record(
         world, year, "beast_attack",
         "The %s %s awoke in the wilds." % (defn.name, fig.display_name),
         [fig.id],
     )
     return fig
+
+
+def _lair_of(world, site_id: int, year: int):
+    """The living monster that lairs at a site, if one does.
+
+    One beast to a cave: two of them sharing would mean the quest naming the
+    place could still send you at the wrong one.
+    """
+    for f in world.figures.values():
+        if ("monster" in f.flags and f.site_id == site_id
+                and f.alive(year)):
+            return f
+    return None
+
+
+def lair_beast(world, site_id: int, year: int):
+    """Public form of :func:`_lair_of`, for the map builder and the quests."""
+    return _lair_of(world, site_id, year)
 
 
 def _living_monsters(world, year: int) -> List[HistoricalFigure]:

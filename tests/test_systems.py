@@ -2481,11 +2481,28 @@ class TestMounts(GameFixture):
         self.horse = self._spawn("horse")
 
     def _spawn(self, def_id, faction="wild"):
+        """Put one animal beside the player, and nothing else.
+
+        The tile east of the player was assumed empty and is not always: what
+        else the map generator put there is a property of the seed, and a
+        wandering troll standing on it is what `ride_or_dismount` then found
+        when it looked for an animal to get on. Cleared and placed rather than
+        hoped for.
+        """
         from ascii_warriors.game.entity import make_creature
 
-        c = make_creature(self.game.rng, def_id, faction=faction)
         p = self.game.player
-        c.x, c.y, c.z = p.x + 1, p.y, p.z
+        near = [(p.x + dx, p.y + dy, p.z)
+                for dx in (-1, 0, 1) for dy in (-1, 0, 1)
+                if not (dx == 0 and dy == 0)]
+        for other in list(self.game.creatures.values()):
+            if other is not p and (other.x, other.y, other.z) in near:
+                self.game.creatures.pop(other.id, None)
+                self.game.scheduler.remove(other.id)
+        c = make_creature(self.game.rng, def_id, faction=faction)
+        spot = next((cell for cell in near
+                     if self.game.local.walkable(*cell)), near[0])
+        c.x, c.y, c.z = spot
         self.game.add_creature(c)
         return c
 
@@ -2690,6 +2707,113 @@ class TestMounts(GameFixture):
         path.unlink()
 
 
+class TestSlayingTheBeast(unittest.TestCase):
+    """A quest that could not be finished, end to end.
+
+    "Every quest points at something that exists" is the README's promise, and
+    every target did exist. None of them was there. The chain from a name in
+    the histories to a body on the floor had a gap in the middle of it, and
+    this walks the whole thing: take the quest, go where it sends you, kill
+    what it names, and be paid.
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.mkdtemp()
+        self._old = os.environ.get("ASCII_WARRIORS_SAVE_DIR")
+        os.environ["ASCII_WARRIORS_SAVE_DIR"] = self._tmp
+
+    def tearDown(self):
+        if self._old is None:
+            os.environ.pop("ASCII_WARRIORS_SAVE_DIR", None)
+        else:
+            os.environ["ASCII_WARRIORS_SAVE_DIR"] = self._old
+
+    def _quest(self, seed):
+        """A game, and the first slay-the-beast quest anybody offers in it."""
+        from ascii_warriors.game import quests
+        from ascii_warriors.world.worldgen import generate_world
+
+        rng = RNG(seed)
+        world = generate_world(rng.sub("w"), size="small", history_years=150)
+        game = Game.new_game(
+            world, {"race": "human", "profession": "warrior"}, rng)
+        givers = [c for c in game.creatures.values()
+                  if c.defn.has("CAN_SPEAK") and not c.is_player]
+        for giver in givers[:80]:
+            q = quests.generate_quest(game.rng, game, giver)
+            if q is not None and q.kind == "slay_beast":
+                game.quests.accept(q)
+                return game, q
+        return game, None
+
+    def test_the_quest_sends_you_to_the_beasts_own_lair(self):
+        """Not `rng.choice(lairs)`, which is what it used to be.
+
+        Across several worlds, because a cave picked at random is sometimes
+        the right cave: on one world the old rule passed this by luck.
+        """
+        checked = 0
+        for seed in ("slay1", "slay2", "slay3", "slay4"):
+            game, q = self._quest(seed)
+            if q is None:
+                continue
+            fig = game.world.figures.get(q.target_hf)
+            self.assertIsNotNone(fig)
+            self.assertIsNotNone(fig.site_id,
+                                 "%s: the beast lairs nowhere" % seed)
+            self.assertEqual(q.site_id, fig.site_id,
+                             "%s: sent where the beast does not live" % seed)
+            checked += 1
+        self.assertGreater(checked, 1, "hardly any slay quests were offered")
+
+    def test_the_beast_is_there_when_you_arrive(self):
+        """The half that was missing, on three worlds rather than one."""
+        for seed in ("slay1", "slay2", "slay3"):
+            game, q = self._quest(seed)
+            if q is None:
+                continue
+            game.enter_world_tile(q.wx, q.wy)
+            quarry = [c for c in game.creatures.values()
+                      if c.hf_id == q.target_hf and not c.body.dead]
+            self.assertEqual(len(quarry), 1,
+                             "%s: the beast is not at its lair" % seed)
+            fig = game.world.figures.get(q.target_hf)
+            self.assertEqual(quarry[0].def_id, fig.creature_id,
+                             "%s: wrong species waiting" % seed)
+
+    def test_killing_it_finishes_the_quest_and_the_figure(self):
+        """And the world remembers, which is what the legends are for."""
+        game, q = self._quest("slay1")
+        self.assertIsNotNone(q)
+        game.enter_world_tile(q.wx, q.wy)
+        beast = next(c for c in game.creatures.values()
+                     if c.hf_id == q.target_hf)
+        beast.body.dead = True
+        beast.body.death_cause = "slain"
+        game.kill_creature(beast)
+        self.assertGreaterEqual(q.progress, q.goal, "the kill did not count")
+        if q.state != "done":
+            # A quest with a giver is reported back rather than closing itself.
+            self.assertTrue(game.quests.turn_in(game, q.giver_hf))
+        self.assertEqual(q.state, "done")
+        fig = game.world.figures.get(q.target_hf)
+        self.assertIsNotNone(fig.died, "the histories never heard about it")
+        self.assertIn("slain", fig.death_cause)
+
+    def test_the_lair_survives_a_save(self):
+        """Where a beast lives is world state, and worlds get written down."""
+        from ascii_warriors.world.worldgen import World, generate_world
+
+        world = generate_world(RNG("saved").sub("w"), size="small",
+                               history_years=150)
+        beasts = [f for f in world.figures.values()
+                  if "monster" in f.flags and f.alive(world.year)]
+        self.assertTrue(beasts)
+        again = World.from_dict(json.loads(json.dumps(world.to_dict())))
+        for fig in beasts:
+            self.assertEqual(again.figures[fig.id].site_id, fig.site_id)
+
+
 class TestPlayingTheAdventure(GameFixture):
     """The clock an adventurer lives on, and the driver that measures it.
 
@@ -2701,8 +2825,20 @@ class TestPlayingTheAdventure(GameFixture):
     """
 
     def _turns(self, n, cost=None):
-        """Take *n* ordinary turns the way the play screen does."""
+        """Take *n* ordinary turns the way the play screen does.
+
+        With the map cleared of anything hostile first. A test about the clock
+        that shares a hamlet with a troll measures how long the player lasts,
+        because `player_acts` does nothing once the game is over -- which is
+        how this came to read 81 ticks out of 200 the moment an unrelated
+        change moved the world's dice.
+        """
+        for other in list(self.game.creatures.values()):
+            if other is not self.game.player and other.faction == "hostile":
+                self.game.creatures.pop(other.id, None)
+                self.game.scheduler.remove(other.id)
         for _ in range(n):
+            self.assertFalse(self.game.game_over, "the run ended early")
             self.game.player_acts(cost or actions.wait(self.game))
 
     def test_an_action_moves_the_world_clock(self):
@@ -3549,10 +3685,23 @@ class TestKin(GameFixture):
         self.assertGreater(shared, 0)
 
     def test_kin_are_blood_and_marriage_only(self):
+        """`kin_of` counts blood and marriage, and a killer is neither.
+
+        Built rather than hunted. This used to skip itself when the generated
+        history happened to contain no slaying, so it measured nothing on the
+        worlds that did not oblige -- and it went quiet the moment an unrelated
+        change moved the dice, which is how it was noticed.
+        """
+        pair = [f for f in self.world.figures.values() if f.relationships][:2]
+        self.assertEqual(len(pair), 2, "nobody in this world knows anybody")
+        victim, killer = pair
+        victim.relationships[killer.id] = "slain_by"
+        killer.relationships[victim.id] = "slew"
+        self.assertNotIn(killer, self.history.kin_of(self.world, victim),
+                         "a killer counts as family")
         slain = [f for f in self.world.figures.values()
                  if any(k == "slain_by" for k in f.relationships.values())]
-        if not slain:
-            self.skipTest("nobody in this world was slain by anybody")
+        self.assertTrue(slain)
         for f in slain:
             for k in self.history.kin_of(self.world, f):
                 self.assertIn(f.relationships[k.id],

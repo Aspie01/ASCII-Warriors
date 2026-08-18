@@ -484,6 +484,12 @@ def build_lair(lm, world, site, rng: RNG) -> List[PopSpec]:
         lm.set_tile(ex, ey, zz, "stair_updown")
     lm.entry_points["cave"] = (ex, ey, sz)
 
+    # Whoever actually lairs here, if the world remembers somebody doing so.
+    # This used to be `rng.choice(megabeasts)`: an anonymous beast of a random
+    # species with no `hf_id`, in a cave the histories had never heard of --
+    # while the quest to kill a named beast pointed at a cave picked the same
+    # way. The two halves existed for versions and were never joined, so a
+    # slay-the-beast quest could not be finished by anybody.
     beasts = [c for c in creature_data.megabeasts() if c.frequency > 0]
     beast = rng.choice(beasts) if beasts else creature_data.get("troll")
     x, y, _zz = lm.random_open(rng, z)
@@ -606,13 +612,51 @@ def build_site(lm, world, site, rng: RNG) -> List[PopSpec]:
     if site is None:
         return []
     if site.is_ruin and site.kind not in ("ruin", "tomb"):
-        return build_ruin(lm, world, site, rng)
-    builder = _BUILDERS.get(site.kind)
-    if builder is None:
-        return []
-    pop = builder(lm, world, site, rng)
+        # Falls through to the shared tail rather than returning here: a cave
+        # that fell in since the beast moved into it is still where the beast
+        # lives, and the early return was why the one ruined lair in a world
+        # came out empty.
+        pop = build_ruin(lm, world, site, rng)
+    else:
+        builder = _BUILDERS.get(site.kind)
+        if builder is None:
+            return []
+        pop = builder(lm, world, site, rng)
     # Every builder above invents anonymous townsfolk, and the world has
     # already decided who lives here by name. One funnel, so no builder has to
     # remember to ask.
     resident_mod.name_the_locals(world, site, pop)
+    _add_lair_beast(lm, world, site, rng, pop)
     return pop
+
+
+def _add_lair_beast(lm, world, site, rng: RNG, pop: List[PopSpec]) -> None:
+    """Put the beast the histories say lairs here into its own lair.
+
+    Here rather than in a builder, for the same reason the residents are named
+    here: three builders make somewhere a beast can live -- `build_lair`,
+    `build_cave`, and `build_ruin` for the cave that fell in since -- and the
+    one that was missed is the one that mattered. `build_lair` used to put a
+    beast of a random species with no `hf_id` in every lair, while the quest to
+    kill a *named* beast pointed at a cave chosen the same random way and the
+    beast itself lived nowhere at all. Every half existed and none were joined,
+    so a slay-the-beast quest could not be finished by anybody.
+    """
+    from . import history as history_mod
+
+    fig = history_mod.lair_beast(world, site.id, world.year)
+    if fig is None:
+        return
+    if any(spec.get("hf_id") == fig.id for spec in pop):
+        return
+    defn = creature_data.get(fig.creature_id)
+    # Underground if this place has an underground; a beast in a hole in the
+    # ground is the point of it.
+    z = -1 if lm.zmin <= -1 else lm.zmin
+    spot = lm.random_open(rng, z) or lm.random_open(rng)
+    if spot is None:
+        return
+    x, y, zz = spot
+    pop.append(_pop(defn.id, x, y, zz, faction="hostile",
+                    profession=defn.name, role="beast", level=2,
+                    name=fig.display_name, hf_id=fig.id))

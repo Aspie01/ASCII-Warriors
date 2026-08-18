@@ -4811,7 +4811,112 @@ the new one in a single shell invocation matches the new one's `bash -c`
 wrapper too. Writing a hazard down is not the same as not walking into it. The
 rule is now the stronger one: kill in one call, launch in the next.
 
-## 112. Style
+## 112. The beast that was never there (v3.52)
+
+v3.51 built an instrument for playing adventure mode and found nothing. This
+is what it found when pointed at the README's own headline promise — *"Every
+quest points at something that exists"* — and asked the next question: it
+exists, but is it **there**?
+
+Generating every kind of quest across three worlds, every target checked out.
+The figure was alive, the site was real, the coordinates were on land. Then
+travelling to each one and looking:
+
+| quest | at the place |
+|---|---|
+| `clear_site` | hostiles waiting, as promised |
+| `explore` | arrival registers |
+| `slay_beast` | **no quarry** |
+| `bounty` | **no quarry** |
+
+**A megabeast had nowhere to live.** `_spawn_megabeast` gave the figure a name,
+a species and a prowess score, and no home at all; each year it raided a random
+settlement from nowhere in particular. So `_quest_slay_beast` had nothing to
+point at, and said *"It is said to lair at ..."* with `rng.choice(lairs)` — the
+game told the player where to go and the answer was a coin toss.
+
+Meanwhile `build_lair` put a beast of a **random species** with **no `hf_id`**
+in every lair. So there were three halves of a feature — a named beast in the
+histories, a lair with an anonymous monster in it, and a quest that named both
+— and none of them were joined. `on_kill` matches on `victim.hf_id`, so even
+standing over a dead beast nothing could ever count.
+
+The fix joins them, using fields that already existed:
+
+- `_spawn_megabeast` gives the figure a `site_id`, which every
+  `HistoricalFigure` has had and which the save already writes. One beast to a
+  cave, or the quest naming the place could still send you at the wrong one.
+- `sitegen.build_site` places it — in `build_site`, not in a builder, for the
+  same reason the residents are named there. **Three** builders make somewhere
+  a beast can live: `build_lair`, `build_cave`, and `build_ruin` for the cave
+  that fell in since. The first fix touched two of them and the one it missed
+  was the one that mattered.
+- `_quest_slay_beast` names the beast's own lair.
+
+Everything downstream already worked: the creature is named from its figure in
+`Game.enter_world_tile`, `quests.on_kill` matches on `hf_id`, and
+`renown.record_kill` writes the death into the histories. Killing the thing now
+closes the quest and puts a date on the figure — the beast that has been eating
+villages for a century has an end, and the legends say who ended it.
+
+### 112.1. An early return that skipped the funnel
+
+`build_site` is the one funnel — its own comment says so, above the line that
+names the locals — but it opened with
+
+```python
+if site.is_ruin and site.kind not in ("ruin", "tomb"):
+    return build_ruin(lm, world, site, rng)
+```
+
+and that `return` skipped the funnel's tail entirely. On one world in four,
+the beast's cave had fallen into ruin since it moved in, and that beast alone
+came out missing. Every other one was fine, which is exactly the shape of bug
+that ships: it is only visible if the test walks *every* beast rather than the
+first.
+
+A funnel with an early return above it is not a funnel. The ruin branch now
+falls through to the shared tail like everything else.
+
+### 112.2. A guard that a coin toss could pass
+
+The re-break for "the quest names a random cave again" did not fail, because a
+cave picked at random is sometimes the right cave. On the single world the test
+used, the old rule got lucky. The guard now checks four worlds and fails if any
+of them is wrong — the same lesson as §106.1, arrived at from the other
+direction: a test on one seed is a test of that seed.
+
+### 112.3. What moving the dice shook out
+
+Giving a beast a lair draws from the world's RNG, so every world after this
+change is a different world. Four tests went red and one went quiet, none of
+them from the logic:
+
+- **two mount tests** put the horse on the tile east of the player and assumed
+  it empty. A wandering troll stood there instead, and `ride_or_dismount`
+  found the troll when it went looking for something to get on. The fixture
+  now clears the player's neighbours and places the horse on a tile it has
+  checked is free.
+- **the adventure clock test**, written one milestone ago, shared its hamlet
+  with that troll and measured 81 ticks out of 200 — because `player_acts`
+  does nothing once the game is over, so a dead player's turns are free. It
+  clears the hostiles first and asserts the run has not ended.
+- **a residents guard** insisted every creature carrying an `hf_id` was
+  civilised or matched its civ's race. A named megabeast is neither: it is
+  drawn as its `creature_id`, while `new_figure` left its `race` as the
+  "human" it was made with. The guard now knows about monsters and checks the
+  stronger thing — that the creature on the map is the species the histories
+  name.
+- **a kin test skipped itself**, "nobody in this world was slain by anybody",
+  and the skip count going from one to two was the only sign. It hunted the
+  generated history for a slaying instead of staging one. It stages one now.
+
+Four seed-fragile tests and one silent skip is a fair toll for a worldgen
+change, and every one of them was a test that measured the seed rather than
+the game. The skip is the one worth watching for: a red test argues, a skipped
+test says nothing at all.
+
+## 113. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

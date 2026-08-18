@@ -315,8 +315,10 @@ def _quest_slay_beast(rng: RNG, game, giver) -> Optional[Quest]:
         return None
     beast = rng.choice(monsters)
     defn = creature_data.get(beast.creature_id)
-    lairs = [s for s in world.sites if s.kind in ("lair", "cave") and not s.is_ruin]
-    site = rng.choice(lairs) if lairs else None
+    # Where it actually lairs. This used to be `rng.choice(lairs)` -- the quest
+    # told you where to go and the answer was a coin toss, so the beast was
+    # never there and the quest could not be completed by anybody.
+    site = next((s for s in world.sites if s.id == beast.site_id), None)
     q = Quest(
         "slay_beast",
         "Slay the %s %s" % (defn.name, beast.display_name),

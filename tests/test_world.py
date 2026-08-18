@@ -681,6 +681,15 @@ class TestResidents(unittest.TestCase):
                 fig = self.world.figures.get(c.hf_id)
                 self.assertIsNotNone(fig)
                 defn = creature_data.get(c.def_id)
+                if "monster" in fig.flags:
+                    # A named megabeast in its own lair. `new_figure` gives
+                    # every figure a `race` and a monster's is the "human" it
+                    # was made with, so `creature_id` is what it actually is --
+                    # which is the field the lair and the quest both use.
+                    self.assertEqual(c.def_id, fig.creature_id,
+                                     "%s is drawn as a %s" % (fig.name, c.def_id))
+                    checked += 1
+                    continue
                 # A creature with no civ of its own -- guard, merchant, bandit
                 # -- is a job rather than a race, and contradicts nobody.
                 if defn.civ:
@@ -1094,3 +1103,75 @@ class TestPrayer(unittest.TestCase):
 
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
+
+
+class TestTheBeastAndItsLair(unittest.TestCase):
+    """A named beast has somewhere to be, and the quest knows where.
+
+    Found by taking the README at its word -- "Every quest points at something
+    that exists" -- and going to look. Every target did exist. None of them was
+    there. A megabeast was a name and a body count: `_spawn_megabeast` gave it
+    no home, it raided a random settlement each year from nowhere in
+    particular, and `_quest_slay_beast` therefore had nothing to point at and
+    named `rng.choice(lairs)` instead. Meanwhile `build_lair` put a beast of a
+    random species, with no `hf_id`, in every lair. Three halves, none of them
+    joined, and a whole quest kind that nobody could finish.
+    """
+
+    def _world(self, seed="lair", years=150):
+        return generate_world(RNG(seed).sub("w"), size="small",
+                              history_years=years)
+
+    def _beasts(self, world):
+        return [f for f in world.figures.values()
+                if "monster" in f.flags and f.alive(world.year)]
+
+    def test_a_living_beast_lairs_somewhere(self):
+        """It has to be findable, which means it has to be somewhere."""
+        world = self._world()
+        beasts = self._beasts(world)
+        self.assertTrue(beasts, "no megabeast survived the history")
+        homeless = [f.display_name for f in beasts if f.site_id is None]
+        self.assertEqual(homeless, [], "beasts with nowhere to be")
+        for f in beasts:
+            site = next((s for s in world.sites if s.id == f.site_id), None)
+            self.assertIsNotNone(site, "%s lairs nowhere real" % f.display_name)
+            self.assertIn(site.kind, ("lair", "cave"))
+
+    def test_no_two_beasts_share_a_cave(self):
+        """Or the quest naming the place still sends you at the wrong one."""
+        world = self._world("shared")
+        homes = [f.site_id for f in self._beasts(world)]
+        self.assertEqual(len(homes), len(set(homes)), "two beasts, one cave")
+
+    def test_the_lair_holds_the_beast_the_histories_name(self):
+        """Right species, right name, and the id that ties it to the story."""
+        world = self._world("occupied")
+        beasts = self._beasts(world)
+        self.assertTrue(beasts)
+        checked = 0
+        for fig in beasts:
+            site = next((s for s in world.sites if s.id == fig.site_id), None)
+            if site is None:
+                continue
+            _lm, pop = generate_local(world, site.wx, site.wy,
+                                      RNG("pop%d" % fig.id), site=site)
+            named = [p for p in pop if p.get("hf_id") == fig.id]
+            self.assertEqual(len(named), 1,
+                             "%s is not in its own lair" % fig.display_name)
+            self.assertEqual(named[0]["def_id"], fig.creature_id)
+            checked += 1
+        self.assertGreater(checked, 0, "no lair was built at all")
+
+    def test_a_cave_with_nobody_in_it_still_builds(self):
+        """The fallback: most caves have no megabeast, and still need filling."""
+        world = self._world("empty")
+        taken = {f.site_id for f in self._beasts(world)}
+        spare = [s for s in world.sites
+                 if s.kind in ("lair", "cave") and s.id not in taken
+                 and not s.is_ruin]
+        self.assertTrue(spare, "every cave in the world has a beast in it")
+        site = spare[0]
+        _lm, pop = generate_local(world, site.wx, site.wy, RNG("spare"),
+                                  site=site)
+        self.assertTrue(pop, "an unoccupied cave came out empty")

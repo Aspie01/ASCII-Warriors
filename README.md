@@ -577,8 +577,11 @@ where the next adventurer, or a fortress in the same world, can read about them.
 **Conversation and quests.** Ask about this place, its ruler, its troubles, the
 beasts in the region, or for directions, and you get real answers from the
 generated history. Ask for work and you get a quest that points at a real
-megabeast in a real lair, or a real artifact in a real ruin. Threaten somebody
-and they will either talk or attack you.
+megabeast in a real lair, or a real artifact in a real ruin. Go there and the
+beast is waiting: a megabeast lairs somewhere in particular, the quest names
+that place and no other, and killing it puts a date on the figure the legends
+have been writing about for a century. Threaten somebody and they will either
+talk or attack you.
 
 **Fire.** Trees, saplings, shrubs and anything wooden on the ground will burn.
 Set one with a lit torch, and it spreads to what is beside it, burns down over
