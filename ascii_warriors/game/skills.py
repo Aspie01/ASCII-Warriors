@@ -119,6 +119,8 @@ _s("carpentry", "Carpenter", "craft", _CRAFT_ATTRS, "")
 _s("masonry", "Mason", "craft", ("strength", "creativity"), "")
 _s("mechanics", "Mechanic", "craft", ("analytical_ability", "agility"), "")
 _s("crafting", "Craftsdwarf", "craft", _CRAFT_ATTRS, "")
+_s("gemcutting", "Gem cutter", "craft", ("agility", "focus", "spatial_sense"),
+   "Cutting rough stones and setting them into metal.")
 _s("engraving", "Engraver", "craft", ("creativity", "agility"), "")
 _s("leatherwork", "Leatherworker", "craft", _CRAFT_ATTRS, "")
 _s("bowyer", "Bowyer", "craft", _CRAFT_ATTRS, "")

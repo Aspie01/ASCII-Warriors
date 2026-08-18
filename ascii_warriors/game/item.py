@@ -569,7 +569,11 @@ _LOOT_TABLE: Dict[str, Sequence[str]] = {
     "drink": ("dwarven_ale", "wine", "rum", "beer", "mead"),
     "tool": ("rope", "torch", "waterskin", "backpack", "whetstone", "bandage",
              "flint_and_steel", "lockpick"),
-    "treasure": ("gem", "coin", "coin", "rough_gem"),
+    # Jewellery too, now that a fortress can make it: an adventurer who finds
+    # a ring in a tomb and a fortress that sets one are the same five item
+    # definitions, and before v3.58 neither half existed.
+    "treasure": ("gem", "coin", "coin", "rough_gem", "ring", "earring",
+                 "bracelet", "amulet"),
 }
 
 

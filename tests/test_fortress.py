@@ -7764,3 +7764,137 @@ class TestFalling(unittest.TestCase):
         fort.drop_item(Item("boulder", "granite"), *cell)
         self.assertEqual(gravity.settle_items(fort, cell), 1)
         self.assertTrue(fort.items_at(*bottom))
+
+
+class TestTheJeweller(unittest.TestCase):
+    """Gems, and the trade that was never built to do anything with them.
+
+    Over the jewellery block in `data/items.py` is a comment stating its own
+    design: *"Jewellery. Worth many times the stone it is cut from, which is
+    the point."* Five pieces -- crown, amulet, ring, earring, bracelet -- with
+    volumes and values written for them.
+
+    Nothing cut a stone and nothing set one. A gem vein is one roll in five of
+    every vein laid down, twenty to fifty-eight cells of it on an embark;
+    mining one yields a `rough_gem` worth thirty; and **no recipe anywhere
+    could consume a rough gem or a cut one**. Three of the five pieces could
+    appear as a strange mood's output -- from the craftsdwarf's workshop,
+    which had no recipe for any of them -- and two of them could not exist by
+    any means at all, in either half of the game.
+    """
+
+    def setUp(self):
+        from ascii_warriors.game.item import Item
+
+        self.Item = Item
+
+    def _shop(self, fort, kind):
+        spot = _open_spot(fort, kind)
+        self.assertIsNotNone(spot, "nowhere to put a %s" % kind)
+        b = Building(kind, *spot)
+        b.built = True
+        fort.buildings.append(b)
+        return b
+
+    def _jeweller(self, seed="jewel"):
+        """A fortress with a jeweller's workshop and something to work on."""
+        fort = embark(seed)
+        for d in fort.dwarves():
+            d.fort.labors.enabled.add("gemcutting")
+        shop = self._shop(fort, "jeweler")
+        fort.drop_item(self.Item("rough_gem", "ruby", count=12), *shop.center)
+        fort.drop_item(self.Item("bar", "silver", count=6), *shop.center)
+        return fort, shop
+
+    @staticmethod
+    def _count(fort, def_id):
+        return sum(1 for i in fort.all_items() if i.def_id == def_id)
+
+    def test_a_rough_gem_can_be_cut(self):
+        """Thirty stones' worth of rough into a hundred of cut."""
+        fort, shop = self._jeweller("cutting")
+        shop.orders.append({"recipe": "cut_gem", "count": 4, "repeat": False})
+        sim.run(fort, 900)
+        gems = [i for i in fort.all_items() if i.def_id == "gem"]
+        self.assertTrue(gems, "the jeweller cut nothing")
+        self.assertEqual(gems[0].material, "ruby",
+                         "a ruby came out of the cutter as something else")
+        self.assertGreater(gems[0].value, self.Item("rough_gem", "ruby").value,
+                           "cutting it made it worth less")
+
+    def test_every_piece_of_jewellery_can_be_made(self):
+        """All five, because two of them could be made by nothing at all."""
+        fort, shop = self._jeweller("setting")
+        fort.drop_item(self.Item("rough_gem", "ruby", count=40), *shop.center)
+        fort.drop_item(self.Item("bar", "silver", count=20), *shop.center)
+        for recipe in ("set_ring", "set_earring", "set_bracelet",
+                       "set_amulet", "set_crown"):
+            shop.orders.append({"recipe": recipe, "count": 1, "repeat": False})
+        sim.run(fort, 4000)
+        for piece in ("ring", "earring", "bracelet", "amulet", "crown"):
+            self.assertGreater(self._count(fort, piece), 0,
+                               "no %s was ever made" % piece)
+
+    def test_no_recipe_here_is_worth_less_out_than_in(self):
+        """A recipe nobody would ever queue is a recipe that does not exist.
+
+        In silver, which is the metal a fortress that has a jeweller has. In
+        copper it is a bad idea and the fortress is welcome to make it.
+        """
+        from ascii_warriors.fortress import production
+
+        recipes = production.recipes_for("jeweler")
+        self.assertGreater(len(recipes), 4, "the jeweller has no trade")
+        for r in recipes:
+            cost = sum(self.Item("bar" if req == "BAR" else req,
+                                 "silver" if req == "BAR" else "ruby").value * n
+                       for req, n in r.inputs)
+            out = self.Item(r.output,
+                            "ruby" if r.output == "gem" else "silver").value
+            self.assertGreater(out * r.out_count, cost,
+                               "%s destroys value" % r.id)
+
+    def test_the_workshop_is_one_a_player_can_build(self):
+        """A recipe at a workshop nobody can put up is a recipe nobody has."""
+        from ascii_warriors.fortress import buildings
+
+        self.assertIn("jeweler", buildings.KINDS)
+        self.assertIn("jeweler", buildings.WORKSHOP_KINDS)
+        self.assertEqual(buildings.KINDS["jeweler"].category, "Workshops")
+        self.assertEqual(buildings.KINDS["jeweler"].skill, "gemcutting")
+
+    def test_the_labor_and_the_skill_both_exist(self):
+        """A workshop whose labor nobody can switch on never runs."""
+        from ascii_warriors.fortress import labors
+        from ascii_warriors.game import skills
+
+        self.assertIn("gemcutting", labors.LABORS)
+        self.assertIn(labors.LABORS["gemcutting"].category, labors.CATEGORIES)
+        self.assertIn(labors.LABORS["gemcutting"].skill, skills.SKILLS)
+        self.assertIn("gemcutting", labors.PROFESSION_LABORS["craftsdwarf"],
+                      "nobody on the embark can work it")
+
+    def test_a_mood_only_promises_what_its_workshop_can_make(self):
+        """The craftsdwarf's line named three pieces of jewellery it had no
+        recipe for. A mood is one a season; a promise it cannot keep is worse
+        than no promise."""
+        from ascii_warriors.fortress import buildings, production
+
+        for shop, outputs in sim.MOOD_OUTPUT.items():
+            self.assertIn(shop, buildings.WORKSHOP_KINDS, shop)
+            # What *that* workshop can make, not what anything anywhere can.
+            made = {r.output for r in production.recipes_for(shop)}
+            self.assertTrue(made, "%s has no recipes at all" % shop)
+            for out in outputs:
+                self.assertIn(out, made,
+                              "a %s mood makes a %s and the workshop cannot"
+                              % (shop, out))
+
+    def test_what_the_jeweller_makes_survives_a_save(self):
+        """Jewellery is fortress state like anything else on the floor."""
+        fort, shop = self._jeweller("jewelsave")
+        shop.orders.append({"recipe": "set_ring", "count": 1, "repeat": False})
+        sim.run(fort, 1200)
+        self.assertGreater(self._count(fort, "ring"), 0)
+        again = Fortress.from_dict(fort.to_dict())
+        self.assertEqual(self._count(again, "ring"), self._count(fort, "ring"))

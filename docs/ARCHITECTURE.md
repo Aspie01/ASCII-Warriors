@@ -5510,7 +5510,122 @@ That is two guards-that-could-not-fail in one milestone — the `len(below) > 0`
 one I wrote and this one I inherited — and both were found by the same
 question: *break the thing on purpose, and see whether anything notices.*
 
-## 118. Style
+## 118. The jeweller (v3.58)
+
+Over five rows of `data/items.py` sits a comment stating their own design:
+
+```python
+# Jewellery. Worth many times the stone it is cut from, which is the point.
+    ("crown",    "crown",    "crowns",    400, 300),
+    ("amulet",   "amulet",   "amulets",   120, 120),
+    ("ring",     "ring",     "rings",      40,  90),
+    ("earring",  "earring",  "earrings",   30,  70),
+    ("bracelet", "bracelet", "bracelets",  90, 100),
+```
+
+Nothing cut a stone. Nothing set one.
+
+A gem vein is one roll in five of every vein `_add_ore` lays down — twenty to
+fifty-eight cells of it on an embark — and mining one yields a `rough_gem`
+worth thirty. **No recipe anywhere could consume a rough gem or a cut one.**
+Two of the five pieces could be produced by nothing at all in either half of
+the game; the other three only as a strange mood's output, at about one mood a
+season, from the craftsdwarf's workshop, **which had no recipe for any of
+them**.
+
+So the whole of it was a value written next to a name.
+
+### 118.1. What the audit was actually looking for
+
+This came out of asking the reachability question of the data tables rather
+than the bestiary (§117.4). Item ids named nowhere in the code outside their
+own table: `bin`, `bracelet`, `earring`, `quiver`, `shovel`. Only five of a
+hundred and seventeen — but pulling on two of them found the trade they
+belonged to, and the audit that mattered was the next one:
+
+> Which items can no recipe, anywhere, produce?
+
+Thirty-seven, and most of them are gathered rather than made (a log, an ore, a
+boulder, a corpse). The ones that were neither gathered nor craftable were the
+five pieces and the gems they are made of.
+
+### 118.2. A workshop, a labor, a skill, six recipes
+
+- **`jeweler`** in `buildings.KINDS` and `WORKSHOP_KINDS`, so the build menu
+  offers it where it offers the rest.
+- **`gemcutting`** as a labor under Crafts, on the craftsdwarf's profession so
+  the embark can work it on day one, and as a skill in its own right.
+  Stonecrafting is not gem cutting, and a labor whose display name lies about
+  what it does is worse than a new row.
+- **Six recipes.** Cutting is one trade: a stone worth thirty becomes a gem
+  worth a hundred, which is the comment's own promise, executed. Setting is
+  another: rough stone plus a metal bar into each of the five pieces.
+
+Every piece is set from the **rough** stone, not a cut one — and that is a
+correction the first draft needed. A ring set from a cut gem is worth less
+than the gem was:
+
+| | in | out (silver) |
+|---|---|---|
+| `cut_gem` | 157 | 525 |
+| `set_ring` from a *cut* gem | 605 | 360 |
+| `set_ring` from a rough one | 237 | 360 |
+
+**A recipe nobody would ever queue is a recipe that does not exist.** The guard
+that checks it walks every jeweller recipe and fails if any of them destroys
+value in silver — in copper they lose, and a fortress is welcome to make that
+mistake.
+
+### 118.3. A promise the workshop could not keep
+
+`MOOD_OUTPUT["craftsdwarf"]` read `("gem", "amulet", "ring", "crown")`. Three
+of those four were things that workshop had no recipe for, and a mood is a
+once-a-season event a player remembers. It now reads `("gem", "mechanism",
+"drum", "flute")` — the things a craftsdwarf actually makes — and the
+jeweller's line holds all five pieces.
+
+The guard asks the question generally: for every entry in `MOOD_OUTPUT`, is
+each output in `recipes_for(that workshop)`? Written the loose way first —
+"can *anything* make it" — it passed with the old table in place, because the
+jeweller could now make the crown the craftsdwarf was promising.
+
+### 118.4. An order at the wrong bench
+
+Re-breaking by moving the jeweller's recipes onto the craftsdwarf left the
+fortress tests green: `_scan_orders` looked the recipe up in the global
+`RECIPES` table and never asked whether it belonged to the workshop it was
+queued at. Nothing player-facing — the build menu only offers
+`recipes_for(kind)` — but it is how a save from another version quietly gets a
+jeweller brewing ale. One clause, and the re-break now takes five guards with
+it instead of two.
+
+### 118.5. The other half of the game
+
+The five pieces are one set of definitions shared by both modes, so an
+adventurer could no more find a ring than a fortress could make one. They are
+in `_LOOT_TABLE["treasure"]` beside the gems now: a ring in a tomb and a ring
+on a jeweller's bench are the same row of the table, and before this neither
+existed.
+
+### 118.6. Guards that can fail
+
+Nine, six re-breaks:
+
+| broken | guards that fired |
+|---|---|
+| recipes moved off the jeweller | 5 |
+| `jeweler` out of `WORKSHOP_KINDS` | 5 |
+| the old `MOOD_OUTPUT` line | `..._mood_only_promises_what_its_workshop_can_make` |
+| the `gemcutting` labor deleted | `..._labor_and_the_skill_both_exist` |
+| jewellery out of the loot table | `..._treasure_table_has_something_to_find` |
+
+Two of them had to be tightened before they could fail: the value guard
+iterated `recipes_for("jeweler")` without asking whether it was empty, and the
+mood guard asked the loose question above. Both are the same mistake as
+§117.5's `len(below) > 0` — a guard that walks a collection has to say how big
+it expects the collection to be.
+
+## 119. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

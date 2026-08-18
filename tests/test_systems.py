@@ -8821,3 +8821,32 @@ class TestTheEmptyDeep(unittest.TestCase):
                  if not c.body.dead and c.z < lm.surface_z(c.x, c.y)]
         self.assertGreater(len(still), len(here) // 2,
                            "most of the caves emptied out into the daylight")
+
+
+class TestJewelleryInTheWild(unittest.TestCase):
+    """The other half of v3.58: an adventurer finding what a fortress sets.
+
+    The five pieces are one set of item definitions shared by both modes, and
+    before the jeweller existed neither half could produce them -- so a ring
+    was a row in a table with a value beside it and nothing else.
+    """
+
+    def test_the_treasure_table_has_something_to_find(self):
+        from ascii_warriors.game.item import _LOOT_TABLE, random_loot
+
+        self.assertIn("treasure", _LOOT_TABLE)
+        found = set()
+        for i in range(200):
+            for item in random_loot(RNG("loot%d" % i), 4, ("treasure",)):
+                found.add(item.def_id)
+        for piece in ("ring", "earring", "bracelet", "amulet"):
+            self.assertIn(piece, found,
+                          "%s turns up in no hoard anywhere" % piece)
+
+    def test_what_is_found_is_worth_something(self):
+        from ascii_warriors.game.item import Item
+
+        for piece in ("ring", "earring", "bracelet", "amulet", "crown"):
+            self.assertGreater(Item(piece, "gold").value,
+                               Item("rough_gem", "ruby").value,
+                               "%s is worth less than the stone" % piece)

@@ -59,6 +59,10 @@ KINDS: Dict[str, BuildingKind] = {
            colors.Color(190, 160, 200), 3, 3, ("STONE", "WOOD"), 1, 200,
            "building", "crafting", "floor_constructed", "Workshops", True,
            "Makes trinkets, mugs and totems out of anything."),
+        _b("jeweler", "Jeweler's workshop", "J",
+           colors.Color(120, 200, 220), 3, 3, ("STONE",), 1, 220,
+           "building", "gemcutting", "floor_constructed", "Workshops", True,
+           "Cuts rough gems and sets them into jewellery."),
         _b("smith", "Metalsmith's forge", "F", colors.Color(210, 130, 80),
            3, 3, ("STONE",), 1, 260, "building", "smithing",
            "floor_constructed", "Workshops", True,
@@ -211,9 +215,9 @@ GATE_TILES: Dict[str, Tuple[str, str]] = {
 }
 
 WORKSHOP_KINDS: Tuple[str, ...] = (
-    "carpenter", "mason", "craftsdwarf", "smith", "smelter", "wood_furnace",
-    "magma_smelter", "magma_forge", "glass_furnace", "still", "kitchen",
-    "butcher",
+    "carpenter", "mason", "craftsdwarf", "jeweler", "smith", "smelter",
+    "wood_furnace", "magma_smelter", "magma_forge", "glass_furnace", "still",
+    "kitchen", "butcher",
 )
 
 #: Workshops that burn magma instead of fuel, and so have to sit on top of it.

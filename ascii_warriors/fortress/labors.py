@@ -41,6 +41,8 @@ LABORS: Dict[str, Labor] = {
         Labor("engraving", "Engraving", "Crafts", "engraving",
               "Carve smoothed walls with what has happened."),
         Labor("crafting", "Stonecrafting", "Crafts", "crafting", ""),
+        Labor("gemcutting", "Gem cutting", "Crafts", "gemcutting",
+              "Cut rough gems and set them into jewellery."),
         Labor("smelting", "Furnace operating", "Crafts", "smelting",
               "Run the smelter and the wood furnace."),
         Labor("glassmaking", "Glassmaking", "Crafts", "glassmaking",
@@ -80,7 +82,8 @@ PROFESSION_LABORS: Dict[str, Tuple[str, ...]] = {
     "smith": ("smithing", "weaponsmithing", "armorsmithing", "smelting"),
     # The craftsdwarf runs the furnace until a real smith turns up: without
     # somebody who can, an embark cannot smelt the ore it digs up on day one.
-    "craftsdwarf": ("crafting", "leatherwork", "mechanics", "smelting"),
+    "craftsdwarf": ("crafting", "leatherwork", "mechanics", "smelting",
+                    "gemcutting"),
     "doctor": ("medicine",),
     "soldier": ("military",),
     "hunter": ("butchery", "fishing", "herbalism"),
@@ -95,7 +98,8 @@ PROFESSION_SKILLS: Dict[str, Dict[str, int]] = {
     "farmer": {"herbalism": 4, "brewing": 4, "cooking": 3},
     "smith": {"smithing": 4, "weaponsmithing": 3, "armorsmithing": 3,
               "smelting": 3},
-    "craftsdwarf": {"crafting": 5, "leatherwork": 3, "mechanics": 2},
+    "craftsdwarf": {"crafting": 5, "leatherwork": 3, "mechanics": 2,
+                    "gemcutting": 2},
     "doctor": {"diagnose": 4, "wound_dressing": 4, "suturing": 3,
                "bone_setting": 3},
     "soldier": {"fighter": 4, "axe": 4, "shield_use": 3, "armor_use": 3,

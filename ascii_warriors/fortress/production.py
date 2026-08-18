@@ -97,6 +97,33 @@ _r("spin_wool", "Spin wool", "craftsdwarf", "leatherwork", (("wool", 2),),
    "cloth", 1, 180, "Two fleeces make a bolt.", out_material="wool_cloth")
 _r("rope", "Rope", "craftsdwarf", "crafting", (("hide", 2),), "rope", 1, 180)
 
+# -- jeweler ----------------------------------------------------------------- #
+# The item table has carried five pieces of jewellery since it was written,
+# with a comment over them saying "worth many times the stone it is cut from,
+# which is the point" -- and nothing in the game cut a stone or set one. A
+# gem vein is 20% of every vein rolled, mining one yields a `rough_gem`, and
+# no recipe anywhere could consume one: 20 to 58 cells of it on an embark,
+# worth 30 each, to be hauled to a stockpile and looked at for ever. Three of
+# the five could appear as a strange mood's output, at one mood a season, and
+# two of them could not exist at all.
+_r("cut_gem", "Cut gems", "jeweler", "gemcutting", (("rough_gem", 1),),
+   "gem", 1, 240, "Thirty stones' worth of rough becomes a hundred of cut.")
+# Every piece is set from the rough stone rather than a cut one. A ring made
+# out of a cut gem is worth less than the gem was, and a recipe nobody would
+# ever queue is a recipe that does not exist -- so cutting is one trade (a
+# stone worth thirty becomes a gem worth a hundred) and setting is another.
+_r("set_ring", "Set a ring", "jeweler", "gemcutting",
+   (("rough_gem", 1), ("BAR", 1)), "ring", 1, 220)
+_r("set_earring", "Set earrings", "jeweler", "gemcutting",
+   (("rough_gem", 1), ("BAR", 1)), "earring", 2, 240)
+_r("set_bracelet", "Set a bracelet", "jeweler", "gemcutting",
+   (("rough_gem", 2), ("BAR", 1)), "bracelet", 1, 300)
+_r("set_amulet", "Set an amulet", "jeweler", "gemcutting",
+   (("rough_gem", 2), ("BAR", 1)), "amulet", 1, 340)
+_r("set_crown", "Set a crown", "jeweler", "gemcutting",
+   (("rough_gem", 3), ("BAR", 2)), "crown", 1, 600,
+   "What a fortress makes when it has run out of things it needs.")
+
 # -- the clothier ------------------------------------------------------------ #
 # v3.18 dressed every dwarf and v3.20 wears those clothes out, so a fortress
 # needs to be able to make more. Without these a long game ends with dwarves

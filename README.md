@@ -233,12 +233,13 @@ python -m ascii_warriors --dump-world - --size small --history 200 | less
 **Fortress mode.** Embark on a square of the world with seven dwarves and the
 supplies they could carry. Designate rock to be dug out, channel down, carve
 stairways and ramps, fell trees, smooth walls and floors, engrave them, gather
-sand. Put up thirty-eight kinds of building across workshops, furniture,
-construction and defence; queue any of a hundred and twenty-five recipes at
+sand. Put up thirty-nine kinds of building across workshops, furniture,
+construction and defence; queue any of a hundred and thirty-one recipes at
 them. Zone ten kinds of stockpile and dwarves haul goods into them. Plant farm
-plots, brew the harvest, forge what you dig up.
+plots, brew the harvest, forge what you dig up, and set the gems you find in
+the rock into rings, crowns and amulets at a jeweller's bench.
 
-Every dwarf has twenty-three labors you can switch on and off individually, so
+Every dwarf has twenty-four labors you can switch on and off individually, so
 your legendary weaponsmith does not spend the winter carrying rocks. The job
 board offers each dwarf only the nearest work its labors allow; dwarves look
 after their own hunger, thirst and sleep first, shoulder past whatever is

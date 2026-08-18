@@ -120,7 +120,13 @@ DEMON_WAVE = 3
 
 #: What a strange mood produces, by the workshop the moody dwarf seizes.
 MOOD_OUTPUT: Dict[str, Tuple[str, ...]] = {
-    "craftsdwarf": ("gem", "amulet", "ring", "crown"),
+    # What each workshop can make, so a mood produces something the fortress
+    # could have made the slow way. The craftsdwarf's line used to promise an
+    # amulet, a ring or a crown from a workshop with no recipe for any of the
+    # three -- and two of the five pieces of jewellery in the item table could
+    # not be produced by anything at all. The jeweller does that trade now.
+    "craftsdwarf": ("gem", "mechanism", "drum", "flute"),
+    "jeweler": ("crown", "amulet", "ring", "bracelet", "earring"),
     "mason": ("statue", "coffer", "altar"),
     "carpenter": ("shield", "bow", "cabinet"),
     "smith": ("axe", "short_sword", "warhammer", "helm", "mail_shirt"),
@@ -1251,7 +1257,12 @@ def _scan_workshops(fort, budget: int) -> int:
         if fort.ticks < int(order.get("blocked_until", 0)):
             continue
         recipe = production.RECIPES.get(order.get("recipe", ""))
-        if recipe is None:
+        # And it has to be this workshop's recipe. The build menu only ever
+        # offers `recipes_for(kind)`, so a player cannot queue a mismatch --
+        # but a save from another version, or anything queueing an order
+        # without going through the menu, could, and a jeweller quietly
+        # brewing ale is worse than an order that goes away.
+        if recipe is None or recipe.workshop != b.kind:
             b.orders.pop(0)
             continue
         labor = SKILL_LABOR.get(recipe.skill) or WORKSHOP_LABOR.get(b.kind, "")
