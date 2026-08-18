@@ -275,6 +275,11 @@ def say(speaker, listener, topic: str, game) -> List[Frag]:
             return _quote(listener, "This is no place at all. Just open country.")
         civ = world.civ(site.civ_id) if site.civ_id else None
         ruler = world.figures.get(site.ruler_hf) if site.ruler_hf else None
+        # Not one you killed on the way in. The seat is filled again within
+        # the season by `livingworld._leaders`, and until then the honest
+        # answer is that nobody rules here.
+        if ruler is not None and not ruler.alive(world.year):
+            ruler = None
         lines = ["This is %s, a %s." % (site.name, site.kind_name)]
         if site.native_name and site.native_name != site.name:
             lines.append("In the old tongue it is called %s." % site.native_name)

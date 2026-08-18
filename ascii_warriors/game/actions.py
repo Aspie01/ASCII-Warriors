@@ -423,7 +423,7 @@ def pick_up(game, item: Optional[Item] = None) -> int:
         return FREE
     p.inventory.add(target)
     game.log.info("You pick up %s." % target.name(article=True))
-    game.quests.on_pickup(game, target)
+    game.player_took(target)
     return NORMAL
 
 
@@ -437,7 +437,7 @@ def pick_up_all(game) -> int:
     for it in pile:
         game.take_item(it, p.x, p.y, p.z)
         p.inventory.add(it)
-        game.quests.on_pickup(game, it)
+        game.player_took(it)
     game.log.info("You pick up %d items." % len(pile))
     return NORMAL
 
@@ -452,6 +452,7 @@ def drop(game, item: Item) -> int:
     if removed in p.inventory.items:
         p.inventory.items.remove(removed)
     game.drop_item(removed, p.x, p.y, p.z)
+    game.player_gave_up(removed)
     game.log.info("You drop %s." % removed.name(article=True))
     return NORMAL
 

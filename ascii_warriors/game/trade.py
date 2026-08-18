@@ -176,7 +176,7 @@ def buy(game, merchant, item: Item, count: int = 1) -> Tuple[bool, str]:
 
     customer.add_exp("negotiation", 20)
     customer.add_exp("appraisal", 10)
-    game.quests.on_pickup(game, bought)
+    game.player_took(bought)
     return (True, "You buy %s for %d coins." % (bought.name(), total))
 
 
@@ -201,6 +201,7 @@ def sell(game, merchant, item: Item, count: int = 1) -> Tuple[bool, str]:
     else:
         sold = item.split(count)
     merchant.inventory.add(sold)
+    game.player_gave_up(sold, to=merchant)
 
     customer.add_exp("negotiation", 20)
     customer.add_exp("appraisal", 15)

@@ -1356,3 +1356,57 @@ class TestTheNecromancersTower(unittest.TestCase):
             self.assertEqual(back.owner_hf, site.owner_hf)
             self.assertEqual(again.figures[site.owner_hf].site_id, site.id)
             self.assertEqual(again.tile(site.wx, site.wy).site_id, site.id)
+
+
+class TestThePageDoesNotContradictItself(unittest.TestCase):
+    """A legends page that says "holds" about somebody it records the death of.
+
+    `site_lines` and `artifact_lines` both read a holder out of the record and
+    printed it in the present tense with no question asked. Kill a tower's
+    necromancer and the page went on saying *Held by Ustgath the Foul* three
+    lines above *Ustgath the Foul died in 151* -- and unlike the ruler of a
+    town, which `livingworld._leaders` refills within the season, `owner_hf`
+    is never reassigned, so that one stood for the rest of the game.
+
+    Who held a place is a historical fact and stays on the page. Only the
+    tense was wrong.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.world = _world("pages", size="pocket", years=80)
+
+    def test_a_site_page_puts_a_dead_holder_in_the_past(self):
+        world = self.world
+        site = next(s for s in world.sites
+                    if s.owner_hf and world.figures.get(s.owner_hf))
+        fig = world.figures[site.owner_hf]
+        before = fig.died
+        text = "\n".join(f.text for f in legends.site_lines(world, site.id))
+        self.assertIn("Held by %s." % fig.display_name, text)
+        fig.died = world.year - 3
+        try:
+            text = "\n".join(f.text for f in legends.site_lines(world, site.id))
+        finally:
+            fig.died = before
+        self.assertNotIn("Held by %s." % fig.display_name, text,
+                         "the page still says a corpse holds it")
+        self.assertIn("until %d" % (world.year - 3), text,
+                      "and does not say when he stopped")
+
+    def test_an_artifact_page_puts_a_dead_holder_in_the_past(self):
+        world = self.world
+        art = next(a for a in world.artifacts
+                   if a.holder_hf and world.figures.get(a.holder_hf))
+        fig = world.figures[art.holder_hf]
+        before = fig.died
+        text = "\n".join(f.text for f in legends.artifact_lines(world, art.id))
+        self.assertIn("Held by %s." % fig.display_name, text)
+        fig.died = world.year - 3
+        try:
+            text = "\n".join(f.text
+                             for f in legends.artifact_lines(world, art.id))
+        finally:
+            fig.died = before
+        self.assertNotIn("Held by %s." % fig.display_name, text)
+        self.assertIn("until %d" % (world.year - 3), text)

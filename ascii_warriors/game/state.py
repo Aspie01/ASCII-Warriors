@@ -554,6 +554,26 @@ class Game:
                 return
         pile.append(item)
 
+    def player_took(self, item: Item) -> None:
+        """Everything that has to happen because the player now holds this.
+
+        One funnel with two things behind it -- the quest log and the world's
+        record of where named things are -- because the ways of acquiring
+        something only ever multiply. It was picked up, bought, or looted off
+        a body, and every one of those used to have to remember the quest half
+        on its own and none of them knew about the other.
+        """
+        from . import ledger as ledger_mod
+
+        self.quests.on_pickup(self, item)
+        ledger_mod.took(self, item)
+
+    def player_gave_up(self, item: Item, *, to=None) -> None:
+        """The other direction: dropped, sold, or handed over."""
+        from . import ledger as ledger_mod
+
+        ledger_mod.gave_up(self, item, by=self.player, to=to)
+
     def take_item(self, item: Item, x: int, y: int, z: int) -> bool:
         """Remove an item from the ground."""
         pile = self.items_on_ground.get((x, y, z))
@@ -1097,6 +1117,12 @@ class Game:
             self.log.combat("The %s is dead." % c.short_name())
         corpse = corpse_of(c)
         self.drop_item(corpse, c.x, c.y, c.z)
+        # Before the inventory is emptied, while it can still be asked what
+        # this one was carrying: a crown falls to the floor and the histories
+        # have to stop naming a dead man as the one holding it.
+        from . import ledger as ledger_mod
+
+        ledger_mod.on_death(self, c)
         for it in c.inventory.remove_all():
             self.drop_item(it, c.x, c.y, c.z)
         self.player.kills.append(c.display_name())

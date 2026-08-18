@@ -374,7 +374,15 @@ def _quest_clear_site(rng: RNG, game, giver) -> Optional[Quest]:
 def _quest_retrieve(rng: RNG, game, giver) -> Optional[Quest]:
     """Fetch a lost artifact."""
     world = game.world
-    arts = [a for a in world.artifacts if a.site_id is not None]
+    # Not one already in the pack. The ledger clears `site_id` when the
+    # player takes an artifact, so this is belt and braces -- but a save made
+    # before it did carries the old record forever, and an offer to fetch
+    # something you are wearing cannot be finished by anybody: the pickup that
+    # would complete it already happened.
+    mine = {getattr(i, "artifact_id", None)
+            for i in game.player.inventory.items}
+    arts = [a for a in world.artifacts
+            if a.site_id is not None and a.id not in mine]
     if not arts:
         return None
     art = rng.choice(arts)

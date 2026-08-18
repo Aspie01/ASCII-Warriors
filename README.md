@@ -583,7 +583,10 @@ megabeast in a real lair, or a real artifact in a real ruin. Go there and it
 is waiting: a megabeast lairs somewhere in particular, the quest names that
 place and no other, and killing it puts a date on the figure the legends have
 been writing about for a century. So is the artifact — on the floor of the
-tomb, or in the claws of whatever the histories say holds it. And a megabeast
+tomb, or in the claws of whatever the histories say holds it. Take it and the
+histories say *you* hold it: the record follows the object, so nobody offers
+you a quest to fetch what is already in your pack, and putting it down in a
+town makes it something the next adventurer can be sent after. And a megabeast
 is somebody rather than something: a world has a handful, each with a name, a
 lair and a page in the legends, and you will not meet one wandering the fields
 on your way there. Threaten somebody and they will either

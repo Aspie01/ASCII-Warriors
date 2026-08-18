@@ -5223,7 +5223,135 @@ the only reason none of them were poisoned the same way.
 `PYTHONDONTWRITEBYTECODE=1` on every command in a re-break pass, and the third
 entry in §110.1's list of ways to lose your own work.
 
-## 116. Style
+## 116. The ledger (v3.56)
+
+The histories know where every artifact is: which site it lies in, and whose
+hands it is in there. `_quest_retrieve` reads exactly that —
+
+> *The Bridge of the Tower was lost to us. It lies at Wall Moon, a tomb. Bring
+> it back and you will be well paid.*
+
+— and v3.53 finally put the thing on the floor for you to find. **Nothing ever
+told the histories you had picked it up.** `art.site_id` and `art.holder_hf`
+went on naming the tomb and the dead king who was buried with it.
+
+So the generator offers it again. Measured on seed `ledger`: take the crown,
+ask around, and twelve offers in a hundred and twenty are to go and fetch the
+crown you are wearing. Accept one and it reads `state=active, progress=0/1`
+for the rest of the game — the pickup that would complete it already happened,
+and there is nothing at the site to happen again.
+
+That is the README's one flat promise about quests failing in the quietest
+possible way: *"Every quest points at something that exists."* It does. It is
+in your pack.
+
+### 116.1. The record follows the object
+
+`game/ledger.py` is one idea in two directions. `took` when something reaches
+the player's hands, `gave_up` when it leaves them — dropped, sold, or fallen
+with the body — and `Game.player_took` / `Game.player_gave_up` are the funnels
+the rest of the game calls.
+
+That funnel is the point. Three places already knew an item had reached the
+player and each called `quests.on_pickup` on its own: `pick_up`, `pick_up_all`,
+and `trade.buy`. A fourth thing now has to happen at the same moment, and the
+number of ways to acquire something only ever goes up, so the three call one
+method and the method knows both halves.
+
+The rules are small:
+
+| where it is | `holder_hf` | `site_id` | `lost` |
+|---|---|---|---|
+| in the player's pack | the player's own figure | `None` | false |
+| dropped or sold at a site | whoever took it, or nobody | that site | false |
+| dropped in open country | nobody | `None` | **true** |
+
+An artifact on a wandering adventurer is at no site, and that is what takes it
+out of the quest pool: `_quest_retrieve` asks for artifacts with somewhere to
+send a hero, and there is no longer anywhere to send them. Put it down in a
+town and it is offered again — twelve in a hundred and twenty, the same as
+before you touched it. The record tracks the object rather than remembering
+one moment of it.
+
+The player's side of it costs nothing extra: `renown.figure(game)` has made
+the adventurer a historical figure on demand since v3.30, so *Held by Lorn
+Marsh* on the artifact's legends page is the same mechanism that writes your
+kills into the histories. You take a crown and the world's record of that
+crown names you.
+
+### 116.2. Belt and braces for a save that already lies
+
+A game saved before any of this carries `site_id` pointing at the tomb with
+the crown already in the pack, and nothing on load repairs it. So
+`_quest_retrieve` also refuses to name an artifact the player is carrying,
+whatever the record says. Two mechanisms, one outcome — and the guard for the
+second one has to construct the stale state by hand, because the first one
+makes it unreachable in a new game.
+
+### 116.3. A page that contradicts itself
+
+The other half of a ledger is the reading of it. Two screens printed a holder
+in the present tense with no question asked:
+
+- `legends.site_lines` — kill a tower's necromancer and the page said *Held by
+  Skarul the Pitiless* three lines above the event recording his death. Unlike
+  a town's ruler, which `livingworld._leaders` replaces within the season,
+  `owner_hf` is never reassigned, so that one stood for the rest of the game.
+- `legends.artifact_lines` — the same, for whoever the histories last had
+  holding it.
+- `conversation.say("ask_site")` — a townsman answering *"%s rules here"* with
+  the name of somebody you killed on the way in.
+
+Who held a place is a historical fact and belongs on the page. Only the tense
+was wrong: *Held by Skarul the Pitiless until 146.* The conversation is the
+one case where saying nothing is right — the seat is genuinely empty until the
+season turns.
+
+Note what was **not** done. Clearing `owner_hf` on death would have been the
+obvious fix and it would have quietly undone v3.55: `build_tower` gives an
+unclaimed tower a nameless necromancer, so erasing the owner would repopulate
+every tower the player had just cleared. The data is right. The readers were
+asking it the wrong question.
+
+### 116.4. What was measured and left alone
+
+Three other seats were checked and are working:
+
+- **A civilization's leader** self-heals. `livingworld._leaders` reappoints
+  within one season of the death, and killing a capital's ruler is repaired by
+  the same call that sets the capital's `ruler_hf`.
+- **A beast's lair.** v3.52's `lair_beast` asks whether the figure is alive, so
+  a slain megabeast does not respawn in its cave.
+- **Vampires and werewolves** are reachable: three to six carriers inside a
+  seven-by-seven block of world tiles around the start, on each of three
+  worlds. The night machinery has something to bite you.
+
+And two dead entries turned up in the sweep that are worth naming rather than
+fixing: `"curse"` and `"founded_civ"` are declared in `EVENT_KINDS` and named
+in `artforms._bind_history`'s want-lists, and nothing anywhere records either
+one. Both want-lists have live kinds beside them, so no art form ends up
+about nothing — dead weight, not a defect.
+
+### 116.5. Guards that can fail
+
+Eleven, six re-breaks:
+
+| broken | guards that fired |
+|---|---|
+| `ledger.took` no-ops | 3, incl. `..._taking_an_artifact_moves_the_record` |
+| `ledger.gave_up` no-ops | 3, incl. `..._killing_the_holder_leaves_it_where_the_body_is` |
+| `kill_creature` stops telling the ledger | `..._killing_the_holder_leaves_it...` |
+| `_quest_retrieve` stops asking what you carry | `..._an_old_save_is_not_sent_after_its_own_pack` |
+| `legends` drops both alive checks | both page guards |
+| `conversation` drops its alive check | `..._nobody_says_a_dead_ruler_rules_here` |
+
+`test_nobody_sends_you_after_what_you_are_carrying` deliberately survives the
+first break: the quest filter catches that case on its own. It measures the
+outcome a player would notice rather than which of the two mechanisms
+delivered it, which is what it is for; the mechanism has its own guard beside
+it.
+
+## 117. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

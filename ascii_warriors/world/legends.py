@@ -104,8 +104,14 @@ def site_lines(world, site_id: int) -> List[Frag]:
     if ruler is not None:
         out.append(_line("Ruled by %s." % ruler.display_name))
     owner = world.figures.get(site.owner_hf) if site.owner_hf else None
-    if owner is not None:
+    if owner is not None and owner.alive(world.year):
         out.append(_line("Held by %s." % owner.display_name, colors.UI["warn"]))
+    elif owner is not None:
+        # Past tense, because the same screen records the death two lines
+        # down. Who held a place is a historical fact and stays on the page;
+        # saying "holds" about a corpse is the page contradicting itself.
+        out.append(_line("Held by %s until %s." % (
+            owner.display_name, owner.died), _DIM))
     arts = [a for a in world.artifacts if a.site_id == site_id]
     if arts:
         out.append(_line(""))
@@ -178,8 +184,11 @@ def artifact_lines(world, art_id: int) -> List[Frag]:
         out.append(_line("Created by %s in the year %d." % (
             creator.display_name, art.created)))
     holder = world.figures.get(art.holder_hf) if art.holder_hf else None
-    if holder is not None:
+    if holder is not None and holder.alive(world.year):
         out.append(_line("Held by %s." % holder.display_name, _ACCENT))
+    elif holder is not None:
+        out.append(_line("Held by %s until %s." % (
+            holder.display_name, holder.died), _DIM))
     site = world.site(art.site_id) if art.site_id else None
     if site is not None:
         out.append(_line("Last seen at %s." % site.name, _ACCENT))

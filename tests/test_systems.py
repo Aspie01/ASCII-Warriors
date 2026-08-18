@@ -8437,3 +8437,211 @@ class TestTheSlabInTheTower(unittest.TestCase):
         self.assertTrue(lines)
         self.assertTrue(night.is_necromancer(game.player),
                         "the slab in the tower taught nothing")
+
+
+class TestTheLedger(unittest.TestCase):
+    """The world's record of where a named thing is, after you have moved it.
+
+    The histories know which site every artifact lies in and whose hands it is
+    in there, and `_quest_retrieve` reads exactly that: *"It lies at Blood
+    Grave, a tomb."* v3.53 put the thing on the floor for you to pick up, and
+    nothing told the histories you had. `site_id` and `holder_hf` went on
+    naming the tomb and the dead king, so the generator would offer it again
+    -- a quest to fetch what is already in your pack, which no pickup can ever
+    complete because the pickup already happened. Measured on seed `ledger`:
+    twelve offers in a hundred and twenty, state active, progress zero of one,
+    and nothing at the site to change that.
+
+    These walk the object and the record together: take it, be offered it,
+    put it down, sell it, and die holding it.
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.mkdtemp()
+        self._old = os.environ.get("ASCII_WARRIORS_SAVE_DIR")
+        os.environ["ASCII_WARRIORS_SAVE_DIR"] = self._tmp
+        rng = RNG("ledger")
+        self.world = generate_world(rng.sub("w"), size="small",
+                                    history_years=150)
+        self.game = Game.new_game(
+            self.world, {"race": "human", "profession": "warrior"}, rng)
+
+    def tearDown(self):
+        if self._old is None:
+            os.environ.pop("ASCII_WARRIORS_SAVE_DIR", None)
+        else:
+            os.environ["ASCII_WARRIORS_SAVE_DIR"] = self._old
+
+    def _loose_artifact(self):
+        """An artifact on the floor under the player, and its record."""
+        game = self.game
+        art = next(a for a in self.world.artifacts if a.site_id is not None)
+        site = self.world.site(art.site_id)
+        game.enter_world_tile(site.wx, site.wy)
+        item = None
+        for c in list(game.creatures.values()):
+            for i in list(c.inventory.items):
+                if getattr(i, "artifact_id", None) == art.id:
+                    c.inventory.remove(i)
+                    item = i
+        for pile in list(game.items_on_ground.values()):
+            for i in list(pile):
+                if getattr(i, "artifact_id", None) == art.id:
+                    pile.remove(i)
+                    item = i
+        self.assertIsNotNone(item, "the artifact was not at its own site")
+        p = game.player
+        game.drop_item(item, p.x, p.y, p.z)
+        return art, site, item
+
+    def _offers(self, art, tag, tries=120):
+        """How often the quest generator sends somebody after this one."""
+        from ascii_warriors.game import quests
+
+        n = 0
+        for i in range(tries):
+            q = quests._quest_retrieve(RNG("%s%d" % (tag, i)), self.game, None)
+            if q is not None and q.artifact_id == art.id:
+                n += 1
+        return n
+
+    def test_taking_an_artifact_moves_the_record(self):
+        """Through the action a player actually presses."""
+        from ascii_warriors.game import actions, renown
+
+        art, _site, item = self._loose_artifact()
+        actions.pick_up(self.game, item)
+        fig = renown.figure(self.game)
+        self.assertEqual(art.holder_hf, fig.id, "the histories missed it")
+        self.assertIsNone(art.site_id,
+                          "an artifact on a wandering adventurer is at no site")
+        self.assertFalse(art.lost)
+
+    def test_nobody_sends_you_after_what_you_are_carrying(self):
+        """The defect, stated as the thing you would notice."""
+        from ascii_warriors.game import actions
+
+        art, _site, item = self._loose_artifact()
+        before = self._offers(art, "before")
+        self.assertGreater(before, 0, "nobody offered this one even at rest")
+        actions.pick_up(self.game, item)
+        self.assertEqual(self._offers(art, "after"), 0,
+                         "sent after something in your own pack")
+
+    def test_an_old_save_is_not_sent_after_its_own_pack(self):
+        """Belt and braces, for the record the ledger never got to fix.
+
+        A game saved before any of this carries `site_id` pointing at the
+        tomb while the crown sits in the pack, and nothing on load repairs it.
+        The generator refuses to offer an artifact the player is carrying
+        whatever the record says.
+        """
+        from ascii_warriors.game import actions
+
+        art, site, item = self._loose_artifact()
+        actions.pick_up(self.game, item)
+        art.site_id = site.id      # the state an old save loads with
+        art.holder_hf = None
+        self.assertEqual(self._offers(art, "stale"), 0,
+                         "an old save is still sent after its own pack")
+
+    def test_putting_it_down_makes_it_findable_again(self):
+        """The record follows the object both ways, or it is not a record."""
+        from ascii_warriors.game import actions
+
+        art, site, item = self._loose_artifact()
+        actions.pick_up(self.game, item)
+        actions.drop(self.game, item)
+        self.assertIsNone(art.holder_hf)
+        self.assertEqual(art.site_id, site.id)
+        self.assertFalse(art.lost)
+        self.assertGreater(self._offers(art, "again"), 0,
+                           "an artifact lying in a tomb nobody can be sent to")
+
+    def test_the_legends_say_who_has_it(self):
+        """You are a figure in this world's history from the first turn."""
+        from ascii_warriors.game import actions
+        from ascii_warriors.world import legends
+
+        art, _site, item = self._loose_artifact()
+        actions.pick_up(self.game, item)
+        page = "\n".join(f.text for f in legends.artifact_lines(self.world,
+                                                                art.id))
+        self.assertIn("Held by %s." % self.game.player.name, page)
+
+    def test_killing_the_holder_leaves_it_where_the_body_is(self):
+        """It is on the floor, and the histories stop naming a dead man."""
+        game = self.game
+        found = None
+        for a in self.world.artifacts:
+            if a.site_id is None or a.holder_hf is None:
+                continue
+            s = self.world.site(a.site_id)
+            game.enter_world_tile(s.wx, s.wy)
+            holder = next((c for c in game.creatures.values()
+                           if c.hf_id == a.holder_hf and not c.body.dead), None)
+            if holder is not None and any(
+                    getattr(i, "artifact_id", None) == a.id
+                    for i in holder.inventory.items):
+                found = (a, s, holder)
+                break
+        self.assertIsNotNone(found, "no artifact was in anybody's hands")
+        art, site, holder = found
+        holder.body.dead = True
+        holder.body.death_cause = "slain"
+        game.kill_creature(holder)
+        self.assertIsNone(art.holder_hf, "a corpse is still holding it")
+        self.assertEqual(art.site_id, site.id)
+        floor = [i for pile in game.items_on_ground.values() for i in pile
+                 if getattr(i, "artifact_id", None) == art.id]
+        self.assertEqual(len(floor), 1, "it did not fall where he did")
+
+    def test_selling_one_hands_the_record_over_too(self):
+        """A crown sold in a town is a crown the histories place in that town."""
+        from ascii_warriors.game import actions, trade
+
+        art, site, item = self._loose_artifact()
+        actions.pick_up(self.game, item)
+        merchant = next((c for c in self.game.creatures.values()
+                         if not c.is_player and c.hf_id is not None), None)
+        self.assertIsNotNone(merchant, "nobody here to sell to")
+        merchant.inventory.add(Item("coin", "silver", count=99999))
+        ok, _msg = trade.sell(self.game, merchant, item)
+        if not ok:
+            self.skipTest("this merchant deals in other things")
+        self.assertEqual(art.holder_hf, merchant.hf_id)
+        self.assertEqual(art.site_id, site.id)
+
+    def test_the_record_survives_a_save(self):
+        """Where a named thing is, is world state."""
+        from ascii_warriors.game import actions, renown
+        from ascii_warriors.world.worldgen import World
+
+        art, _site, item = self._loose_artifact()
+        actions.pick_up(self.game, item)
+        fig = renown.figure(self.game)
+        again = World.from_dict(json.loads(json.dumps(self.world.to_dict())))
+        back = next(a for a in again.artifacts if a.id == art.id)
+        self.assertEqual(back.holder_hf, fig.id)
+        self.assertIsNone(back.site_id)
+
+    def test_nobody_says_a_dead_ruler_rules_here(self):
+        """The seat refills within the season; until then it is empty."""
+        from ascii_warriors.game import conversation
+
+        game = self.game
+        site = next(s for s in self.world.sites
+                    if s.ruler_hf and not s.is_ruin)
+        game.enter_world_tile(site.wx, site.wy)
+        ruler = self.world.figures[site.ruler_hf]
+        speaker = next((c for c in game.creatures.values()
+                        if not c.is_player and c.defn.has("CAN_SPEAK")), None)
+        self.assertIsNotNone(speaker, "nobody here to ask")
+        said = "\n".join(f.text for f in conversation.say(
+            game.player, speaker, "ask_site", game))
+        self.assertIn("%s rules here." % ruler.display_name, said)
+        ruler.died = self.world.year
+        said = "\n".join(f.text for f in conversation.say(
+            game.player, speaker, "ask_site", game))
+        self.assertNotIn("rules here", said,
+                         "a townsman named a corpse as the ruler")
