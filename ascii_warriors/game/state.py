@@ -45,6 +45,11 @@ TAVERN_HEARING = 9
 WILDLIFE_MIN = 3
 WILDLIFE_MAX = 9
 
+#: How much of that budget goes under the ground. A third: the caverns are
+#: most of the map's volume and none of its traffic, so the deep should feel
+#: emptier than a meadow and not be empty.
+CAVE_SHARE = 1.0 / 3.0
+
 
 class Game:
     """Everything about one playthrough."""
@@ -392,11 +397,40 @@ class Game:
     WILD_NEVER: Tuple[str, ...] = ("MEGABEAST", "SEMIMEGABEAST")
 
     def spawn_wildlife(self, n: Optional[int] = None) -> None:
-        """Populate the wilderness with creatures suited to the biome."""
+        """Populate the wilderness with creatures suited to the biome.
+
+        Both wildernesses. A local map is eleven levels and six of them are
+        under the ground -- caverns cut by cellular automata, ore and gem
+        veins, and the README telling you to light a torch before you go down
+        there. Measured across sixteen tiles: three hundred and fifty-eight
+        creatures of thirty-four kinds above the surface, ninety thousand
+        walkable cells below it, and **nothing alive in any of them**.
+
+        `spawnable` has taken an `underground` flag since it was written and
+        eleven species carry `SUBTERRANEAN`, and the one caller in the game
+        passed a local variable that was set to `False` on the line above and
+        never changed. Four of those species -- the cave spider, the giant
+        cave spider, the giant cave swallow and the gremlin -- live nowhere
+        else in the table, so they had never once existed. `venom` has an
+        entry for the bite of one of them.
+        """
         if self.local is None:
             return
         tile = self.world.tile(self.local.wx, self.local.wy)
-        underground = False
+        total = n if n is not None else self.rng.randint(WILDLIFE_MIN,
+                                                         WILDLIFE_MAX)
+        site = self.world.site_at(self.local.wx, self.local.wy)
+        if n is None and site is not None and site.is_settlement:
+            # Guards keep most of the wildlife out of an inhabited place.
+            total = max(0, total // 3)
+        deep = int(total * CAVE_SHARE + 0.5)
+        self._spawn_wild(tile, total - deep, underground=False)
+        self._spawn_wild(tile, deep, underground=True)
+
+    def _spawn_wild(self, tile, count: int, *, underground: bool) -> None:
+        """Put *count* groups of the right kind of wildlife on this map."""
+        if count <= 0:
+            return
         max_tier = 3 if tile.savagery < 60 else 5
         options = creature_data.spawnable(
             tile.biome, underground=underground, max_tier=max_tier,
@@ -407,7 +441,7 @@ class Game:
         # Carp and pike list nowhere else and so had never once existed, in a
         # game that draws a river across half its maps. The tile knows it has
         # a river; that is enough to ask for the things that live in one.
-        if tile.river:
+        if tile.river and not underground:
             have = {c.id for c in options}
             options = options + [
                 c for c in creature_data.spawnable(
@@ -418,29 +452,27 @@ class Game:
         options = [c for c in options if not c.intelligent or c.has("EVIL")]
         if not options:
             return
-        if n is not None:
-            count = n
-        else:
-            count = self.rng.randint(WILDLIFE_MIN, WILDLIFE_MAX)
-            site = self.world.site_at(self.local.wx, self.local.wy)
-            if site is not None and site.is_settlement:
-                # Guards keep most of the wildlife out of an inhabited place.
-                count = max(0, count // 3)
         weights = {c.id: float(c.frequency) for c in options}
         for _ in range(count):
             cid = self.rng.weighted(weights)
             defn = creature_data.get(cid)
             lo, hi = defn.group
             group = self.rng.randint(lo, hi)
-            if defn.has("AQUATIC"):
+            if underground:
+                # A cave dweller put on the surface is a cave dweller in a
+                # field: the whole point of the flag is the dark it lives in.
+                spot = self.local.random_cave(self.rng)
+                if spot is None:
+                    return
+            elif defn.has("AQUATIC"):
                 # A fish placed by `random_open` lands on the bank, where
                 # `is_passable` will not let it move and it flaps for ever.
                 spot = self.local.random_water(self.rng)
                 if spot is None:
                     continue
-                ox, oy, oz = spot
             else:
-                ox, oy, oz = self.local.random_open(self.rng)
+                spot = self.local.random_open(self.rng)
+            ox, oy, oz = spot
             leader_id: Optional[int] = None
             for i in range(group):
                 c = make_creature(self.rng, cid, faction=(
@@ -448,7 +480,10 @@ class Game:
                 ))
                 x = max(0, min(self.local.width - 1, ox + self.rng.randint(-2, 2)))
                 y = max(0, min(self.local.height - 1, oy + self.rng.randint(-2, 2)))
-                z = self.local.surface_z(x, y)
+                # Underground the group keeps the level it was placed on;
+                # `surface_z` would walk every one of them up into the sun.
+                z = oz if underground or defn.has("AQUATIC") \
+                    else self.local.surface_z(x, y)
                 if not self.is_passable(x, y, z, c):
                     x, y, z = ox, oy, oz
                 c.x, c.y, c.z = x, y, z

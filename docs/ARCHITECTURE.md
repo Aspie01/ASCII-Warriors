@@ -5351,7 +5351,166 @@ outcome a player would notice rather than which of the two mechanisms
 delivered it, which is what it is for; the mechanism has its own guard beside
 it.
 
-## 117. Style
+## 117. The empty deep (v3.57)
+
+A local map is eleven z-levels and six of them are underground. The README
+sells them:
+
+> *cave systems carved by cellular automata below, ore and gem veins in the
+> rock* … *light a torch before you go underground and douse it when you come
+> back out.*
+
+Sixteen tiles around an adventurer's start, counting what stands where:
+
+| | creatures | kinds |
+|---|---|---|
+| above the surface | 358 | 34 |
+| below it (≈92,000 walkable cells) | **0** | **0** |
+
+`creature_data.spawnable` has taken an `underground` flag since it was
+written. Eleven species carry `SUBTERRANEAN`. The one caller in the game is
+`Game.spawn_wildlife`, and it read:
+
+```python
+underground = False
+...
+options = creature_data.spawnable(tile.biome, underground=underground, ...)
+```
+
+A local assigned `False` on one line and passed to the parameter on the next,
+never varied. **`spawnable(underground=True)` had never been called by
+anything.** The torch lights an empty room.
+
+### 117.1. Four species that had never existed
+
+Being unreachable is not the same as being unwritten. Of the eleven,
+`giant_rat`, `bat`, `giant_bat` and `troll` list surface biomes too and turn
+up on the grass. Four list `UNDERGROUND` and nothing else — the cave spider,
+the giant cave spider, the giant cave swallow and the gremlin — so no world
+had ever contained one. `game/venom.py` carries an entry for
+`giant_cave_spider`: a venom table keyed on a creature that could not be met.
+
+After: **74 creatures of 8 kinds** under the same sixteen tiles, all four of
+them among the eight.
+
+### 117.2. Two halves, and the second one is the placement
+
+Selecting cave species is half of it. The placement loop ended:
+
+```python
+z = self.local.surface_z(x, y)
+if not self.is_passable(x, y, z, c):
+    x, y, z = ox, oy, oz
+```
+
+Every member of every group was walked up to the surface of whatever column
+the jitter landed it on, and only fell back to where it was placed if that
+surface happened to be blocked. Fixing the species selection alone yields
+**one** creature underground across sixteen tiles instead of seventy-four, and
+a guard that only asks for "more than none" calls that a pass — which is
+exactly what the first draft of these guards did.
+
+`LocalMap.random_cave` is the funnel: a walkable, dry cell strictly below its
+column's surface. `random_open` prefers the surface and can only be pinned to
+one z at a time, so nothing could ask the question before.
+
+### 117.3. The budget, not a bigger budget
+
+The deep is a third of the wildlife budget rather than an addition to it
+(`CAVE_SHARE`). Above ground goes 358 → 293 and the total moves 358 → 367,
+which is group-size noise. A turn stays at 2.4 ms with a map's worth of
+creatures on it either way, and the caverns are meant to feel emptier than a
+meadow — not empty.
+
+The dark suits them. `entity.py` has given `SUBTERRANEAN` and `NOCTURNAL`
+creatures night vision since it was written, and this is the first thing in
+the game that puts one where the light is not.
+
+### 117.4. The rest of the bestiary
+
+The audit that opened this counted **eleven of eighty creature definitions
+that appear in no world at all** — every site of two worlds, an eighty-one
+tile block of wilderness, and every historical figure. Down to two, and the
+other nine were reachable or made reachable:
+
+- **The four cave species**, above.
+- **`axedwarf`.** `build_fortress` read `"hammerdwarf" if race == "dwarf" else
+  "guard"`. Both dwarven soldiers have been in the table since it was written
+  — six levels of axe against six of hammer — and one of them was named in the
+  one line that could have produced it. It picks between them now.
+- **`alligator`, `duck`, `hippopotamus`, `pike`, `carp`** are river species,
+  and a world puts a river on 1% of its land. Entering 41 river tiles across
+  two worlds finds all five, 7 to 68 of each. Rare, not absent — the earlier
+  count missed them because the block it walked had no river in it.
+- **`cyclops`** is in the megabeast pool at the same frequency as the hydra
+  and the bronze colossus, and two worlds did not roll one.
+
+What is left is honest:
+
+- **`demon`** exists only when a fortress breaches the adamantine
+  (`spawn_demons`), which is where it belongs. An adventurer walking into a
+  dark fortress does not meet one, and that is a design choice rather than a
+  gap.
+- **`peasant`** is a fossil. It is a *human* creature definition, and
+  `build_town` has long since settled on `_pop(race, …, profession="peasant")`
+  — a townsman is a person of the town's race who farms, not a separate
+  species. Wiring the definition in would put humans in dwarven hamlets.
+  Measured dead, deliberately left dead.
+
+`Game.spawn_wildlife(n=…)` was also dead — no caller anywhere passes it. It is
+the total budget now, split inside, so the parameter means one number a caller
+would actually want.
+
+### 117.5. Guards that can fail
+
+Eight, five re-breaks:
+
+| broken | guards that fired |
+|---|---|
+| no cave pass (`deep = 0`) | all 5 cave guards |
+| the group walked up to `surface_z` | 2, incl. `..._what_is_down_there_belongs_down_there` |
+| `random_cave` always gives up | 6 |
+| `random_cave` allows the surface | 3 |
+| `build_fortress` names one dwarf | `test_a_dwarven_keep_fields_both` |
+
+The second row is the one worth keeping. The first draft asserted
+`len(below) > 0`, which one stray gremlin satisfies, so the break that costs
+you 73 of 74 cave dwellers passed it clean. The guard asks for at least one
+per tile walked now, and separately that cave species are not standing about
+in meadows.
+
+### 117.6. And the skip count moved again
+
+Populating the caves draws from the game's dice, which shifts every adventure
+fixture after it, and the sweep came back **954 passed, one skipped** where the
+last two milestones had none. Reading it (§115.5) found
+`test_a_dart_that_cannot_get_through_does_not_envenom`:
+
+```python
+landed = self.traps._hurt(self.game, p, "dart")
+if landed:
+    self.skipTest("the dart got through this time")
+self.assertFalse(p.venom)
+```
+
+Two things wrong, and the skip was the smaller one. `traps._hurt` **does not
+apply venom** — `spring` does, on the line after it, gated on whether the
+strike landed. So on the runs the test did not skip, it asserted that a
+function which never touches venom had not applied any. Deleting the gate it
+exists to guard (`if defn.get("venom") and landed:` → `if defn.get("venom"):`)
+left it green.
+
+It springs a real trap forty times now, counts wounds before and after to see
+whether the dart got through, and asserts the invariant on the rounds where it
+did not. The re-break fails it. `_trap`'s own *"no walkable ground beside the
+player"* skip is gone the same way: it digs a floor tile if the six offsets it
+tries are all rock.
+
+That is two guards-that-could-not-fail in one milestone — the `len(below) > 0`
+one I wrote and this one I inherited — and both were found by the same
+question: *break the thing on purpose, and see whether anything notices.*
+
+## 118. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

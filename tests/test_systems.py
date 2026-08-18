@@ -3441,18 +3441,24 @@ class TestTraps(GameFixture):
         self.traps.layer(self.game).clear()
 
     def _here(self, dx=1, dy=0):
-        """A walkable cell beside the player."""
+        """A walkable cell beside the player, made if there is not one.
+
+        Six hand-picked offsets and a skip if none of them was open, which is
+        a thing the dice decide -- so the trap tests could be switched off by
+        a change to worldgen anywhere. It digs one out now.
+        """
         p = self.game.player
         for ox, oy in ((dx, dy), (-dx, dy), (dx, -dy), (0, 1), (1, 1), (-1, -1)):
             cell = (p.x + ox, p.y + oy, p.z)
             if self.game.local.walkable(*cell):
                 return cell
-        return None
+        cell = (max(1, min(self.game.local.width - 2, p.x + 1)), p.y, p.z)
+        self.game.local.set_tile(cell[0], cell[1], cell[2], "floor")
+        return cell
 
     def _trap(self, kind="pit"):
         cell = self._here()
-        if cell is None:
-            self.skipTest("no walkable ground beside the player")
+        self.assertIsNotNone(cell)
         trap = self.traps.place(self.game, cell, kind)
         self.assertIsNotNone(trap)
         return cell, trap
@@ -3592,14 +3598,30 @@ class TestTraps(GameFixture):
 
     def test_a_dart_that_cannot_get_through_does_not_envenom(self):
         """Armour mattering for the wound and not the venom is armour
-        mattering for half the trap."""
-        cell, _trap = self._trap("dart")
+        mattering for half the trap.
+
+        Whether a given dart gets through is a die roll, and this used to skip
+        the run when it did -- so any change to the game's dice anywhere could
+        turn the test off, and one did. It throws darts until it has seen the
+        case it is about.
+        """
+        cell, trap = self._trap("dart")
         p = self.game.player
-        p.venom = []
-        landed = self.traps._hurt(self.game, p, "dart")
-        if landed:
-            self.skipTest("the dart got through this time")
-        self.assertFalse(p.venom)
+        p.x, p.y, p.z = cell
+        stopped = 0
+        for _ in range(40):
+            trap.sprung, trap.armed = False, True
+            p.venom = []
+            before = sum(len(part.wounds) for part in p.body.parts.values())
+            self.traps.spring(self.game, cell, p)
+            after = sum(len(part.wounds) for part in p.body.parts.values())
+            if after > before:
+                continue           # it got through; the venom belongs
+            stopped += 1
+            self.assertFalse(p.venom,
+                             "a dart that drew no blood still envenomed")
+        self.assertGreater(stopped, 0,
+                           "forty darts and armour stopped none of them")
 
     def test_a_snare_lays_a_web(self):
         from ascii_warriors.game import webs
@@ -8645,3 +8667,157 @@ class TestTheLedger(unittest.TestCase):
             game.player, speaker, "ask_site", game))
         self.assertNotIn("rules here", said,
                          "a townsman named a corpse as the ruler")
+
+
+class TestTheEmptyDeep(unittest.TestCase):
+    """Six levels of cavern under every tile, and nothing alive in any of them.
+
+    A local map is eleven z-levels and six of them are underground: caverns
+    cut by cellular automata, ore and gem veins, and the README telling you to
+    light a torch before you go down there. Measured over sixteen tiles around
+    an adventurer's start: **three hundred and fifty-eight creatures of
+    thirty-four kinds above the surface, ninety thousand walkable cells below
+    it, and zero creatures in them.**
+
+    `creature_data.spawnable` has taken an `underground` flag since it was
+    written and eleven species carry `SUBTERRANEAN`. The one caller in the
+    game passed a local variable set to `False` on the line above it and never
+    changed -- so `spawnable(underground=True)` had never been called by
+    anything. Four species live nowhere else in the table and so had never
+    once existed: the cave spider, the giant cave spider, the giant cave
+    swallow and the gremlin. `venom` carries an entry for the bite of one of
+    them.
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.mkdtemp()
+        self._old = os.environ.get("ASCII_WARRIORS_SAVE_DIR")
+        os.environ["ASCII_WARRIORS_SAVE_DIR"] = self._tmp
+        rng = RNG("deep")
+        self.world = generate_world(rng.sub("w"), size="small",
+                                    history_years=120)
+        self.game = Game.new_game(
+            self.world, {"race": "human", "profession": "warrior"}, rng)
+
+    def tearDown(self):
+        if self._old is None:
+            os.environ.pop("ASCII_WARRIORS_SAVE_DIR", None)
+        else:
+            os.environ["ASCII_WARRIORS_SAVE_DIR"] = self._old
+
+    def _walk(self, tiles=9):
+        """Enter a few wild tiles and return what was found where.
+
+        Wild rather than any: guards keep the wildlife budget down in an
+        inhabited place, and a third of very little is nothing. Chosen by
+        distance from the player over the whole map rather than by scanning a
+        box around them, because how much open country a start has is a thing
+        the dice decide.
+        """
+        game = self.game
+        px, py = game.player.wx, game.player.wy
+        wild = [
+            (max(abs(x - px), abs(y - py)), x, y)
+            for y in range(self.world.height)
+            for x in range(self.world.width)
+            if not self.world.tile(x, y).is_ocean
+            and self.world.site_at(x, y) is None
+        ]
+        wild.sort()
+        below, above, walked = [], [], 0
+        for _d, x, y in wild[:tiles]:
+            game.enter_world_tile(x, y)
+            lm = game.local
+            walked += 1
+            for c in game.creatures.values():
+                if c.is_player:
+                    continue
+                if c.z < lm.surface_z(c.x, c.y):
+                    below.append(c)
+                else:
+                    above.append(c)
+        return below, above, walked
+
+    def test_the_caves_have_something_living_in_them(self):
+        """The measurement that opened this, as a guard."""
+        below, above, walked = self._walk()
+        self.assertGreater(walked, 4, "hardly any wilderness to walk")
+        self.assertTrue(above, "nothing above ground either -- bad fixture")
+        # At least one per tile walked. Not "more than none": placing the
+        # group and then walking every member of it up to `surface_z` leaves
+        # a single straggler underground, which a floor of zero calls a pass.
+        self.assertGreaterEqual(len(below), walked,
+                                "the caves are still all but empty")
+
+    def test_what_is_down_there_belongs_down_there(self):
+        """Not a deer that fell in a hole."""
+        below, above, _walked = self._walk()
+        self.assertTrue(below)
+        for c in below:
+            self.assertTrue(
+                c.defn.has("SUBTERRANEAN"),
+                "%s is underground and has no business there" % c.def_id)
+        # And the other direction: a cave dweller standing in a meadow means
+        # the group was placed in the dark and then walked up into the sun.
+        strays = [c for c in above if c.defn.has("SUBTERRANEAN")
+                  and not set(c.defn.biomes) - {"cave"}]
+        self.assertLessEqual(
+            len(strays), len(below) // 4,
+            "%d cave dwellers are standing about above ground" % len(strays))
+
+    def test_the_species_that_live_only_underground_exist(self):
+        """Four of them list no surface biome at all."""
+        from ascii_warriors.data import creatures as creature_data
+
+        only_below = {c.id for c in creature_data.CREATURES.values()
+                      if "SUBTERRANEAN" in c.flags and c.frequency > 0
+                      and not (set(c.biomes) - {"cave"})}
+        self.assertTrue(only_below, "nothing in the table lives only below")
+        below, _above, _walked = self._walk()
+        found = {c.def_id for c in below} & only_below
+        self.assertTrue(found,
+                        "none of %s has ever existed" % sorted(only_below))
+
+    def test_the_deep_is_not_paid_for_with_a_slower_turn(self):
+        """The cave share comes out of the surface budget, not on top of it."""
+        below, above, walked = self._walk()
+        self.assertGreater(walked, 4)
+        from ascii_warriors.game.state import WILDLIFE_MAX
+
+        per_tile = (len(below) + len(above)) / float(walked)
+        self.assertLess(per_tile, WILDLIFE_MAX * 4,
+                        "a map got far more wildlife than the budget allows")
+        self.assertGreater(len(below), 0)
+
+    def test_they_are_still_down_there_after_a_while(self):
+        """A cave dweller that walks into the sun is a cave dweller nowhere."""
+        game = self.game
+        px, py = game.player.wx, game.player.wy
+        wild = [
+            (max(abs(x - px), abs(y - py)), x, y)
+            for y in range(self.world.height)
+            for x in range(self.world.width)
+            if not self.world.tile(x, y).is_ocean
+            and self.world.site_at(x, y) is None
+        ]
+        wild.sort()
+        # Stand on a tile that has somebody down there, rather than on
+        # whichever tile a walk happened to end on -- which is a thing the
+        # dice decide, and a skip is the one way a test can be wrong and say
+        # nothing about it.
+        here = []
+        for _d, x, y in wild[:40]:
+            game.enter_world_tile(x, y)
+            lm = game.local
+            here = [c for c in game.creatures.values()
+                    if not c.is_player and c.z < lm.surface_z(c.x, c.y)]
+            if here:
+                break
+        self.assertTrue(here, "no tile in forty had anything living below it")
+        for _ in range(300):
+            game.player_acts(ACTION_COST)
+            game.advance()
+        still = [c for c in here
+                 if not c.body.dead and c.z < lm.surface_z(c.x, c.y)]
+        self.assertGreater(len(still), len(here) // 2,
+                           "most of the caves emptied out into the daylight")

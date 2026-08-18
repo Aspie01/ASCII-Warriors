@@ -251,6 +251,29 @@ class LocalMap:
                     return (xx, yy, zz)
         return (self.width // 2, self.height // 2, 0)
 
+    def random_cave(
+        self, rng: RNG, *, tries: int = 400
+    ) -> Optional[Tuple[int, int, int]]:
+        """A random walkable cell under the surface, or ``None``.
+
+        The counterpart of `random_open`, which prefers the surface and can
+        only be pinned to one z at a time. A map has six levels of cavern
+        below every column of it and nothing in adventure mode could ask for
+        a cell in them, which is most of why they were empty.
+        """
+        for _ in range(tries):
+            x = rng.randint(0, self.width - 1)
+            y = rng.randint(0, self.height - 1)
+            top = self.surface_z(x, y)
+            if top <= self.zmin:
+                continue
+            z = rng.randint(self.zmin, top - 1)
+            if self.walkable(x, y, z) and not tile_data.get(
+                self.tile(x, y, z)
+            ).has("WATER"):
+                return (x, y, z)
+        return None
+
     def central_open(self, rng: RNG) -> Tuple[int, int, int]:
         """The walkable cell closest to the middle of the map.
 

@@ -280,9 +280,14 @@ def build_fortress(lm, world, site, rng: RNG) -> List[PopSpec]:
                         role="lord", hf_id=site.ruler_hf, level=4))
     for _ in range(min(3, len(spots))):
         p = spots.pop()
-        pop.append(_pop("hammerdwarf" if race == "dwarf" else "guard",
-                        p.x, p.y, z, faction=faction, profession="guard",
-                        role="guard", level=3))
+        # Hammer or axe. The table has carried both dwarven soldiers since it
+        # was written and this line named one of them, so `axedwarf` -- six
+        # levels of axe where the other has six of hammer -- existed nowhere
+        # in any world.
+        kind = rng.choice(("hammerdwarf", "axedwarf")) \
+            if race == "dwarf" else "guard"
+        pop.append(_pop(kind, p.x, p.y, z, faction=faction,
+                        profession="guard", role="guard", level=3))
     if spots:
         p = spots.pop()
         pop.append(_pop(race, p.x, p.y, z, faction=faction,

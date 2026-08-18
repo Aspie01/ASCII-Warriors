@@ -1410,3 +1410,69 @@ class TestThePageDoesNotContradictItself(unittest.TestCase):
             fig.died = before
         self.assertNotIn("Held by %s." % fig.display_name, text)
         self.assertIn("until %d" % (world.year - 3), text)
+
+
+class TestTheWayDown(unittest.TestCase):
+    """`random_cave`: the funnel for "somewhere under the ground".
+
+    `random_open` prefers the surface and can only be pinned to one z at a
+    time, so nothing in adventure mode could ask for a cell in the six levels
+    of cavern below every column. That is most of why they were empty.
+    """
+
+    def _map(self):
+        world = _world("down", size="pocket", years=20)
+        x, y = world.land_tiles()[0]
+        lm, _pop = generate_local(world, x, y, RNG("lm"))
+        return lm
+
+    def test_every_cell_it_gives_is_under_the_surface(self):
+        lm = self._map()
+        found = 0
+        for i in range(40):
+            cell = lm.random_cave(RNG("cave%d" % i))
+            if cell is None:
+                continue
+            x, y, z = cell
+            self.assertLess(z, lm.surface_z(x, y), "that is the surface")
+            self.assertGreaterEqual(z, lm.zmin)
+            self.assertTrue(lm.walkable(x, y, z), "it is inside the rock")
+            self.assertFalse(tiles.get(lm.tile(x, y, z)).has("WATER"),
+                             "that is the bottom of a lake")
+            found += 1
+        self.assertGreater(found, 30, "an ordinary map had almost no caves")
+
+    def test_a_map_with_nothing_under_it_says_so(self):
+        """Rather than looping, or handing back a cell inside the rock."""
+        lm = LocalMap(24, 24, -4, 4)
+        for z in range(lm.zmin, lm.zmax + 1):
+            for y in range(lm.height):
+                for x in range(lm.width):
+                    lm.set_tile(x, y, z, "rock_wall")
+        self.assertIsNone(lm.random_cave(RNG("solid")))
+
+
+class TestBothKindsOfDwarf(unittest.TestCase):
+    """The table has carried two dwarven soldiers since it was written.
+
+    `build_fortress` named one of them -- `"hammerdwarf" if race == "dwarf"
+    else "guard"` -- so `axedwarf`, six levels of axe where the other has six
+    of hammer, existed in no world anywhere. It is the same shape as every
+    other find this session: both halves written, one of them wired up.
+    """
+
+    def test_a_dwarven_keep_fields_both(self):
+        world = _world("both", size="small", years=80)
+        keeps = [s for s in world.sites
+                 if s.race == "dwarf" and s.kind in ("fortress", "hillocks")
+                 and not s.is_ruin]
+        self.assertTrue(keeps, "no dwarven holds in this world")
+        seen = set()
+        for site in keeps:
+            for i in range(6):
+                _lm, pop = generate_local(world, site.wx, site.wy,
+                                          RNG("g%d-%d" % (site.id, i)),
+                                          site=site)
+                seen |= {str(p["def_id"]) for p in pop}
+        self.assertIn("hammerdwarf", seen)
+        self.assertIn("axedwarf", seen, "the axe half has still never existed")

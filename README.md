@@ -513,7 +513,9 @@ all of it is browsable in the legends viewer.
 
 **Z-levels.** Each world tile expands into a 64x48 local map spanning eleven
 levels: cave systems carved by cellular automata below, ore and gem veins in the
-rock, rivers cut into the surface, tree canopies above. Open space shows you what
+rock, rivers cut into the surface, tree canopies above. The caves have their own
+wildlife — cave spiders, gremlins, giant cave swallows and worse — so going down
+is a decision rather than a shortcut. Open space shows you what
 is on the level below, dimmed by depth, the way Dwarf Fortress does.
 
 **Sites.** Towns with houses, a tavern, a temple, a market, a keep and roads
