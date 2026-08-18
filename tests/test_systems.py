@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import collections
 import json
 import os
 import tempfile
@@ -2687,6 +2688,128 @@ class TestMounts(GameFixture):
         self.assertTrue(theirs[0].tame)
         self.assertEqual(theirs[0].tame_tries, 3)
         path.unlink()
+
+
+class TestPlayingTheAdventure(GameFixture):
+    """The clock an adventurer lives on, and the driver that measures it.
+
+    The fortress has been audited by simulating a year and looking at the
+    wreckage since v3.46, and five defects came out of it. Adventure mode had
+    no equivalent: `smoke` proves the screens fit together and `fuzz` presses
+    keys at random, and neither of them plays. `tools/play` does, and these
+    pin the things it depends on being true.
+    """
+
+    def _turns(self, n, cost=None):
+        """Take *n* ordinary turns the way the play screen does."""
+        for _ in range(n):
+            self.game.player_acts(cost or actions.wait(self.game))
+
+    def test_an_action_moves_the_world_clock(self):
+        """`player_acts` is the whole of it.
+
+        Calling an action function and then `advance()` looks like taking a
+        turn and is not: nothing has charged the player its energy, so the
+        scheduler hands the turn straight back and the world barely moves.
+        Two hundred turns driven that way advanced the clock by two ticks
+        instead of two hundred, and an adventurer on that clock would need
+        four million turns to get thirsty. It was a probe that did this rather
+        than the game, and the probe looked exactly like a discovery.
+        """
+        p = self.game.player
+        before = p.needs.thirst
+        self._turns(200)
+        self.assertGreaterEqual(p.needs.thirst - before, 150,
+                                "two hundred turns barely moved the clock")
+
+    def test_needs_reach_the_thresholds_that_matter(self):
+        """Thirst has to be able to become urgent, or nothing below it runs."""
+        from ascii_warriors.game import feeding
+
+        p = self.game.player
+        p.needs.thirst = feeding.THIRSTY_AT - 60
+        self._turns(120)
+        self.assertGreater(p.needs.thirst, feeding.THIRSTY_AT)
+
+    def test_you_can_drink_from_the_water_you_are_standing_in(self):
+        """The fortress's thirst bug, asked of the other mode."""
+        p = self.game.player
+        self.game.local.set_tile(p.x + 1, p.y, p.z, "shallow_water")
+        p.needs.thirst = 30000
+        self.assertTrue(actions.water_source_near(self.game))
+        self.assertGreater(actions.drink(self.game), 0)
+        self.assertEqual(p.needs.thirst, 0)
+
+    def test_drinking_from_a_river_needs_a_river(self):
+        """And the other half, or the guard above passes anywhere."""
+        p = self.game.player
+        for dx in range(-1, 2):
+            for dy in range(-1, 2):
+                self.game.local.set_tile(p.x + dx, p.y + dy, p.z, "grass")
+        for item in list(p.inventory.items):
+            if item.is_drink:
+                p.inventory.items.remove(item)
+        p.needs.thirst = 30000
+        self.assertFalse(actions.water_source_near(self.game))
+        actions.drink(self.game)
+        self.assertEqual(p.needs.thirst, 30000, "it drank from dry grass")
+
+    def test_a_waterskin_is_what_carries_the_water(self):
+        """`refill_waterskins` invents water, so what it invents is the point.
+
+        Both directions, because only one of them can fail. The explicit
+        "no skins, no water" guard in the function is unreachable: with no
+        skin the capacity is zero and the `have >= capacity` line returns
+        zero anyway, so deleting the check changes nothing. What is worth
+        pinning is that a skin holds four and a second skin holds four more.
+        """
+        p = self.game.player
+        for item in list(p.inventory.by_def("waterskin")):
+            p.inventory.items.remove(item)
+        for item in list(p.inventory.by_def("water_drink")):
+            p.inventory.items.remove(item)
+        self.assertEqual(actions.refill_waterskins(self.game), 0)
+        self.assertEqual(p.inventory.count_of("water_drink"), 0)
+        p.inventory.add(Item("waterskin", "leather"))
+        self.assertEqual(actions.refill_waterskins(self.game), 4)
+        self.assertEqual(p.inventory.count_of("water_drink"), 4)
+        self.assertEqual(actions.refill_waterskins(self.game), 0,
+                         "a full skin filled again")
+
+    def test_the_world_an_adventurer_walks_into_is_populated(self):
+        """A map with nothing on it makes every other measurement meaningless."""
+        others = [c for c in self.game.creatures.values() if not c.is_player]
+        self.assertGreater(len(others), 4, "the world is empty")
+
+    def test_the_play_driver_looks_after_the_character(self):
+        """The tool is only worth having if it plays rather than presses keys.
+
+        Driven at a character that is already parched, so `_look_after` has
+        to fire: a short run on a quiet map never reaches a threshold, which
+        is why the first version of this passed with the whole needs branch
+        deleted.
+        """
+        from tools import play
+
+        why = collections.Counter()
+        p = self.game.player
+        self.game.local.set_tile(p.x + 1, p.y, p.z, "shallow_water")
+        p.needs.thirst = play.THIRSTY + 5000
+        cost = play._look_after(self.game, why)
+        self.assertIsNotNone(cost, "it ignored a parched character")
+        self.assertEqual(p.needs.thirst, 0)
+        self.assertEqual(why["drank"], 1)
+
+    def test_the_play_driver_runs_and_reports(self):
+        """And it has to come back with numbers, not just print them."""
+        from tools import play
+
+        out = play.play("harness", 120, size="pocket", history=10,
+                        report=lambda *a: None)
+        self.assertEqual(out["seed"], "harness")
+        self.assertGreater(out["peak"]["thirst"], 0,
+                           "the driver never moved the clock")
+        self.assertLessEqual(out["turns"], 120)
 
 
 class TestTheWild(GameFixture):

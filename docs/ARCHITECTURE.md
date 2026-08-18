@@ -4747,7 +4747,71 @@ command being launched alongside it. The same hazard is already noted for
 `pgrep`; it is worse for `pkill`, because the evidence is a process that
 exited before it printed anything.
 
-## 111. Style
+## 111. Playing the other half (v3.51)
+
+Six milestones running, every defect has come out of the same method: set the
+fortress going, leave it a year, and look at the wreckage. A fortress dead of
+thirst with two thousand units of ale in it. A roc that paced between two cells
+for a whole siege. A vampire named forty-seven times in a book nobody could
+act on. None of them was visible in the code.
+
+Adventure mode had no such instrument. `tools/smoke` proves the screens fit
+together; `tools/fuzz` presses keys at random. Neither plays. So this milestone
+is the missing instrument, and the audit it made possible.
+
+**`tools/play`** drives the real action layer through `Game.player_acts`, the
+way the play screen does, and looks after the character the way a player would
+— drink, eat, sleep, hit what is adjacent, otherwise wander. It ends in
+assertions rather than a wall of output: needs that never moved, a death by
+thirst beside water, or a run that stopped without dying are all reported as
+problems and exit non-zero.
+
+**The audit found nothing.** That is the result, and it is worth writing down
+so nobody repeats it:
+
+- step cost is flat across twenty-four embarks, 1.31 to 1.77 ms, with no
+  outlier of the kind v3.50 fixed;
+- an ordinary adventure turn costs 3.7 ms, and an eight-hour sleep 148 ms for
+  the 4800 ticks of world it simulates — proportionate, not pathological;
+- every key the help promises is handled by the screen it belongs to;
+- `refill_waterskins` invents water out of nothing, and has exactly one caller,
+  correctly guarded by `water_source_near`;
+- the local map an adventurer walks into holds thirty to forty creatures.
+
+One piece of genuinely dead code turned up and is left alone deliberately:
+`refill_waterskins` opens with "no skins, no water", which cannot fire —
+with no skin the capacity is zero and the very next line returns zero anyway.
+Deleting it changes no behaviour, which is exactly why the test that tried to
+pin it could not fail. The test now pins what a skin actually does, and says
+why.
+
+### 111.1. Three probes, three self-inflicted wounds
+
+The instrument exists because the ad-hoc probes kept lying, and all three
+failures were mine rather than the game's.
+
+**A probe that never took a turn.** The first driver called the action
+functions and then `game.advance()`. That is not a turn: nothing charges the
+player its energy, so the scheduler hands the turn straight back and the clock
+barely moves. Two hundred "turns" advanced the world by two ticks, thirst rose
+by two, and the reading — *an adventurer would need four million turns to get
+thirsty* — looked exactly like a discovery about the survival layer. It was a
+discovery about `player_acts`. The first guard in `TestPlayingTheAdventure`
+now pins the real rate, so the next probe that gets this wrong fails a test
+instead of writing a milestone.
+
+**A pipe that ate the evidence.** Two long runs printed nothing at all for
+twelve minutes, because they were piped through `tail`, which buffers until
+the process exits — and both were killed by their timeout first. A background
+run that reports progress must not be piped.
+
+**A `pkill` that killed its own replacement.** Documented one milestone
+earlier, in §110.1, and repeated anyway: killing the old probe and launching
+the new one in a single shell invocation matches the new one's `bash -c`
+wrapper too. Writing a hazard down is not the same as not walking into it. The
+rule is now the stronger one: kill in one call, launch in the next.
+
+## 112. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

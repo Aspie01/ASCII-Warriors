@@ -801,16 +801,23 @@ forgotten beasts with their own names, shapes, materials and special abilities.
 ## Development
 
 ```sh
-python -m unittest discover -s tests -v     # 347 tests
+python -m unittest discover -s tests -v     # the whole suite
 python -m tools.smoke                       # headless adventure play-through
 python -m tools.smoke --mode fortress       # headless fortress play-through
 python -m tools.fuzz --mode fortress        # random keys, looking for crashes
+python -m tools.play --seed adv1            # play an adventurer for a long time
 python -m compileall ascii_warriors
 ```
 
 `tools/smoke.py` boots the whole game against a scripted fake terminal, plays
 through every screen and prints the final frame. It needs no tty, which is how
 CI runs it on Windows and Linux.
+
+`tools/play.py` is the other kind of test: it plays an adventurer sensibly for
+thousands of turns — drink, eat, sleep, fight what is next to you, otherwise
+wander — and then judges the run. Needs that never moved, a death by thirst
+beside water, or a stop without a death are reported as problems. Most of what
+is wrong with a simulation is only visible after a few thousand turns of it.
 
 The module contract lives in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
