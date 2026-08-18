@@ -5639,6 +5639,126 @@ class TestJustice(unittest.TestCase):
         self.assertEqual(again.hostiles(), [])
 
 
+class TestTheUnreachableJob(unittest.TestCase):
+    """A fortress must not spend its life inside searches that cannot succeed.
+
+    Found by measuring: one embark ran at twelve hundred milliseconds a step
+    against the ordinary one and a half. Profiling it, ninety-one A* searches
+    accounted for fifty of every fifty-one seconds, and forty-two of
+    forty-four of them failed -- four `tend` jobs on animals sealed away in a
+    cavern, retried by every idle dwarf on every step for the life of the
+    fortress.
+
+    The parts to stop it were all there. `job.failed` counts give-ups,
+    `for_dwarf` skips a job at three, `_prune` drops it, and `fort.unreachable`
+    remembers a cell for a while. The count lives on the job, though, and the
+    scanners post a fresh one the moment the old one is dropped -- so the
+    counter reset for ever and the cell memory was only ever consulted by the
+    designation scanner.
+    """
+
+    def _sealed_job(self, seed="sealed"):
+        """A fortress with one job, posted somewhere nobody can walk to."""
+        fort = embark(seed)
+        d = fort.dwarves()[0]
+        # A pocket of floor with solid rock all round it, on its own level.
+        z = d.z - 2
+        cell = (6, 6, z)
+        # Three levels of rock, not one: a pocket walled off only on its own
+        # level is still reachable down a stair from the one above, which is
+        # how the first version of this passed on one seed and failed on the
+        # next.
+        for level in (z - 1, z, z + 1):
+            for y in range(4, 10):
+                for x in range(4, 10):
+                    fort.local.set_tile(x, y, level, "rock_wall")
+        fort.local.set_tile(*cell, "floor")
+        # The only job on the board, or a dwarf takes a reachable one first and
+        # never gets as far as this. `tend` is the kind the pathological embark
+        # posted, and one `prepare_job` waves through -- a `haul` with no item
+        # is removed before anybody tries to walk to it.
+        for job in list(fort.jobs.jobs.values()):
+            fort.jobs.remove(job)
+        fort.unreachable.clear()
+        fort.jobs.make("tend", *cell)
+        return fort, d, cell
+
+    def _searches(self, fn):
+        """How many A* searches something runs."""
+        from ascii_warriors.engine import pathfind
+        from ascii_warriors.fortress import dwarf as dm
+
+        count = [0]
+        real = pathfind.astar
+
+        def watched(*a, **kw):
+            count[0] += 1
+            return real(*a, **kw)
+
+        pathfind.astar, dm.astar = watched, watched
+        try:
+            fn()
+        finally:
+            pathfind.astar, dm.astar = real, real
+        return count[0]
+
+    def test_an_unreachable_job_is_not_searched_for_twice(self):
+        """The defect, counted. Every idle dwarf ran one of these every step."""
+        fort, d, _cell = self._sealed_job()
+        first = self._searches(lambda: dwarf_mod._claim_job(fort, d))
+        self.assertGreater(first, 0, "it never even looked")
+        again = self._searches(lambda: dwarf_mod._claim_job(fort, d))
+        self.assertEqual(again, 0, "it searched for it again")
+
+    def test_the_cell_is_remembered_as_unreachable(self):
+        """Where the memory lives, so the rule can be read off the state."""
+        fort, d, cell = self._sealed_job("remembered")
+        dwarf_mod._claim_job(fort, d)
+        self.assertIn(cell, fort.unreachable)
+        self.assertGreater(fort.unreachable[cell], fort.ticks)
+
+    def test_digging_makes_it_worth_trying_again(self):
+        """Digging is the answer to "nobody can get there"."""
+        fort, d, cell = self._sealed_job("dugout")
+        dwarf_mod._claim_job(fort, d)
+        self.assertIn(cell, fort.unreachable)
+        fort.dig_out((d.x, d.y, d.z), "floor")
+        self.assertEqual(fort.unreachable, {},
+                         "the note outlived the wall it was about")
+        self.assertGreater(self._searches(lambda: dwarf_mod._claim_job(fort, d)),
+                           0, "it never tried again")
+
+    def test_a_reachable_job_is_still_taken(self):
+        """The point is not to stop dwarves working."""
+        fort = embark("stillworks")
+        d = fort.dwarves()[0]
+        for job in list(fort.jobs.jobs.values()):
+            fort.jobs.remove(job)
+        fort.unreachable.clear()
+        cell = (d.x + 1, d.y, d.z)
+        fort.dig_out(cell, "floor")
+        fort.jobs.make("tend", *cell)
+        self.assertIsNotNone(dwarf_mod._claim_job(fort, d),
+                             "nobody took a job they could walk to")
+        self.assertEqual(fort.unreachable, {})
+
+    def test_a_pathological_embark_still_steps_quickly(self):
+        """The number that started this.
+
+        Measured 1240 ms a step before and 1.44 after, against 1.3 for an
+        ordinary embark. Twenty is a wide berth around the ordinary figure and
+        nowhere near the broken one.
+        """
+        import time
+
+        fort = embark("stress1")
+        sim.run(fort, 20)
+        t0 = time.perf_counter()
+        sim.run(fort, 60)
+        per_step = (time.perf_counter() - t0) / 60 * 1000
+        self.assertLess(per_step, 20.0, "%.0f ms a step" % per_step)
+
+
 class TestTheTantrum(unittest.TestCase):
     """Whether a dwarf can stay upset long enough to do anything about it.
 

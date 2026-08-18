@@ -4680,7 +4680,74 @@ It was unreachable because a rounding error four modules away kept the number
 that gates it pinned at zero. "Can this happen at all" is a question about the
 whole system, not about the function.
 
-## 110. Style
+## 110. The job nobody could reach (v3.50)
+
+One embark ran at **twelve hundred and forty milliseconds a step**. An ordinary
+one runs at one and a half. A fortress at that speed is not slow, it is
+unplayable, and nothing about it looked wrong from the outside: seven dwarves,
+four jobs, no siege, no water, no fire.
+
+Profiling ten steps: ninety-one A* searches accounted for fifty of the
+fifty-one seconds, expanding 3.6 million cells between them — some forty
+thousand apiece. Instrumenting the searches, **forty-two of forty-four
+failed**, on a handful of repeated goals. Four `tend` jobs, on animals sealed
+away in a cavern, retried by every idle dwarf on every step for the life of
+the fortress.
+
+**Every part needed to stop it already existed.** `job.failed` counts
+give-ups. `JobBoard.for_dwarf` skips a job at three failures. `_prune` drops it
+at three. `fort.unreachable` maps a cell to the tick it is worth trying again.
+None of it helped, for two reasons that only matter together:
+
+- the counter lives on the **job**, and the scanners post a fresh one the
+  moment `_prune` drops the old — so `failed` reset to zero for ever, and a cow
+  in a sealed cavern is four `tend` jobs that keep coming back;
+- `fort.unreachable` is the memory that *would* survive that, because it is
+  keyed by cell rather than by job — but it was only ever consulted by the
+  designation scanner. Everything nobody designated went unguarded.
+
+The fix is four lines in `_claim_job`, which is the one place a dwarf takes a
+job: skip a cell that is currently marked, and mark it when the search fails.
+`fort.dig_out` — the one funnel every tile change goes through — clears the
+marks, because digging is precisely the answer to "nobody can get there" and
+cannot be the one thing that leaves the note saying so in place.
+
+**1240 ms a step became 1.44.** An ordinary embark measured 1.25 before and
+1.28 after.
+
+**And it costs nothing.** A sixty-day fortress run either side of the fix
+finishes byte-identical — seven dwarves, wealth 12405, twenty-five food, 1171
+ale, six buildings, an empty job board — because on a fortress where everything
+is reachable the mark is never set. That comparison is the one that mattered: a
+speed fix that quietly stopped dwarves taking work would be worse than the bug
+it cured.
+
+The mark is per cell and not per dwarf, so a job one dwarf cannot reach is set
+aside for all of them. That is the cheap assumption rather than the correct
+one — two dwarves can be in different connected components — and what makes it
+safe is that it expires. `RETRY_DELAY` is four hours; digging clears it sooner.
+
+### 110.1. Two ways to lose your own work
+
+Both worth writing down, because neither is about the game.
+
+**A stash held across a background job.** The productivity comparison ran
+`git stash push`, the benchmark, then `git stash pop`, in the background — and
+while it ran I kept editing the same two files. For four minutes the working
+tree held the *unfixed* code, so a probe reported the fix doing nothing and a
+`grep` for it came back empty. Nothing was lost, because the pop restored it,
+but the minutes spent debugging a fix that was sitting in `stash@{0}` were.
+Never background a command that stashes and pops files you are still working
+in.
+
+**A `pkill -f` pattern that matched its own replacement.** Killing the old
+probe and starting the new one in a single invocation killed both: `-f`
+matches the whole command line, including the `bash -c` wrapper of the
+command being launched alongside it. The same hazard is already noted for
+`pgrep`; it is worse for `pkill`, because the evidence is a process that
+exited before it printed anything.
+
+## 111. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

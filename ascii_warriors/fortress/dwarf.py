@@ -919,12 +919,36 @@ def _follow_target(fort, dwarf, job: Job) -> None:
 
 
 def _claim_job(fort, dwarf) -> Optional[Job]:
-    """Take the best available job, if the dwarf can reach it."""
+    """Take the best available job, if the dwarf can reach it.
+
+    A job whose cell nobody could reach is remembered as unreachable for a
+    while rather than searched for again on the next step. `job.failed`
+    already counts give-ups and `_prune` already drops a job at three, but the
+    count lives on the job and the scanners post a fresh one the moment the
+    old one goes: a cow in a sealed cavern is four `tend` jobs that come back
+    for ever. Measured on the embark that showed it, every dwarf spent every
+    step inside a full-budget A* that could not succeed -- forty-two searches
+    out of forty-four failing, forty thousand cells expanded apiece, and a
+    fortress step of twelve hundred milliseconds against the ordinary one and
+    a half.
+
+    The memory is `fort.unreachable`, which the designation scanner has
+    consulted since it was written; this is the same rule applied to the jobs
+    nobody designated. It is per cell rather than per dwarf, so a job one
+    dwarf cannot reach is set aside for all of them -- the cheap assumption,
+    and the retry is what makes it safe. Digging clears it outright, because
+    digging is how a fortress reaches somewhere it could not.
+    """
+    from . import sim as sim_mod
+
     state = dwarf.fort
     for job in fort.jobs.for_dwarf(dwarf)[:12]:
+        if fort.ticks < fort.unreachable.get(job.cell, 0):
+            continue
         if not fort.prepare_job(dwarf, job):
             continue
         if not path_to(fort, dwarf, job.cell, vertical=vertical_reach(job)):
+            fort.unreachable[job.cell] = fort.ticks + sim_mod.RETRY_DELAY
             fort.jobs.release(job)
             fort.cancel_preparation(dwarf, job)
             continue

@@ -878,6 +878,10 @@ class Fortress:
         held_before = can_hold(self.local, cell)
         self.local.set_tile(cell[0], cell[1], cell[2], tile)
         self._water_cache = None
+        # Somewhere that could not be reached may be reachable now: digging is
+        # the answer to "nobody can get there", so it cannot be the one thing
+        # that leaves the note saying so in place.
+        self.unreachable.clear()
         if held_before or not can_hold(self.local, cell):
             # Smoothing a wall, or turning a floor into a farm plot, changes
             # nothing the water cares about. The bank still holds.
