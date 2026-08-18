@@ -4916,7 +4916,63 @@ change, and every one of them was a test that measured the seed rather than
 the game. The skip is the one worth watching for: a red test argues, a skipped
 test says nothing at all.
 
-## 113. Style
+## 113. The artifact that was never there (v3.53)
+
+v3.52 fixed one half of the audit and left the other unproven: the probe that
+looked for artifacts at a site used `local.items`, which is `None`, so the
+reading meant nothing and was recorded as unproven rather than as a finding.
+With the right accessor — `game.items_on_ground` — it is a finding. Three
+worlds, three sites named by three quests, and **no artifact on the ground or
+in anybody's hands** at any of them.
+
+**Nothing had ever placed one.** The word "artifact" does not appear in
+`sitegen.py`. `Item.artifact_id` is read for the item's colour, read for its
+name, copied by `clone`, written to the save and loaded back from it — and
+**set nowhere in the game**. `quests.on_pickup` matches on exactly that field.
+So a retrieve-the-artifact quest could be offered, accepted, travelled to, and
+finished by nobody.
+
+The rest of the chain was already correct, which is what made it invisible:
+`_quest_retrieve` picks a real artifact and names *its own* site, not a random
+one — the mistake `_quest_slay_beast` made — so the quest text was true and
+only the world was empty.
+
+**`game/artifacts.py`** places them, called from `enter_world_tile` beside
+`traps_mod.populate` and for the same stated reason: a floor to lie on is part
+of a floor plan, and floor plans are made when the player walks in. An
+artifact goes into the hands of its `holder_hf` if that figure is standing
+here and on the floor otherwise — so a hydra guarding a treasure is what the
+histories said all along, now that v3.52 puts the hydra in its lair.
+
+### 113.1. A cache that hands out seconds
+
+The local map cache holds twenty-four tiles and then evicts the oldest. A site
+rebuilt from scratch is rebuilt completely, so without a guard the crown you
+are wearing is lying on the floor of the tomb you took it from, as often as you
+care to walk back. `populate` skips an artifact the player already carries.
+
+Worth noting what is *not* fixed: taking an artifact does not update the
+world's own record of where it is. `art.site_id` and `art.holder_hf` still say
+it is in the tomb. Nothing reads them except the placer and the quest
+generator, so the only visible consequence is that a second quest may send you
+after something already in your pack — which is a smaller and more interesting
+problem than the one this fixed, and belongs to whoever wants the histories to
+follow the player around.
+
+### 113.2. A guard that could not fail, twice over
+
+The re-break for "a taken artifact is laid out again" did not fail, and the
+reason was the test rather than the code. `enter_world_tile` stashes the map it
+is leaving into the cache *before* loading the next one, so clearing the cache
+and re-entering the tile you are standing on reads back exactly what you asked
+it to forget. The test travels a tile away, forgets, and comes back.
+
+That is the fourth guard this session that had to be rewritten because it could
+not fail — after the two in v3.51 and the coin-toss one in §112.2. The pattern
+in all four is the same: the assertion was true for a reason other than the one
+it was written for, and only re-breaking the fix exposed which.
+
+## 114. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

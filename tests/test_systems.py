@@ -2707,6 +2707,145 @@ class TestMounts(GameFixture):
         path.unlink()
 
 
+class TestRecoveringTheArtifact(unittest.TestCase):
+    """The last quest kind nobody could finish.
+
+    The histories forge artifacts, name them, and remember which site each one
+    ended up at. `_quest_retrieve` sends you after one by name -- "It lies at
+    Blood Grave, a tomb" -- and `quests.on_pickup` matches on
+    `Item.artifact_id`. That field was read, copied and saved, and written
+    nowhere: `sitegen` had never heard of artifacts, so the tomb was empty and
+    the quest could be accepted, walked to, and never completed.
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.mkdtemp()
+        self._old = os.environ.get("ASCII_WARRIORS_SAVE_DIR")
+        os.environ["ASCII_WARRIORS_SAVE_DIR"] = self._tmp
+
+    def tearDown(self):
+        if self._old is None:
+            os.environ.pop("ASCII_WARRIORS_SAVE_DIR", None)
+        else:
+            os.environ["ASCII_WARRIORS_SAVE_DIR"] = self._old
+
+    def _quest(self, seed):
+        """A game, and the first retrieve quest anybody offers in it."""
+        from ascii_warriors.game import quests
+        from ascii_warriors.world.worldgen import generate_world
+
+        rng = RNG(seed)
+        world = generate_world(rng.sub("w"), size="small", history_years=150)
+        game = Game.new_game(
+            world, {"race": "human", "profession": "warrior"}, rng)
+        for giver in [c for c in game.creatures.values()
+                      if c.defn.has("CAN_SPEAK") and not c.is_player][:80]:
+            q = quests.generate_quest(game.rng, game, giver)
+            if q is not None and q.kind == "retrieve_artifact":
+                game.quests.accept(q)
+                return game, q
+        return game, None
+
+    def _find(self, game, artifact_id):
+        """Wherever the thing has got to on this map."""
+        loose = [(cell, it) for cell, items in game.items_on_ground.items()
+                 for it in items
+                 if getattr(it, "artifact_id", None) == artifact_id]
+        held = [(c, it) for c in game.creatures.values()
+                for it in c.inventory.items
+                if getattr(it, "artifact_id", None) == artifact_id]
+        return loose, held
+
+    def test_the_artifact_is_at_the_site_the_quest_names(self):
+        """On three worlds, because one is a coincidence."""
+        checked = 0
+        for seed in ("art1", "art2", "art3"):
+            game, q = self._quest(seed)
+            if q is None:
+                continue
+            game.enter_world_tile(q.wx, q.wy)
+            loose, held = self._find(game, q.artifact_id)
+            self.assertTrue(loose or held,
+                            "%s: the artifact is not where it is said to be"
+                            % seed)
+            checked += 1
+        self.assertGreater(checked, 1, "hardly any retrieve quests offered")
+
+    def test_it_is_the_artifact_the_histories_describe(self):
+        """Right item, right material, and its own name on it."""
+        game, q = self._quest("art1")
+        self.assertIsNotNone(q)
+        game.enter_world_tile(q.wx, q.wy)
+        loose, held = self._find(game, q.artifact_id)
+        it = (loose[0][1] if loose else held[0][1])
+        art = next(a for a in game.world.artifacts if a.id == q.artifact_id)
+        self.assertEqual(it.def_id, art.item_def)
+        self.assertEqual(it.material, art.material)
+        self.assertIn(art.name, it.name())
+
+    def test_picking_it_up_finishes_the_quest(self):
+        """`on_pickup` has always been wired. It never had anything to fire on."""
+        from ascii_warriors.game import actions
+
+        game, q = self._quest("art1")
+        self.assertIsNotNone(q)
+        game.enter_world_tile(q.wx, q.wy)
+        loose, _held = self._find(game, q.artifact_id)
+        self.assertTrue(loose, "it is in somebody's hands on this seed")
+        cell = loose[0][0]
+        game.player.x, game.player.y, game.player.z = cell
+        actions.pick_up_all(game)
+        self.assertTrue(any(getattr(i, "artifact_id", None) == q.artifact_id
+                            for i in game.player.inventory.items))
+        self.assertGreaterEqual(q.progress, q.goal, "the pickup did not count")
+        if q.state != "done":
+            self.assertTrue(game.quests.turn_in(game, q.giver_hf))
+        self.assertEqual(q.state, "done")
+
+    def test_it_is_not_lying_there_again_when_you_come_back(self):
+        """The map cache holds twenty-four tiles and then evicts.
+
+        Without a guard, the crown you are wearing is back on the floor of the
+        tomb you took it from, as often as you care to walk back.
+        """
+        from ascii_warriors.game import actions
+
+        game, q = self._quest("art1")
+        self.assertIsNotNone(q)
+        game.enter_world_tile(q.wx, q.wy)
+        loose, _held = self._find(game, q.artifact_id)
+        self.assertTrue(loose)
+        game.player.x, game.player.y, game.player.z = loose[0][0]
+        actions.pick_up_all(game)
+        # Away first, then forget, then back. `enter_world_tile` stashes the
+        # map it is leaving into the cache before it loads the next one, so
+        # clearing the cache and re-entering the tile you are standing on just
+        # reads back what you were told to forget -- which is why the first
+        # version of this passed with the guard deleted.
+        away = (q.wx + 1, q.wy) if q.wx + 1 < game.world.width else (q.wx - 1, q.wy)
+        game.enter_world_tile(*away)
+        game._local_cache.clear()
+        game._cache_order.clear()
+        game.enter_world_tile(q.wx, q.wy)
+        again, _held2 = self._find(game, q.artifact_id)
+        self.assertEqual(again, [], "a second one was left on the floor")
+        self.assertEqual(
+            sum(1 for i in game.player.inventory.items
+                if getattr(i, "artifact_id", None) == q.artifact_id), 1)
+
+    def test_a_site_with_no_artifact_gets_none(self):
+        """The placer must not invent them."""
+        from ascii_warriors.game import artifacts as artifact_mod
+        from ascii_warriors.world.worldgen import generate_world
+
+        rng = RNG("bare")
+        world = generate_world(rng.sub("w"), size="small", history_years=150)
+        placed = {a.site_id for a in world.artifacts}
+        spare = next((s for s in world.sites if s.id not in placed), None)
+        self.assertIsNotNone(spare, "every site in the world holds an artifact")
+        self.assertEqual(artifact_mod.at_site(world, spare.id), [])
+
+
 class TestSlayingTheBeast(unittest.TestCase):
     """A quest that could not be finished, end to end.
 

@@ -210,6 +210,11 @@ class Game:
             # Traps belong to a floor plan, and floor plans are made here
             # rather than at worldgen, so this is where they go in.
             traps_mod.populate(self, site, lm_rng)
+            # And the same for the artifacts the histories left here. After
+            # `_populate`, because one of them may belong in somebody's hands.
+            from . import artifacts as artifact_mod
+
+            artifact_mod.populate(self, site, lm_rng)
 
         self.player.wx, self.player.wy = wx, wy
         self.world.tile(wx, wy).explored = True
