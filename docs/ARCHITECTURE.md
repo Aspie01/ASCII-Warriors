@@ -4615,7 +4615,72 @@ saying "still pacing" reads as confirmation, and the temptation is to fix
 harder. It took reading `unconscious 170` in a trace to notice that the second
 number was not the first defect at all.
 
-## 109. Style
+## 109. The feeling that never lasted (v3.49)
+
+Two hundred days of a fortress that lost ten of its twelve dwarves to a
+vampire. Not one tantrum. Not one brawl. Every survivor sitting at a stress of
+exactly zero. The whole unhappiness system — unhappy, tantrum, berserk, brawl,
+and the sheriff's book that hangs off it — had never once been reached.
+
+**The rate.** `STRESS_DECAY = 900` is documented as "ticks for one point of
+stress to fade back towards indifference". The code was:
+
+```python
+drift = ticks / float(STRESS_DECAY) * self.recovery()
+self.stress -= int(math.copysign(max(1, int(drift)), self.stress))
+```
+
+The floor of one exists because `int(0.011)` is zero and stress that never
+fades is worse than stress that fades too fast. But it applies **per call**,
+not per tick, and the fortress calls this every ten-tick step: a whole point
+every step, fourteen hundred and forty a day against the sixteen the constant
+asks for. Ninety times too fast. Every dwarf was permanently at zero, which is
+why nothing ever happened and why nothing looked wrong — a fortress full of
+dwarves feeling nothing in particular reads exactly like a fortress full of
+contented ones.
+
+The fix is a carry: bank the fading and spend it a whole point at a time.
+Banked as **ticks**, not as fractions of a point, because ninety lots of one
+ninetieth add up to 0.9999999999999999 and nine hundred ticks has to shed
+exactly one. The first version of this banked fractions and the test caught it.
+
+**And sleeping never settled anybody.** `sleep()` was
+`self.stress -= ticks // 400`, and a fortress sleeps in forty-tick
+instalments: forty over four hundred is zero, every time, for the whole life
+of the game. The same carry, banked as integer ticks so that four hundred
+ticks of sleep settles exactly one point.
+
+**What it looks like now.** A hundred and five days, measured: content for the
+first sixty (stress around −90, which is a fortress where everything is fine),
+and then a spiral as it starts losing people — eight tantrums, two brawls, two
+berserk dwarves, and four of seven crossing the unhappy threshold. Before the
+fix the same fortress produced nothing at all. It reacts, and it only reacts
+when something is wrong.
+
+### 109.1. A bug that was waiting for its trigger
+
+`_start_brawl` opens: *"Barehanded, and only one blow: a fistfight in the
+dining hall is a crime and a bruise, not an execution."* It called
+`melee_attack(..., weapon=None)`, and `weapon=None` in that function means
+**use whatever you are holding**. A miner threw its tantrum with a pick.
+
+This was already visible in v3.47, when a probe went looking for it as the
+cause of ten deaths. It was not the cause — the probe recorded zero brawls,
+because no dwarf was ever unhappy enough to throw one. So it was a real defect
+sitting behind an unreachable code path, harmless precisely because the other
+bug kept it that way, and fixing the stress rate armed it.
+
+`melee_attack` gained an explicit `unarmed` flag rather than a new sentinel
+value: `weapon=None` is the right default for a fight and the wrong one for a
+scuffle, and those are different questions that deserve different arguments.
+
+The lesson is about the shape of dead code. Nothing about `_start_brawl` looks
+unreachable — it is called, it is tested, it has a comment explaining its odds.
+It was unreachable because a rounding error four modules away kept the number
+that gates it pinned at zero. "Can this happen at all" is a question about the
+whole system, not about the function.
+
+## 110. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

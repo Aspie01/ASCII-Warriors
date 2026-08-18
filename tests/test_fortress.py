@@ -17,6 +17,7 @@ from ascii_warriors.fortress.jobs import Job, JobBoard, work_rate
 from ascii_warriors.game import feeding
 from ascii_warriors.game import save as save_mod
 from ascii_warriors.game.entity import make_creature
+from ascii_warriors.game.item import Item
 from ascii_warriors.world.worldgen import generate_world
 
 #: One small world, generated once, shared by every test in this file.
@@ -5636,6 +5637,141 @@ class TestJustice(unittest.TestCase):
         self.assertEqual(back.loot_name, gem.name())
         self.assertEqual(back.thief_since, thief.thief_since)
         self.assertEqual(again.hostiles(), [])
+
+
+class TestTheTantrum(unittest.TestCase):
+    """Whether a dwarf can stay upset long enough to do anything about it.
+
+    Found by playing: two hundred days of a fortress that lost ten of its
+    twelve dwarves to a vampire, and in all of it not one tantrum, not one
+    brawl, and every survivor sitting at a stress of exactly zero. Stress
+    faded a whole point every ten-tick step instead of every nine hundred
+    ticks, so no amount of misery could accumulate and the entire unhappiness
+    system -- unhappy, tantrum, berserk, brawl, and the sheriff's book that
+    hangs off it -- was unreachable.
+    """
+
+    def _fort(self, seed):
+        """A fortress with somewhere to sleep and something to do."""
+        fort = embark(seed)
+        for kind in ("farm", "still", "carpenter", "mason"):
+            spot = soil_room(fort) if kind == "farm" else _open_spot(fort, kind)
+            if spot:
+                fort.buildings.append(Building(kind, *spot))
+        return fort
+
+    def test_stress_survives_a_day_of_fortress(self):
+        """The fortress-sized statement of the rate.
+
+        A day is fourteen thousand four hundred ticks, so sixteen points of
+        fading. Before the fix a day was fourteen hundred and forty steps and
+        so fourteen hundred and forty points: anything short of the clamp was
+        gone inside two minutes of fortress time.
+        """
+        fort = self._fort("stayupset")
+        d = fort.dwarves()[0]
+        d.needs.stress = 150
+        sim.run(fort, 120)                     # a couple of minutes
+        self.assertGreater(d.needs.stress, 140,
+                           "two minutes of fortress wiped out the mood")
+        sim.run(fort, int(TICKS_PER_DAY / sim.STEP_TICKS))
+        self.assertGreater(d.needs.stress, 60,
+                           "a single day wiped out the mood")
+
+    def test_an_unhappy_dwarf_eventually_throws_a_tantrum(self):
+        """The system exists to be reached, and now it is."""
+        from ascii_warriors.fortress.nobles import STRESS_TANTRUM
+
+        fort = self._fort("upset")
+        thrown = []
+        real = sim._throw_tantrum
+
+        def watched(f, dwarf):
+            thrown.append(dwarf.id)
+            return real(f, dwarf)
+
+        sim._throw_tantrum = watched
+        try:
+            for d in fort.dwarves():
+                d.needs.stress = STRESS_TANTRUM + 20
+            for _ in range(30):
+                sim.run(fort, 400)
+                for d in fort.dwarves():        # keep them miserable
+                    d.needs.stress = max(d.needs.stress, STRESS_TANTRUM + 20)
+                if thrown:
+                    break
+        finally:
+            sim._throw_tantrum = real
+        self.assertTrue(thrown, "nobody ever threw a tantrum")
+
+    def test_a_settled_fortress_does_not_riot(self):
+        """The other half: fixing the rate must not make everybody furious."""
+        fort = self._fort("settled")
+        events = []
+        reals = {n: getattr(sim, n)
+                 for n in ("_throw_tantrum", "_go_berserk", "_start_brawl")}
+        for name, real in reals.items():
+            def make(n, r):
+                def watched(*a, **k):
+                    events.append(n)
+                    return r(*a, **k)
+                return watched
+            setattr(sim, name, make(name, real))
+        try:
+            sim.run(fort, int(TICKS_PER_DAY / sim.STEP_TICKS) * 20)
+        finally:
+            for name, real in reals.items():
+                setattr(sim, name, real)
+        self.assertEqual(events, [],
+                         "a fortress that is doing fine tore itself apart")
+
+    def test_a_brawl_is_thrown_with_fists(self):
+        """`_start_brawl` says barehanded. It has to mean it.
+
+        `weapon=None` asks `melee_attack` for whatever the attacker is
+        holding, so a miner's tantrum was thrown with a pick. Nobody noticed
+        because until the stress rate was fixed no dwarf ever threw one.
+        """
+        from ascii_warriors.game import combat
+
+        fort = self._fort("fists")
+        a, b = fort.dwarves()[0], fort.dwarves()[1]
+        a.inventory.add(Item("pick", "iron"))
+        a.inventory.auto_equip()
+        self.assertIsNotNone(a.inventory.weapon(), "it is not holding a pick")
+        b.x, b.y, b.z = a.x + 1, a.y, a.z
+        seen = {}
+        real = combat.melee_attack
+
+        def watched(attacker, defender, **kw):
+            seen.update(kw)
+            return real(attacker, defender, **kw)
+
+        combat.melee_attack = watched
+        try:
+            self.assertTrue(sim._start_brawl(fort, a), "nobody was in reach")
+        finally:
+            combat.melee_attack = real
+        self.assertTrue(seen.get("unarmed"), "it swung whatever it was holding")
+        self.assertIsNone(seen.get("weapon"))
+
+    def test_unarmed_really_means_unarmed(self):
+        """The flag has to do something, not just be passed."""
+        from ascii_warriors.game import combat
+
+        fort = self._fort("nopick")
+        a, b = fort.dwarves()[0], fort.dwarves()[1]
+        a.inventory.add(Item("pick", "iron"))
+        a.inventory.auto_equip()
+        armed = unarmed = 0
+        for i in range(40):
+            r = combat.melee_attack(a, b, weapon=None, unarmed=True,
+                                    rng=fort.rng)
+            unarmed += any("pick" in f.text for f in r.messages)
+            r = combat.melee_attack(a, b, weapon=None, rng=fort.rng)
+            armed += any("pick" in f.text for f in r.messages)
+        self.assertEqual(unarmed, 0, "the pick turned up in a barehanded swing")
+        self.assertGreater(armed, 0, "the pick never turned up at all")
 
 
 class TestTheAccusation(unittest.TestCase):

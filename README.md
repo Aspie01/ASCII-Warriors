@@ -402,8 +402,14 @@ twice is a bad afternoon, and an enemy is a guilty sort of relief. That is
 where the classic dwarven death spiral comes from, and it should be — a
 fortress that never let anybody make a friend has nothing to lose.
 
+Feelings last. A mood fades back towards indifference over days, not seconds,
+so a bad season accumulates the way it is supposed to: a fortress that is
+doing well sits contented for months and a fortress that starts losing people
+comes apart, with tantrums, brawls and the occasional dwarf who goes berserk.
+
 **Crime and punishment.** A dwarf at the end of its rope smashes a table or
-punches whoever is standing next to it, and now both go in the sheriff's book.
+punches whoever is standing next to it — barehanded, whatever it happens to be
+carrying — and now both go in the sheriff's book.
 So does an ignored mandate, which the manager answers for and the mayor never
 does. So does the kobold who walks in one night, picks up the nearest thing
 worth carrying, and walks back out — one thief, not a siege, so it does not

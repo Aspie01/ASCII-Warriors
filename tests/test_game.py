@@ -390,6 +390,84 @@ class TestNeedsAndCrafting(unittest.TestCase):
         needs.eat(Item("bread", "bread"))
         self.assertLess(needs.hunger, 20000)
 
+    # -- how long a feeling lasts ------------------------------------------ #
+
+    class _Nowhere:
+        """Enough of a game for `Needs.tick` to run against."""
+
+    def _game(self):
+        return self._Nowhere()
+
+    def test_stress_fades_at_the_rate_the_constant_says(self):
+        """`STRESS_DECAY` is ticks per point, and it was ignored.
+
+        The fade was `stress -= max(1, int(drift))`, and the floor of one was
+        applied per *call*, not per tick. A fortress steps ten ticks at a
+        time, so every dwarf shed a full point of stress every step: a
+        hundred and forty-four thousand ticks' worth of fading per day
+        against the nine hundred ticks a point the constant asks for, ninety
+        times too fast. Nothing could stay upset long enough to do anything
+        about it -- measured over two hundred days of a fortress that lost ten
+        of its twelve dwarves, not one tantrum, not one brawl, and every
+        survivor sitting at a stress of zero.
+        """
+        n = Needs()
+        n.stress = 100
+        game = self._game()
+        creature = make_creature(RNG(1), "dwarf", faction="player")
+        for _ in range(90):                       # ninety ten-tick steps
+            n.tick(10, creature, game)
+        self.assertEqual(n.stress, 99, "900 ticks should shed exactly one")
+        for _ in range(90 * 9):
+            n.tick(10, creature, game)
+        self.assertEqual(n.stress, 90, "nine more points in nine more days")
+
+    def test_a_fortress_step_does_not_shed_a_whole_point(self):
+        """The defect, stated at the size the fortress actually steps."""
+        n = Needs()
+        n.stress = 50
+        creature = make_creature(RNG(2), "dwarf", faction="player")
+        n.tick(10, creature, self._game())
+        self.assertEqual(n.stress, 50, "one ten-tick step shed a whole point")
+
+    def test_sleeping_settles_at_the_rate_the_constant_says(self):
+        """`SLEEP_SETTLES` was integer-divided into nothing.
+
+        A fortress sleeps in forty-tick instalments and this was
+        `ticks // 400`, so sleeping has never once settled anybody.
+        """
+        n = Needs()
+        n.stress = 100
+        for _ in range(10):                       # ten forty-tick instalments
+            n.sleep(40)
+        self.assertEqual(n.stress, 99, "400 ticks of sleep should settle one")
+        for _ in range(10):
+            n.sleep(40)
+        self.assertEqual(n.stress, 98)
+
+    def test_a_feeling_still_fades_to_nothing_eventually(self):
+        """The fade is slower now, not gone: it has to reach zero."""
+        n = Needs()
+        n.stress = 20
+        creature = make_creature(RNG(3), "dwarf", faction="player")
+        for _ in range(40):
+            n.tick(900, creature, self._game())
+        self.assertEqual(n.stress, 0)
+
+    def test_the_carry_survives_a_save(self):
+        """A part-faded point is state, and a save that drops it is a save
+        that quietly re-rounds every dwarf's mood."""
+        n = Needs()
+        n.stress = 10
+        creature = make_creature(RNG(4), "dwarf", faction="player")
+        n.tick(400, creature, self._game())         # part of a point
+        n.sleep(100)                              # part of another
+        self.assertGreater(n.drift, 0.0)
+        self.assertGreater(n.rested, 0)
+        clone = Needs.from_dict(json.loads(json.dumps(n.to_dict())))
+        self.assertAlmostEqual(clone.drift, n.drift)
+        self.assertEqual(clone.rested, n.rested)
+
     def test_needs_round_trip(self):
         n = Needs()
         n.hunger = 500

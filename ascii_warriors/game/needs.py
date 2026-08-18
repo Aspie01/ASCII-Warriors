@@ -35,6 +35,9 @@ HYDRATION_SCALE = 16
 #: Ticks for one point of stress to fade back towards indifference.
 STRESS_DECAY = 900
 
+#: Ticks of sleep that take one point of stress off.
+SLEEP_SETTLES = 400
+
 #: The want of a quiet place. Slower than any of the bodily needs -- a week
 #: without it is a grumble, not a crisis -- and unlike them it kills nobody:
 #: a dwarf who never prays is unhappy, not dead.
@@ -46,7 +49,7 @@ class Needs:
     """A creature's bodily and mental needs."""
 
     __slots__ = ("hunger", "thirst", "drowsy", "fatigue", "stress", "thoughts",
-                 "prayer", "owner")
+                 "prayer", "owner", "drift", "rested")
 
     def __init__(self) -> None:
         #: Whose needs these are, set by `Creature.__init__`. Kept so that
@@ -64,6 +67,17 @@ class Needs:
         self.prayer = 0
         #: Recent thoughts as ``(text, stress delta)``.
         self.thoughts: List[Tuple[str, int]] = []
+        #: Ticks of fading banked but not yet worth a whole point of
+        #: stress. Without somewhere to keep them a fortress step is far
+        #: too short to fade any stress at all, and rounding up instead --
+        #: which is what this used to do -- fades a whole point every step,
+        #: ninety times faster than `STRESS_DECAY` asks for.
+        self.drift = 0.0
+        #: The same, for the stress a good sleep takes off. A
+        #: fortress sleeps in forty-tick instalments and this
+        #: used to be `ticks // 400`, so sleeping has never once
+        #: settled anybody: forty over four hundred is zero.
+        self.rested = 0
 
     # -- upkeep ------------------------------------------------------------ #
 
@@ -128,11 +142,18 @@ class Needs:
         # Feelings fade. Without this a creature that had one good week stays
         # ecstatic for ever and nothing you do to it afterwards matters.
         if self.stress:
-            drift = ticks / float(STRESS_DECAY) * self.recovery()
-            if abs(self.stress) <= drift:
-                self.stress = 0
-            else:
-                self.stress -= int(math.copysign(max(1, int(drift)), self.stress))
+            # Banked as ticks, not as fractions of a point: ninety lots of
+            # one ninetieth add up to 0.9999999999999999, and nine hundred
+            # ticks of fading has to shed exactly one point.
+            self.drift += ticks * self.recovery()
+            faded, self.drift = divmod(self.drift, STRESS_DECAY)
+            if faded:
+                if abs(self.stress) <= faded:
+                    self.stress = 0
+                else:
+                    self.stress -= int(math.copysign(faded, self.stress))
+        else:
+            self.drift = 0.0
 
         # Starvation and dehydration eventually kill.
         if self.hunger > HUNGER_DEATH:
@@ -202,10 +223,21 @@ class Needs:
         return "You drink %s." % item.name(article=True)
 
     def sleep(self, ticks: int) -> None:
-        """Rest for a while."""
+        """Rest for a while.
+
+        Carried in fractions like the fade is, and for the same reason: a
+        fortress sleeps forty ticks at a time and integer division by
+        `SLEEP_SETTLES` threw every one of them away. Banked as whole
+        ticks rather than as a fraction of a point, because ten lots of
+        nought-point-one add up to 0.9999999999999999 and a dwarf that sleeps
+        exactly four hundred ticks should settle by exactly one.
+        """
         self.drowsy = max(0, self.drowsy - ticks * 3)
         self.fatigue = 0
-        self.stress = max(-100, self.stress - ticks // 400)
+        self.rested += ticks
+        settled, self.rested = divmod(self.rested, SLEEP_SETTLES)
+        if settled:
+            self.stress = max(-100, self.stress - int(settled))
 
     def exert(self, amount: int = 10) -> None:
         """Spend energy on a strenuous action."""
@@ -308,6 +340,7 @@ class Needs:
         return {
             "hunger": self.hunger, "thirst": self.thirst, "drowsy": self.drowsy,
             "fatigue": self.fatigue, "stress": self.stress,
+            "drift": self.drift, "rested": self.rested,
             "prayer": self.prayer,
             "thoughts": [list(t) for t in self.thoughts[-20:]],
         }
@@ -322,6 +355,8 @@ class Needs:
         n.prayer = int(d.get("prayer", 0))
         n.fatigue = int(d.get("fatigue", 0))
         n.stress = int(d.get("stress", 0))
+        n.drift = float(d.get("drift", 0.0))
+        n.rested = int(d.get("rested", 0))
         n.thoughts = [(str(t[0]), int(t[1])) for t in d.get("thoughts", [])]
         return n
 

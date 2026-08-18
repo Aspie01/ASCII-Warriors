@@ -1799,6 +1799,12 @@ def _start_brawl(fort, dwarf) -> bool:
     and a bruise, not an execution. It can still go wrong -- a dwarf that
     punches badly enough to kill has committed the other kind of crime, and
     the sheriff's book says so.
+
+    Barehanded said so and was not. `weapon=None` asks `melee_attack` for
+    whatever the attacker is holding, so every word of the paragraph above
+    was true except the first: a miner threw its tantrum with a pick. That
+    went unnoticed for as long as it did because until v3.49 no dwarf was
+    ever unhappy enough to throw one at all.
     """
     near = [d for d in fort.dwarves()
             if d is not dwarf and d.z == dwarf.z
@@ -1807,7 +1813,8 @@ def _start_brawl(fort, dwarf) -> bool:
         return False
     victim = fort.rng.choice(near)
     fort.log.bad("%s lashes out at %s!" % (dwarf.name, victim.name))
-    combat.melee_attack(dwarf, victim, weapon=None, rng=fort.rng, log=fort.log)
+    combat.melee_attack(dwarf, victim, weapon=None, unarmed=True,
+                        rng=fort.rng, log=fort.log)
     if victim.body.dead:
         fort.kill_creature(victim)
         justice.report(fort, "murder", dwarf, victim.name)

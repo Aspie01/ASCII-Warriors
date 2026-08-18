@@ -577,6 +577,7 @@ def melee_attack(
     log=None,
     world=None,
     ground=None,
+    unarmed: bool = False,
 ) -> AttackResult:
     """Resolve one melee strike.
 
@@ -586,6 +587,12 @@ def melee_attack(
 
     *ground* is where anything cut off lands, and is separate for exactly that
     reason: the fortress wants the limbs without wanting the ambush rules.
+
+    *unarmed* means fists, and means it: `weapon=None` on its own asks for
+    whatever the attacker happens to be holding, which is the right default
+    for a fight and the wrong one for a scuffle. A brawl in the dining hall
+    is a crime and a bruise; a brawl in the dining hall fought with the
+    miner's pick is a funeral.
     """
     result = AttackResult()
     if attacker.body.dead or defender.body.dead:
@@ -598,7 +605,7 @@ def melee_attack(
         result.ambush = True
         target_part = target_part or stealth.ambush_part(defender, rng)
 
-    if weapon is None:
+    if weapon is None and not unarmed:
         weapon = attacker.inventory.weapon()
         if weapon is not None and weapon.is_ranged:
             weapon = None
