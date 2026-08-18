@@ -4972,7 +4972,55 @@ not fail — after the two in v3.51 and the coin-toss one in §112.2. The patter
 in all four is the same: the assertion was true for a reason other than the one
 it was written for, and only re-breaking the fix exposed which.
 
-## 114. Style
+## 114. Who the dragons are (v3.54)
+
+v3.52 gave a named megabeast a lair, pointed the quest at it, and made killing
+it write a date into the histories. Surveying the wilderness afterwards showed
+the point of all that quietly undone.
+
+**Eight** named megabeasts in the whole world. **Fifteen** nameless ones inside
+forty-four tiles of the player's own doorstep — three dragons, five bronze
+colossi, and the rest ettins, cyclopes and ogres. A quest to find and kill
+*Tzamorg Zhatuth the Devourer* is worth rather less when you passed three
+unnamed dragons on the way to the tavern that offered it.
+
+`Game.spawn_wildlife` asked `creature_data.spawnable` for anything up to tier
+five on a savage tile, with **no flags excluded at all**. The fortress has
+excluded them since it had wildlife — *"wildlife, not enemies: a siege arrives
+as a siege, and the walking dead are not something you hunt for the hides"* —
+and adventure mode had never been told.
+
+The fix is the fortress's own rule, said once more where the other half of the
+game can hear it. Fifteen becomes zero, and the wild is no poorer for it:
+thirty-eight species still walk it — wolves, trolls, night trolls, werewolves,
+goblins, bandits — and one tile in thirty-five comes out empty, which was true
+before as well.
+
+**A rule in two places that could not see each other.** The fortress kept its
+exclusions inline in the call and adventure mode kept none, which is a
+disagreement no test could notice. Both are named constants now —
+`animals.WILD_NEVER` and `Game.WILD_NEVER` — and a guard fails if either
+forgets the megabeast flags. Naming a rule is not decoration when the same
+rule has to hold in two programs that share a world.
+
+### 114.1. Moving the dice, again
+
+Excluding four species from a spawn table changes every world after it, and it
+broke two of the artifact tests written one milestone earlier: on the new dice
+the artifact on seed `art1` is in a monster's claws rather than on the tomb
+floor, and both tests had assumed the floor.
+
+The fix is the interesting part. They do not assert the floor now, nor pick a
+luckier seed: they take the thing however it is being kept — walk to it if it
+is loose, kill the holder if it is not, which is what a player does about a
+hydra sitting on a crown. The test got broader by being made robust, and it
+now covers the holder path that v3.53 wrote and nothing exercised.
+
+That is the third worldgen change this session to take out a handful of tests
+(§112.3, and the corridor's five in §106.1). The toll is always the same kind:
+a test that measured the seed rather than the game.
+
+## 115. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

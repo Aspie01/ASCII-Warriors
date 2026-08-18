@@ -179,6 +179,17 @@ def make_animal(rng, species: str, *, female: bool = True, wild: bool = False,
     return attach(c, wild=wild)
 
 
+#: What is not wildlife. A siege arrives as a siege, the walking dead are not
+#: something you hunt for the hides, and a megabeast is one of eight creatures
+#: in a whole world with a name, a lair and a quest pointing at it. Named
+#: rather than written into the call because the other half of the game has
+#: the same rule about megabeasts and the two used to disagree in silence:
+#: adventure mode excluded nothing at all, and a walk to the shops passed
+#: three dragons nobody had ever heard of. See `game.state.Game.WILD_NEVER`.
+WILD_NEVER: Tuple[str, ...] = ("MEGABEAST", "SEMIMEGABEAST", "INTELLIGENT",
+                               "EVIL", "OPPOSED_TO_LIFE", "NO_EAT")
+
+
 def spawn_wildlife(fort, rng, count: Optional[int] = None) -> List:
     """Put a few wild animals on the surface, whatever lives around here.
 
@@ -189,11 +200,7 @@ def spawn_wildlife(fort, rng, count: Optional[int] = None) -> List:
     from ..data import creatures as creature_data
 
     kinds = creature_data.spawnable(
-        fort.local.biome, max_tier=2,
-        # Wildlife, not enemies: a siege arrives as a siege, and the walking
-        # dead are not something you hunt for the hides.
-        flags_none=("MEGABEAST", "SEMIMEGABEAST", "INTELLIGENT", "EVIL",
-                    "OPPOSED_TO_LIFE", "NO_EAT"))
+        fort.local.biome, max_tier=2, flags_none=WILD_NEVER)
     if not kinds:
         return []
     out = []

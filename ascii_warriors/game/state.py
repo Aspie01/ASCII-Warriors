@@ -379,6 +379,18 @@ class Game:
         traps_mod.from_list(self, d.get("traps") or [])
         webs_mod.from_list(self, d.get("webs") or [])
 
+    #: What the wilderness does not hand out. A megabeast is one of eight
+    #: creatures in a whole world: the histories name it, `_spawn_megabeast`
+    #: gives it a lair, a quest sends you to that lair and killing it puts a
+    #: date on the figure. None of that means anything if a walk to the shops
+    #: passes three dragons nobody has ever heard of. Measured before this
+    #: rule: eight named megabeasts in the world against fifteen nameless ones
+    #: inside forty-four tiles of the player's own doorstep, five of them
+    #: bronze colossi. The fortress has excluded them since it had wildlife --
+    #: "wildlife, not enemies" -- and this is the same rule, said once more
+    #: where the other half of the game could hear it.
+    WILD_NEVER: Tuple[str, ...] = ("MEGABEAST", "SEMIMEGABEAST")
+
     def spawn_wildlife(self, n: Optional[int] = None) -> None:
         """Populate the wilderness with creatures suited to the biome."""
         if self.local is None:
@@ -388,6 +400,7 @@ class Game:
         max_tier = 3 if tile.savagery < 60 else 5
         options = creature_data.spawnable(
             tile.biome, underground=underground, max_tier=max_tier,
+            flags_none=self.WILD_NEVER,
         )
         # `river` is a biome in the table, five species live in it, and
         # `biomes.classify` cannot return it: no world tile has ever been one.
@@ -398,7 +411,8 @@ class Game:
             have = {c.id for c in options}
             options = options + [
                 c for c in creature_data.spawnable(
-                    "river", underground=underground, max_tier=max_tier)
+                    "river", underground=underground, max_tier=max_tier,
+                    flags_none=self.WILD_NEVER)
                 if c.id not in have
             ]
         options = [c for c in options if not c.intelligent or c.has("EVIL")]

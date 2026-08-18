@@ -2707,6 +2707,95 @@ class TestMounts(GameFixture):
         path.unlink()
 
 
+class TestWhoTheDragonsAre(GameFixture):
+    """A megabeast is somebody, not something you meet on the way to the shops.
+
+    v3.52 gave a named megabeast a lair, pointed the quest at it, and made
+    killing it write a date into the histories. Then a survey of the
+    wilderness found the point of all that quietly undone: eight named
+    megabeasts in the whole world against fifteen nameless ones inside
+    forty-four tiles of the player's doorstep, five of them bronze colossi.
+
+    `spawn_wildlife` asked `spawnable` for anything up to tier five with no
+    flags excluded. The fortress has excluded megabeasts since it had wildlife
+    at all -- "wildlife, not enemies" -- and adventure mode had never been
+    told.
+    """
+
+    def _wild(self, tiles=12):
+        """Walk some wilderness and return everything met on the way."""
+        met = []
+        world = self.world
+        px, py = self.game.player.wx, self.game.player.wy
+        walked = 0
+        for dx in range(-3, 4):
+            for dy in range(-3, 4):
+                if walked >= tiles:
+                    break
+                wx, wy = px + dx, py + dy
+                if not (0 <= wx < world.width and 0 <= wy < world.height):
+                    continue
+                if world.tile(wx, wy).is_ocean:
+                    continue
+                if any((s.wx, s.wy) == (wx, wy) for s in world.sites):
+                    continue
+                self.game.enter_world_tile(wx, wy)
+                walked += 1
+                met.extend(c for c in self.game.creatures.values()
+                           if not c.is_player)
+        self.assertGreater(walked, 4, "hardly any wilderness to walk")
+        return met
+
+    def test_the_wilderness_hands_out_no_megabeasts(self):
+        """The rule, in the half of the game that did not have it."""
+        loose = [c.def_id for c in self._wild()
+                 if c.hf_id is None
+                 and (c.defn.has("MEGABEAST") or c.defn.has("SEMIMEGABEAST"))]
+        self.assertEqual(loose, [], "nameless megabeasts in the wild")
+
+    def test_the_wilderness_is_still_worth_walking_through(self):
+        """The other half: a rule that empties the world is not a fix.
+
+        Measured across thirty-five tiles, thirty-eight species survive the
+        exclusion -- wolves, trolls, night trolls, werewolves and all -- and
+        only one tile in thirty-five comes out empty.
+        """
+        met = self._wild()
+        self.assertGreater(len(met), 20, "the wild came out empty")
+        self.assertGreater(len({c.def_id for c in met}), 6,
+                           "the wild came out monotonous")
+
+    def test_both_halves_of_the_game_agree_about_megabeasts(self):
+        """Named in each, so they cannot drift apart in silence again.
+
+        The fortress had the rule written into the middle of a call and
+        adventure mode had no rule at all, which is a disagreement nothing
+        could see. Both are constants now, and this fails if either forgets.
+        """
+        from ascii_warriors.fortress import animals
+
+        for flag in ("MEGABEAST", "SEMIMEGABEAST"):
+            self.assertIn(flag, Game.WILD_NEVER, "adventure mode forgot %s" % flag)
+            self.assertIn(flag, animals.WILD_NEVER,
+                          "the fortress forgot %s" % flag)
+
+    def test_a_named_beast_is_still_in_its_lair(self):
+        """Excluding them from the wild must not exclude them from the game."""
+        from ascii_warriors.world.localmap import generate_local
+
+        beasts = [f for f in self.world.figures.values()
+                  if "monster" in f.flags and f.alive(self.world.year)]
+        if not beasts:
+            self.skipTest("this small world has no living megabeast")
+        fig = beasts[0]
+        site = next((s for s in self.world.sites if s.id == fig.site_id), None)
+        self.assertIsNotNone(site)
+        _lm, pop = generate_local(self.world, site.wx, site.wy,
+                                  RNG("lair"), site=site)
+        self.assertTrue(any(spec.get("hf_id") == fig.id for spec in pop),
+                        "the named beast went out with the wildlife")
+
+
 class TestRecoveringTheArtifact(unittest.TestCase):
     """The last quest kind nobody could finish.
 
@@ -2745,6 +2834,27 @@ class TestRecoveringTheArtifact(unittest.TestCase):
                 game.quests.accept(q)
                 return game, q
         return game, None
+
+    def _bring_to_ground(self, game, artifact_id):
+        """Get the thing onto the floor, however it is being kept.
+
+        Loose on some worlds and in a monster's claws on others, and which is
+        a property of the seed: excluding megabeasts from the wilderness moved
+        the world's dice and turned one into the other under two tests that
+        had assumed the floor. Killing the holder is what a player does about
+        it, and it drops what it was carrying.
+        """
+        loose, held = self._find(game, artifact_id)
+        if loose:
+            return loose[0][0]
+        self.assertTrue(held, "the artifact is nowhere on this map")
+        holder = held[0][0]
+        holder.body.dead = True
+        holder.body.death_cause = "slain"
+        game.kill_creature(holder)
+        loose, _held = self._find(game, artifact_id)
+        self.assertTrue(loose, "it did not drop what it was carrying")
+        return loose[0][0]
 
     def _find(self, game, artifact_id):
         """Wherever the thing has got to on this map."""
@@ -2790,9 +2900,7 @@ class TestRecoveringTheArtifact(unittest.TestCase):
         game, q = self._quest("art1")
         self.assertIsNotNone(q)
         game.enter_world_tile(q.wx, q.wy)
-        loose, _held = self._find(game, q.artifact_id)
-        self.assertTrue(loose, "it is in somebody's hands on this seed")
-        cell = loose[0][0]
+        cell = self._bring_to_ground(game, q.artifact_id)
         game.player.x, game.player.y, game.player.z = cell
         actions.pick_up_all(game)
         self.assertTrue(any(getattr(i, "artifact_id", None) == q.artifact_id
@@ -2813,9 +2921,8 @@ class TestRecoveringTheArtifact(unittest.TestCase):
         game, q = self._quest("art1")
         self.assertIsNotNone(q)
         game.enter_world_tile(q.wx, q.wy)
-        loose, _held = self._find(game, q.artifact_id)
-        self.assertTrue(loose)
-        game.player.x, game.player.y, game.player.z = loose[0][0]
+        cell = self._bring_to_ground(game, q.artifact_id)
+        game.player.x, game.player.y, game.player.z = cell
         actions.pick_up_all(game)
         # Away first, then forget, then back. `enter_world_tile` stashes the
         # map it is leaving into the cache before it loads the next one, so
