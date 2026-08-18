@@ -111,6 +111,25 @@ class TestScreensRender(UITestBase):
         self.assertIn("World map", text)
         self.assertIn("@", text)
 
+    def test_travel_screen_says_who_holds_a_place(self):
+        """The screen you decide from, not just the legends screen.
+
+        A necromancer's tower and a bandit's camp are both "a tower,
+        population 4" until this line, and who is standing in it is the whole
+        of the decision to go there.
+        """
+        from ascii_warriors.ui.travel_screen import TravelScene
+
+        world = self.game.world
+        site = next(s for s in world.sites if not s.is_ruin)
+        holder = next(f for f in world.figures.values() if f.alive(world.year))
+        site.owner_hf = holder.id
+        scene = TravelScene(self.app, view_only=True)
+        scene.cx, scene.cy = site.wx, site.wy
+        text = self.render(scene)
+        self.assertIn("held by", text)
+        self.assertIn(holder.name, text)
+
     def test_look_screen(self):
         from ascii_warriors.ui.look_screen import LookScene
 

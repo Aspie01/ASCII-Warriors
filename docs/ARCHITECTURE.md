@@ -5020,7 +5020,210 @@ That is the third worldgen change this session to take out a handful of tests
 (§112.3, and the corridor's five in §106.1). The toll is always the same kind:
 a test that measured the seed rather than the game.
 
-## 115. Style
+## 115. The necromancer who never built a tower (v3.55)
+
+The histories tell this story every twenty years or so:
+
+> *Kelric Marsh learned the secrets of life and death and fled into the
+> wilderness.*
+
+and the README repeats it — *"necromancers flee into the wilderness and take up
+residence in towers"*. Going to look: **twenty-six named necromancers across
+three worlds, and one tower between them.** Every necromancer's `site_id` still
+pointed at the city it is on record as having fled. Two of the three worlds had
+no tower standing at all.
+
+Two independent generators, neither aware of the other. `place_lairs_and_ruins`
+scatters sites from a seventeen-entry weight list with `"tower"` appearing once,
+and then downgrades it to a ruin unless the tile's evil is over 55 — so a world
+gets none or one. `history.py` creates a necromancer at five percent a year, so
+a world gets six to eleven. The code that was supposed to join them was three
+lines that did the wrong thing quietly:
+
+```python
+towers = [s for s in world.sites if s.kind == "tower"]
+if towers:
+    tower = rng.choice(towers)
+    tower.owner_hf = fig.id
+```
+
+Pick any tower, claimed or not, and stamp your id over whoever was there. Never
+set `fig.site_id`, so the figure goes on living in the town it fled. With one
+tower in a world and eleven necromancers, ten of them overwrote the eleventh and
+none of them lived anywhere.
+
+### 115.1. What that cost
+
+Not flavour. `build_tower` is the **only** thing in the game that creates a
+creature whose profession is `necromancer`, and `Game._give_books` gives a
+`necromancer` a slab a hundred percent of the time. The help screen:
+
+> *A slab — in a tomb, or at the top of a necromancer's tower — is the secret
+> of raising the dead. Read it and press Z.*
+
+So the whole night half of the game — `night.raise_dead`, `books._learn_secret`,
+the player becoming a necromancer, the Z key — hung off a site kind that two
+worlds in three did not contain. The machinery was written, documented and
+tested, and the tests all built their own necromancer to test it against. The
+only other slab-bearer is a tomb lord who carries one three times in five.
+
+That is the shape of it: **every piece tested, the world never asked.**
+
+### 115.2. Raising the tower when the story says so
+
+`_tower_for` claims a free tower if the world scattered one, and otherwise
+raises it: `_dark_spot` takes the empty land tile with the highest evil out of
+the darkest tenth, and the site is stamped onto its world tile the way
+`place_lairs_and_ruins` stamps its own — `site_id` and `feature` — because a
+site the tile does not know about is a name in the legends with nowhere to
+travel to. Wealth and buildings match a scattered tower, so the legends screen
+reads the same either way.
+
+One necromancer to a tower. `build_tower` puts a single `site.owner_hf` on the
+map, so two owners means the one you were sent after is not the one standing
+there — hence the `owner_hf is None` filter, and `fig.site_id = tower.id` so
+the figure and the site agree. Them disagreeing is what made this invisible.
+
+Measured after, on the same four seeds: **six to twelve necromancers, six to
+twelve towers, one each, every `site_id` matching its owner.** Walking into one:
+the named necromancer at the top of five floors with eight to twelve undead
+below him, carrying the slab.
+
+One more piece of the same defect lives in the interface. The travel screen
+is where you decide whether to walk somewhere, and it showed a site's name,
+kind and population and nothing about who is in it — which is the whole of the
+decision when the site is a tower. It says *held by Ustgath the Foul* now, the
+same line the legends screen has always had. A fact the game knows and never
+puts on the screen you need it on is not a fact the player has.
+
+### 115.3. Who is standing in a tower nobody has cleared
+
+`build_tower` used to place its necromancer unconditionally, with
+`hf_id=site.owner_hf` — usually `None`. Now that towers have named owners, that
+matters in both directions:
+
+- **The owner is dead.** You killed him, and the legends recorded it. He does
+  not come back the next time the map is built. A tower whose necromancer was
+  killed three hundred years ago is an empty tower with its dead still walking
+  in it.
+- **Nobody owns it.** A scattered tower the histories never claimed still gets
+  a necromancer — that is what a tower *is* — it just has no name to put to
+  him.
+
+The first draft of the guard had only the first half (`owner is not None and
+owner.alive(...)`), which silently emptied every unclaimed tower. Necromancers
+outnumber scattered towers almost always, so no world in the sample had one,
+and no test would have caught it. It came out of asking what the condition says
+rather than what the measurement showed.
+
+### 115.4. Guards that can fail
+
+Fifteen, and the re-break pass ran once per fix rather than once for the
+milestone:
+
+| broken | guards that fired |
+|---|---|
+| `_tower_for` → the old three lines | 14 of 14 |
+| the dead-owner check dropped | `..._is_dead_holds_only_its_dead` |
+| the unclaimed-tower half dropped | `..._unclaimed_tower_still_has_its_necromancer` |
+| the world-tile stamp dropped | 6, incl. `..._stands_where_the_map_says` |
+| the travel screen's owner line | `test_travel_screen_says_who_holds_a_place` |
+| `Water._push` deleted (§115.5) | `..._breached_aquifer_does_not_stop_at_a_puddle` |
+
+The first pass caught eleven and three passed regardless: two looped over
+`if site.owner_hf is None: continue` and skipped every tower in a world that no
+longer had any, and one iterated `towers[:3]` over an empty list. All three
+were vacuously green — the third guard-that-could-not-fail this session
+(§112.2, §113.2), and the same fix each time: a guard that walks a collection
+has to assert the collection was not empty.
+
+The end-to-end one generates a world nobody arranged, finds a tower on the
+map, walks in, BFS-checks from where you arrive to where he stands — five
+floors up, and a necromancer on a floor with no stair is a necromancer nobody
+meets — takes the slab off him and reads it. That is the promise the help
+screen makes, asked of the game rather than of a fixture.
+
+### 115.5. Three tests that were not running
+
+Moving the dice again (§112.3, §114.1), and this time the toll was not red
+tests but the skip count: **1 became 2**, which is the only visible trace a
+skipped test leaves. Pulling that thread took the suite from two conditional
+skips to none, and turned up a shipped fix that nothing had ever tested.
+
+`test_fire_does_not_cross_bare_ground` laid two trees six tiles apart starting
+from wherever the player happened to spawn, and skipped if there was not six
+tiles of clear ground running east. Raising towers moved every start location
+in the game, and one of them landed somewhere with no room. Rebuilt to *make*
+the row it needs, which is the same lesson §112.3 and §114.1 both ended on.
+
+Chasing that turned up the other one, which is worse. This is the whole of
+`test_a_deep_cell_is_steadier_than_the_surface` as it stood:
+
+```python
+surf = lm.surface_z(p.x, p.y)
+if surf - 20 < 0:
+    self.skipTest("map is too shallow")
+```
+
+A local map spans `-Z_BELOW` to `Z_ABOVE`, which is eleven levels; a surface
+column sits near zero. `surf - 20` is **never** ≥ 0. The test had not run once
+since it was written, and the suite reported it as a pass-with-one-skip every
+time. `heat.CAVE_DEPTH` is 6, which the map does have room for. It now finds a
+column deep enough, checks the rock is at `CAVE_TEMP`, and then actually
+measures the word in its own name: half a year passes, the surface notices and
+the cave does not.
+
+The fire test needed a second look as well. It only asked whether the far
+tree survived, which a fire that crosses three tiles of rock and then gutters
+out passes: made to fail under a re-break (`TILE_FUEL["floor"] = 90`), it
+didn't. It asks about the ground in between now.
+
+The fortress suite had one of its own, and it was hiding the most. Two aquifer
+tests began `if not fort.aquifer: self.skipTest(...)` — `_lay_aquifer` is a
+coin toss weighted by rainfall, so a seed has one about half the time. Trying
+eight embarks instead of one turns that into a pass or a loud failure, and the
+one that had been skipping failed immediately.
+
+It was breaching the aquifer by opening **one cell in the middle of the wet
+layer**, with solid rock on all six sides but the one it came in by, and then
+asserting the water in it kept rising. That is a bucket, not a breach: it fills
+to seven and there is nowhere for the next unit to go. The test now digs a room
+under the wet layer first, which is the only breach that means anything.
+
+And under *that* was a fix with no guard at all. `Water._push` is v2.5's answer
+to a leak that levels into a shallow staircase and freezes (§54) — and deleting
+the call outright left all twenty water tests green. Measured on the room:
+
+| | min depth | median | total |
+|---|---|---|---|
+| with `_push` | 6 | 6 | 1490 |
+| without | 1 | 4 | 1276 |
+
+An inch of water at the far wall, which is precisely the shape `_push` exists
+to beat. The test asserts the filled room now, and fails without it.
+
+**A red test argues; a skipped one says nothing.** Skips this suite takes are
+conditional on the seed, so the count moves whenever worldgen does — which
+makes "the skip count changed" a signal worth reading every time, and the same
+signal that caught `TestKin` going quiet in §112.3.
+
+### 115.6. A restore that restored nothing
+
+The re-break pass for the temperature fix reported the guard failing *after*
+the fix was put back, which is the one result that means the method itself is
+broken. `git diff` on the file was empty and the source read correctly.
+
+`min(1.0, ...)` and `min(0.90, ...)` are the same number of bytes. Python
+invalidates a `.pyc` on the source's size and its mtime **in whole seconds**,
+so a break-and-restore that changes no bytes and lands inside one second is
+invisible to it: the interpreter went on running the broken bytecode from
+cache. Every earlier re-break this session changed the file length, which is
+the only reason none of them were poisoned the same way.
+
+`PYTHONDONTWRITEBYTECODE=1` on every command in a re-break pass, and the third
+entry in §110.1's list of ways to lose your own work.
+
+## 116. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

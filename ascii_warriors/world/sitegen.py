@@ -406,10 +406,17 @@ def build_tower(lm, world, site, rng: RNG) -> List[PopSpec]:
                             p.x, p.y, zz, faction="hostile",
                             profession="undead", role="denizen", level=1))
     lm.set_tile(tower.x + 3, tower.y2 - 1, z, "door_closed")
-    top = z + floors - 1
-    pop.append(_pop("necromancer", tower.center.x + 1, tower.center.y, top,
-                    faction="hostile", profession="necromancer", role="lord",
-                    hf_id=site.owner_hf, level=5))
+    # Unless the histories already record this one's death. A tower whose
+    # necromancer was killed three hundred years ago is an empty tower with
+    # its dead still walking in it, not a second chance to kill somebody the
+    # legends have already buried. A tower nobody claimed still gets one --
+    # that is what a tower is -- it just has no name to put to it.
+    owner = world.figures.get(site.owner_hf) if site.owner_hf else None
+    if site.owner_hf is None or (owner is not None and owner.alive(world.year)):
+        top = z + floors - 1
+        pop.append(_pop("necromancer", tower.center.x + 1, tower.center.y, top,
+                        faction="hostile", profession="necromancer",
+                        role="lord", hf_id=site.owner_hf, level=5))
     return pop
 
 

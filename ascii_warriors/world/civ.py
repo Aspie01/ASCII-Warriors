@@ -297,7 +297,7 @@ def found_site(
     site.population = rng.randint(lo, hi) if hi > 0 else 0
     site.founded = year
     site.wealth = site.population * rng.randint(4, 20)
-    site.buildings = _buildings_for(kind, rng)
+    site.buildings = buildings_for(kind, rng)
     world.sites.append(site)
     world.tile(x, y).site_id = site.id
     world.tile(x, y).civ_id = civ.id
@@ -305,7 +305,7 @@ def found_site(
     return site
 
 
-def _buildings_for(kind: str, rng: RNG) -> List[str]:
+def buildings_for(kind: str, rng: RNG) -> List[str]:
     """Pick the notable buildings a settlement contains."""
     base = {
         "city": ["keep", "market", "tavern", "temple", "barracks", "well"],
@@ -368,7 +368,7 @@ def place_lairs_and_ruins(world, rng: RNG) -> None:
         site.population = rng.randint(lo, hi) if hi > 0 else 0
         site.founded = max(0, world.year - rng.randint(20, 400))
         site.wealth = rng.randint(20, 400)
-        site.buildings = _buildings_for(kind, rng)
+        site.buildings = buildings_for(kind, rng)
         if kind == "ruin":
             site.destroyed = site.founded + rng.randint(5, 100)
         world.sites.append(site)

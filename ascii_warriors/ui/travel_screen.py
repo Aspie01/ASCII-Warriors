@@ -123,6 +123,13 @@ class TravelScene(Scene):
                 scr.text(x, row, "population %d" % site.population,
                          colors.UI["fg"])
             row += 1
+            # Who holds it, where the legends screen says so too. This is the
+            # screen you decide from, and "a tower, population 4" and "a tower
+            # held by Ustgath the Foul" are not the same decision.
+            owner = world.figures.get(site.owner_hf) if site.owner_hf else None
+            if owner is not None and owner.alive(world.year):
+                row += scr.wrapped(x, row, w, "held by %s"
+                                   % owner.display_name, colors.UI["warn"])
 
         # A place the player built in fortress mode, still standing.
         preserved = world.preserved_map(self.cx, self.cy)

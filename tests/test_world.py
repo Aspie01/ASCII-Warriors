@@ -1175,3 +1175,184 @@ class TestTheBeastAndItsLair(unittest.TestCase):
         _lm, pop = generate_local(world, site.wx, site.wy, RNG("spare"),
                                   site=site)
         self.assertTrue(pop, "an unoccupied cave came out empty")
+
+
+class TestTheNecromancersTower(unittest.TestCase):
+    """A necromancer with somewhere to be, and it is the place the story says.
+
+    The histories wrote both halves and joined neither. "%s learned the secrets
+    of life and death and fled into the wilderness" fired at five percent a
+    year, so a world got six to eleven of them; towers are one weight in
+    seventeen at worldgen and are downgraded to ruins unless the tile is evil,
+    so a world got none or one. Measured over three worlds: twenty-six named
+    necromancers and one tower between them, and every necromancer's
+    ``site_id`` still pointed at the town it is on record as having fled.
+
+    That was not a cosmetic gap. The help screen says the secret of raising the
+    dead is a slab in a necromancer's tower, and a slab rides in on a creature
+    whose profession is ``necromancer`` -- which only ``build_tower`` creates.
+    Two worlds in three had no tower, so the whole night half of the game was
+    written, tested at the machinery, and unreachable from a new world.
+    """
+
+    SEEDS = ("night1", "night2", "night3", "night4")
+
+    @classmethod
+    def setUpClass(cls):
+        cls.worlds = {s: _world(s, size="pocket", years=80) for s in cls.SEEDS}
+
+    @staticmethod
+    def _necromancers(world):
+        return [f for f in world.figures.values()
+                if "necromancer" in f.flags and f.alive(world.year)]
+
+    @staticmethod
+    def _towers(world):
+        return [s for s in world.sites if s.kind == "tower" and not s.is_ruin]
+
+    def test_every_necromancer_has_a_tower(self):
+        """It fled into the wilderness, so the wilderness must have somewhere."""
+        checked = 0
+        for seed, world in self.worlds.items():
+            necros = self._necromancers(world)
+            for fig in necros:
+                site = world.site(fig.site_id) if fig.site_id else None
+                self.assertIsNotNone(
+                    site, "%s: %s lives nowhere" % (seed, fig.display_name))
+                self.assertEqual(
+                    site.kind, "tower",
+                    "%s: %s lives in a %s" % (seed, fig.display_name, site.kind))
+                checked += 1
+        self.assertGreater(checked, 4, "hardly any necromancers arose")
+
+    def test_no_two_necromancers_hold_the_same_tower(self):
+        """`build_tower` puts one owner on the map, so two owners lose one."""
+        for seed, world in self.worlds.items():
+            necros = self._necromancers(world)
+            if not necros:
+                continue
+            owners = [s.owner_hf for s in self._towers(world)
+                      if s.owner_hf is not None]
+            self.assertEqual(len(owners), len(set(owners)),
+                             "%s: a tower changed hands and kept both" % seed)
+            self.assertEqual(
+                len(set(owners)), len(necros),
+                "%s: %d necromancers between %d towers"
+                % (seed, len(necros), len(set(owners))))
+
+    def test_the_figure_and_the_site_agree(self):
+        """Disagreeing quietly is what made this invisible for so long."""
+        checked = 0
+        for seed, world in self.worlds.items():
+            for site in self._towers(world):
+                if site.owner_hf is None:
+                    continue
+                fig = world.figures.get(site.owner_hf)
+                self.assertIsNotNone(fig, "%s: %s is held by nobody real"
+                                     % (seed, site.name))
+                self.assertEqual(fig.site_id, site.id,
+                                 "%s: %s holds %s and lives elsewhere"
+                                 % (seed, fig.display_name, site.name))
+                checked += 1
+        self.assertGreater(checked, 4, "no tower in any world had an owner")
+
+    def test_the_tower_stands_where_the_map_says(self):
+        """A site the world tile does not know about is one you cannot reach.
+
+        A tower raised by the histories has to be stamped onto its world tile
+        the way the scattered ones are, or it is a name in the legends with
+        nowhere on the map to travel to.
+        """
+        checked = 0
+        for seed, world in self.worlds.items():
+            for site in self._towers(world):
+                tile = world.tile(site.wx, site.wy)
+                self.assertEqual(tile.site_id, site.id,
+                                 "%s: %s is not on its own tile"
+                                 % (seed, site.name))
+                self.assertEqual(tile.feature, "tower")
+                self.assertFalse(tile.is_ocean, "%s: a tower at sea" % seed)
+                checked += 1
+        self.assertGreater(checked, 4,
+                           "worlds still have barely any towers in them")
+
+    def test_the_legends_name_who_holds_it(self):
+        """So you can find out before you climb five floors to find out."""
+        named = 0
+        for seed, world in self.worlds.items():
+            for site in self._towers(world):
+                if site.owner_hf is None:
+                    continue
+                fig = world.figures[site.owner_hf]
+                text = "\n".join(f.text for f in legends.site_lines(world, site.id))
+                self.assertIn("Held by %s." % fig.display_name, text,
+                              "%s: %s says nothing about who is in it"
+                              % (seed, site.name))
+                named += 1
+        self.assertGreater(named, 4, "no tower in any world had an owner")
+
+    def test_the_necromancer_is_home_when_you_arrive(self):
+        """The half that was missing everywhere else too."""
+        checked = 0
+        for seed, world in self.worlds.items():
+            for site in self._towers(world):
+                if site.owner_hf is None:
+                    continue
+                _lm, pop = generate_local(world, site.wx, site.wy,
+                                          RNG("tower%d" % site.id), site=site)
+                mine = [p for p in pop if p.get("hf_id") == site.owner_hf]
+                self.assertEqual(len(mine), 1,
+                                 "%s: %s is not in %s"
+                                 % (seed, world.figures[site.owner_hf].name,
+                                    site.name))
+                self.assertEqual(mine[0]["def_id"], "necromancer")
+                self.assertTrue(
+                    any(p.get("profession") == "undead" for p in pop),
+                    "%s: %s has no dead in it" % (seed, site.name))
+                checked += 1
+        self.assertGreater(checked, 4, "no owned tower was built")
+
+    def test_a_tower_whose_necromancer_is_dead_holds_only_its_dead(self):
+        """You killed him. The legends recorded it. He does not come back."""
+        world = self.worlds["night1"]
+        site = next(s for s in self._towers(world) if s.owner_hf is not None)
+        fig = world.figures[site.owner_hf]
+        before = fig.died
+        fig.died = world.year - 30
+        try:
+            _lm, pop = generate_local(world, site.wx, site.wy, RNG("dead"),
+                                      site=site)
+        finally:
+            fig.died = before
+        self.assertFalse([p for p in pop if p.get("def_id") == "necromancer"],
+                         "a necromancer the world has buried was standing there")
+        self.assertTrue([p for p in pop if p.get("profession") == "undead"],
+                        "his dead left with him")
+
+    def test_an_unclaimed_tower_still_has_its_necromancer(self):
+        """Nameless, but a tower with nobody in it is not a tower."""
+        world = self.worlds["night1"]
+        site = next(s for s in self._towers(world) if s.owner_hf is not None)
+        before = site.owner_hf
+        site.owner_hf = None
+        try:
+            _lm, pop = generate_local(world, site.wx, site.wy, RNG("free"),
+                                      site=site)
+        finally:
+            site.owner_hf = before
+        nec = [p for p in pop if p.get("def_id") == "necromancer"]
+        self.assertEqual(len(nec), 1, "an unclaimed tower came out empty")
+        self.assertIsNone(nec[0].get("hf_id"))
+
+    def test_the_tower_survives_a_save(self):
+        """Who holds what is world state, and worlds get written down."""
+        world = self.worlds["night2"]
+        towers = [s for s in self._towers(world) if s.owner_hf is not None]
+        self.assertTrue(towers)
+        again = World.from_dict(json.loads(json.dumps(world.to_dict())))
+        for site in towers:
+            back = again.site(site.id)
+            self.assertIsNotNone(back)
+            self.assertEqual(back.owner_hf, site.owner_hf)
+            self.assertEqual(again.figures[site.owner_hf].site_id, site.id)
+            self.assertEqual(again.tile(site.wx, site.wy).site_id, site.id)

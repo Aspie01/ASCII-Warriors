@@ -4125,19 +4125,33 @@ class TestFire(GameFixture):
         self.assertGreater(burnt, 1, "a fire in a forest burned one tree")
 
     def test_fire_does_not_cross_bare_ground(self):
+        """Two trees, six tiles of rock between them, and it stays put.
+
+        The layout is built rather than found. It used to skip when the
+        player's start had no six clear tiles running east, which is a thing
+        the dice decide -- so any worldgen change anywhere could quietly turn
+        this test off, and one did.
+
+        It also only asked whether the far tree survived, which a fire that
+        crossed three tiles of rock and then went out passes. It asks about
+        the ground between them now.
+        """
         lm = self.game.local
         p = self.game.player
-        here = (p.x, p.y, p.z)
-        far = (p.x + 6, p.y, p.z)
+        y = min(max(p.y, 0), lm.height - 1)
+        x = min(max(p.x, 0), lm.width - 7)
+        here, far = (x, y, p.z), (x + 6, y, p.z)
+        for dx in range(7):
+            lm.set_tile(x + dx, y, p.z, "floor")
         for c in (here, far):
-            if not lm.in_bounds(*c) or not lm.walkable(*c):
-                self.skipTest("no room to lay this out")
             lm.set_tile(c[0], c[1], c[2], "tree")
         self.game.fire.ignite(lm, here)
         for _ in range(2000):
             self.game.fire.step(lm, self.game.rng)
             if not self.game.fire.anything_burning:
                 break
+        self.assertEqual([lm.tile(x + dx, y, p.z) for dx in range(1, 6)],
+                         ["floor"] * 5, "the bare ground caught")
         self.assertEqual(lm.tile(*far), "tree", "fire jumped six tiles of rock")
 
     def test_the_burning_cap_holds(self):
@@ -4606,13 +4620,35 @@ class TestTemperature(GameFixture):
         self.assertGreater(self.game.temperature_at(p.x, p.y, p.z), cold)
 
     def test_a_deep_cell_is_steadier_than_the_surface(self):
+        """Cave temperature down there, and it stays there all year.
+
+        This used to ask for a cell twenty levels below the surface of a map
+        that is eleven levels deep, so it skipped every single time it was
+        ever run -- the one permanent skip in the suite, and invisible because
+        a skip is silent. `heat.CAVE_DEPTH` is six, which the map does have
+        room for, and "steadier" is now measured rather than assumed: half a
+        year passes, the surface notices and the cave does not.
+        """
+        from ascii_warriors.data.calendar import TICKS_PER_YEAR
+
         lm = self.game.local
-        p = self.game.player
-        surf = lm.surface_z(p.x, p.y)
-        if surf - 20 < 0:
-            self.skipTest("map is too shallow")
-        deep = self.game.temperature_at(p.x, p.y, surf - 20)
-        self.assertAlmostEqual(deep, self.heat.CAVE_TEMP, places=4)
+        column = next(
+            ((x, y) for y in range(lm.height) for x in range(lm.width)
+             if lm.surface_z(x, y) - self.heat.CAVE_DEPTH >= lm.zmin), None)
+        self.assertIsNotNone(column, "no column has a cave's depth under it")
+        x, y = column
+        surf = lm.surface_z(x, y)
+        deep = surf - self.heat.CAVE_DEPTH
+        was_surf = self.game.temperature_at(x, y, surf)
+        self.assertAlmostEqual(self.game.temperature_at(x, y, deep),
+                               self.heat.CAVE_TEMP, places=4)
+        self.game.time.ticks += TICKS_PER_YEAR // 2
+        self.assertAlmostEqual(self.game.temperature_at(x, y, deep),
+                               self.heat.CAVE_TEMP, places=4,
+                               msg="the cave felt the season")
+        self.assertNotAlmostEqual(self.game.temperature_at(x, y, surf),
+                                  was_surf, places=2,
+                                  msg="the surface did not")
 
 
 class TestMapLayersStayOnTheirMap(GameFixture):
@@ -8271,3 +8307,133 @@ class TestThingsThatSaidSoAndDidNot(GameFixture):
         said = " ".join(getattr(m, "text", str(m)) for m in fort.log.recent(80))
         self.assertIn("bandage", said.lower())
         self.assertGreater(hospital.BANDAGE_PER_DWARF, 0)
+
+
+class TestTheSlabInTheTower(unittest.TestCase):
+    """The secret of raising the dead, and whether anywhere holds it.
+
+    The help screen says it plainly: "a slab in a necromancer's tower -- is the
+    secret of raising the dead. Read it and press Z." Every piece of that was
+    written and every piece was tested -- `make_slab`, `_give_books`, `read`,
+    `is_necromancer`, the raising itself -- and all of it was tested against
+    creatures the tests built themselves. Nobody asked whether a world contains
+    one. Two worlds in three had no tower standing at all, and the only other
+    slab-bearer is a tomb lord who carries one three times in five, so the
+    night half of the game was reachable by luck or not at all.
+
+    These walk it: find the tower on the world map, go in, climb to the top,
+    take the slab off the necromancer standing there, and read it.
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.mkdtemp()
+        self._old = os.environ.get("ASCII_WARRIORS_SAVE_DIR")
+        os.environ["ASCII_WARRIORS_SAVE_DIR"] = self._tmp
+
+    def tearDown(self):
+        if self._old is None:
+            os.environ.pop("ASCII_WARRIORS_SAVE_DIR", None)
+        else:
+            os.environ["ASCII_WARRIORS_SAVE_DIR"] = self._old
+
+    def _game(self, seed="night1"):
+        rng = RNG(seed)
+        world = generate_world(rng.sub("w"), size="pocket", history_years=80)
+        return Game.new_game(
+            world, {"race": "human", "profession": "warrior"}, rng)
+
+    @staticmethod
+    def _towers(world):
+        return [s for s in world.sites
+                if s.kind == "tower" and not s.is_ruin
+                and s.owner_hf is not None]
+
+    @staticmethod
+    def _slabs(creature):
+        from ascii_warriors.game import books
+
+        return [it for it in creature.inventory.items
+                if books.of(it) is not None
+                and getattr(books.of(it), "secret", "") == "necromancy"]
+
+    def test_a_world_has_towers_with_necromancers_in_them(self):
+        """The measurement that opened this: it used to be none or one."""
+        found = 0
+        for seed in ("night1", "night2", "night3"):
+            game = self._game(seed)
+            towers = self._towers(game.world)
+            self.assertTrue(towers, "%s: no tower anybody holds" % seed)
+            found += len(towers)
+        self.assertGreater(found, 5,
+                           "towers are still as rare as they were")
+
+    def test_the_named_necromancer_is_the_one_standing_there(self):
+        """Not "a necromancer": the one the legends screen sent you after."""
+        game = self._game()
+        towers = self._towers(game.world)
+        self.assertGreater(len(towers), 2, "hardly any tower has an owner")
+        for site in towers[:3]:
+            fig = game.world.figures[site.owner_hf]
+            game.enter_world_tile(site.wx, site.wy)
+            here = [c for c in game.creatures.values()
+                    if c.hf_id == site.owner_hf and not c.body.dead]
+            self.assertEqual(len(here), 1,
+                             "%s is not in %s" % (fig.name, site.name))
+            nec = here[0]
+            self.assertEqual(nec.def_id, "necromancer")
+            self.assertEqual(nec.name, fig.name)
+            self.assertEqual(nec.faction, "hostile")
+            self.assertTrue(
+                [c for c in game.creatures.values()
+                 if c.profession == "undead"],
+                "%s has no dead in it" % site.name)
+
+    def test_he_carries_the_secret_the_help_promises(self):
+        """The slab is the reason to climb the tower."""
+        carried = 0
+        for seed in ("night1", "night2"):
+            game = self._game(seed)
+            for site in self._towers(game.world)[:3]:
+                game.enter_world_tile(site.wx, site.wy)
+                nec = next((c for c in game.creatures.values()
+                            if c.hf_id == site.owner_hf), None)
+                self.assertIsNotNone(nec)
+                self.assertTrue(self._slabs(nec),
+                                "%s carries no slab" % site.name)
+                carried += 1
+        self.assertGreater(carried, 2, "hardly any tower was entered")
+
+    def test_you_can_climb_to_him_from_where_you_come_in(self):
+        """A necromancer on a floor with no stair is a necromancer nobody meets."""
+        from ascii_warriors.engine.pathfind import bfs_reachable
+
+        game = self._game()
+        site = self._towers(game.world)[0]
+        game.enter_world_tile(site.wx, site.wy)
+        nec = next(c for c in game.creatures.values()
+                   if c.hf_id == site.owner_hf)
+        start = (game.player.x, game.player.y, game.player.z)
+        reach = bfs_reachable(start, game.local.path_neighbours,
+                              max_nodes=200000)
+        self.assertIn((nec.x, nec.y, nec.z), reach,
+                      "%s stands where you cannot get to him" % nec.name)
+        self.assertGreater(nec.z, game.player.z,
+                           "he is meant to be upstairs")
+
+    def test_taking_the_slab_and_reading_it_makes_you_a_necromancer(self):
+        """The whole promise, end to end, out of a world nobody arranged."""
+        from ascii_warriors.game import books, night
+
+        game = self._game()
+        site = self._towers(game.world)[0]
+        game.enter_world_tile(site.wx, site.wy)
+        nec = next(c for c in game.creatures.values()
+                   if c.hf_id == site.owner_hf)
+        self.assertFalse(night.is_necromancer(game.player))
+        slab = self._slabs(nec)[0]
+        nec.inventory.remove(slab)
+        game.player.inventory.add(slab)
+        lines = books.read(game, game.player, books.of(slab))
+        self.assertTrue(lines)
+        self.assertTrue(night.is_necromancer(game.player),
+                        "the slab in the tower taught nothing")

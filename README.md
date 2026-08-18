@@ -352,8 +352,9 @@ fight against somebody who now knows exactly where you are. Kobold thieves,
 bandits and ambushing wolves have had the skills for this all along; now they
 use them, and your dwarves have to actually spot the thief.
 
-**The night.** The world has always generated necromancers, given them towers
-and stocked those towers with the dead. Now they use them. A necromancer
+**The night.** Every necromancer the histories raise takes a tower of its own
+— raising one on the darkest empty land if the world has none free — and fills
+it with the dead. The legends screen names who holds each one. A necromancer
 raises whatever corpses it can see — including the ones you just made — so a
 tower is not a queue of zombies to grind through, it is a fight you lose
 slowly until you reach the necromancer. Every casualty you take is one more
@@ -518,8 +519,9 @@ is on the level below, dimmed by depth, the way Dwarf Fortress does.
 **Sites.** Towns with houses, a tavern, a temple, a market, a keep and roads
 between them. Dwarven fortresses with a surface hall over carved underground
 levels. Goblin dark fortresses ringed by barracks. Necromancer towers with
-undead on every floor. Kobold warrens, bandit camps, beast lairs, crypts, ruins
-and roadside shrines. Everyone who lives in them is placed where they belong:
+undead on every floor and the necromancer the legends name at the top of it,
+carrying the slab you climbed it for. Kobold warrens, bandit camps, beast
+lairs, crypts, ruins and roadside shrines. Everyone who lives in them is placed where they belong:
 the lord in the keep, the tavern keeper behind the bar, the guards on the street.
 
 **Combat.** Real material science. Every material has shear and impact yield and

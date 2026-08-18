@@ -485,6 +485,63 @@ def lair_beast(world, site_id: int, year: int):
     return _lair_of(world, site_id, year)
 
 
+def _tower_for(world, rng: RNG, fig, year: int):
+    """Give a new necromancer somewhere to be, raising a tower if need be.
+
+    The histories said "learned the secrets of life and death and fled into the
+    wilderness" and then "took up residence in <tower>", and neither half was
+    true of anywhere. Towers are one weight in seventeen at worldgen and are
+    downgraded to ruins unless the tile is evil, so a world gets none or one of
+    them; necromancers arise at five percent a year and a world gets six to
+    eleven. Measured across three worlds: twenty-six named necromancers and one
+    tower between them, every one of their `site_id`s still pointing at the
+    town they are on record as having fled.
+
+    So the tower is raised when the story says it is. One necromancer to a
+    tower -- `build_tower` puts `site.owner_hf` on the map, and two owners
+    would mean the one you were sent after is not the one standing there -- and
+    `fig.site_id` is set to match, because the figure and the site disagreeing
+    is what made this invisible.
+    """
+    from .civ import SITE_KINDS, Site, buildings_for
+
+    free = [s for s in world.sites
+            if s.kind == "tower" and not s.is_ruin and s.owner_hf is None]
+    if free:
+        tower = rng.choice(free)
+    else:
+        spot = _dark_spot(world, rng)
+        if spot is None:
+            return None
+        x, y = spot
+        native, translated = name_data.site_name(rng, "human", "tower")
+        tower = Site(world.next_id("site"), translated, native, "tower",
+                     x, y, "human")
+        tower.founded = year
+        lo, hi = SITE_KINDS.get("tower", ("?", None, (0, 0)))[2]
+        tower.population = rng.randint(lo, hi) if hi > 0 else 0
+        tower.wealth = rng.randint(20, 400)
+        tower.buildings = buildings_for("tower", rng)
+        world.sites.append(tower)
+        tile = world.tile(x, y)
+        tile.site_id = tower.id
+        tile.feature = "tower"
+    tower.owner_hf = fig.id
+    fig.site_id = tower.id
+    return tower
+
+
+def _dark_spot(world, rng: RNG):
+    """Empty land for a tower, the darker the better."""
+    land = [(x, y) for y in range(world.height) for x in range(world.width)
+            if not world.tile(x, y).is_ocean
+            and world.tile(x, y).site_id is None]
+    if not land:
+        return None
+    land.sort(key=lambda c: -world.tile(*c).evil)
+    return rng.choice(land[:max(1, len(land) // 10)])
+
+
 def _living_monsters(world, year: int) -> List[HistoricalFigure]:
     return [
         f for f in world.figures.values()
@@ -789,10 +846,8 @@ def _simulate_year(world, rng: RNG, year: int) -> None:
                 "wilderness." % fig.display_name,
                 [fig.id], [live[0].id], [civ.id],
             )
-            towers = [s for s in world.sites if s.kind == "tower"]
-            if towers:
-                tower = rng.choice(towers)
-                tower.owner_hf = fig.id
+            tower = _tower_for(world, rng, fig, year)
+            if tower is not None:
                 record(
                     world, year, "tower_built",
                     "%s took up residence in %s." % (fig.display_name, tower.name),

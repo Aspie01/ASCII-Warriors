@@ -5107,11 +5107,24 @@ class TestWater(unittest.TestCase):
         return sum(v for c, v in fort.water.depth.items()
                    if not fort.local.is_outside(*c))
 
+    def _wet_embark(self, base):
+        """An embark with an aquifer under it, found rather than hoped for.
+
+        `_lay_aquifer` is a coin toss weighted by rainfall, so a given seed
+        has one about half the time and these two tests used to skip when it
+        did not -- silently, which is the one way a test can be wrong and say
+        nothing about it. Trying a few embarks turns that into a pass or a
+        loud failure.
+        """
+        for i in range(8):
+            fort = embark(base if i == 0 else "%s%d" % (base, i), water=True)
+            if fort.aquifer:
+                return fort
+        self.fail("no embark in eight had an aquifer under it")
+
     def test_breaching_an_aquifer_floods_and_warns(self):
         """Digging into wet rock is supposed to be a disaster."""
-        fort = embark("breach", water=True)
-        if not fort.aquifer:
-            self.skipTest("this embark has no aquifer")
+        fort = self._wet_embark("breach")
         cell = sorted(fort.aquifer)[len(fort.aquifer) // 2]
         before = self._water_underground(fort)
         fort.dig_out(cell, "floor")
@@ -5128,18 +5141,43 @@ class TestWater(unittest.TestCase):
         worth moving. An aquifer has a whole rock layer of pressure behind
         it, so it must push past that: otherwise breaching one leaves a
         puddle and a shrug, and the danger the layer exists for never lands.
+
+        Breached over a room, which is the only breach that means anything.
+        This used to open one cell in the middle of the wet layer with solid
+        rock on all six sides but the one it came in by -- a bucket, not a
+        breach -- and then assert the water in it kept rising. It could not
+        have; the test had never run to find out.
         """
-        fort = embark("puddle", water=True)
-        if not fort.aquifer:
-            self.skipTest("this embark has no aquifer")
+        fort = self._wet_embark("puddle")
         cell = sorted(fort.aquifer)[len(fort.aquifer) // 2]
+        x, y, z = cell
+        room = [(x + dx, y + dy, z - 1)
+                for dy in range(-3, 4) for dx in range(-3, 4)
+                if fort.local.in_bounds(x + dx, y + dy, z - 1)
+                and (x + dx, y + dy, z - 1) not in fort.aquifer]
+        self.assertGreater(len(room), 30, "no room to dig under the wet layer")
+        for c in room:
+            fort.dig_out(c, "floor")
         fort.dig_out(cell, "floor")
-        for _ in range(200):
+        self.assertIn(cell, fort.water.sources)
+        for _ in range(100):
             fort.water.step(fort.local)
         early = fort.water.total()
-        for _ in range(400):
+        for _ in range(300):
             fort.water.step(fort.local)
         self.assertGreater(fort.water.total(), early, "the leak sealed itself")
+        # And outward, not just deeper into the cell it came in by.
+        wet = [c for c in room if fort.water.at(*c) > 0]
+        self.assertGreater(len(wet), len(room) // 2,
+                           "the water never left the hole it came in by")
+        # Left long enough, the room fills. Without `Water._push` it levels
+        # into a staircase instead and stops there -- a floor an inch deep at
+        # the far wall, which is the shape the pressure exists to beat.
+        for _ in range(1100):
+            fort.water.step(fort.local)
+        shallow = min(fort.water.at(*c) for c in room)
+        self.assertGreaterEqual(shallow, self.fluids.MAX_DEPTH - 1,
+                                "the pool settled into a staircase")
 
     # -- drowning ---------------------------------------------------------- #
 
