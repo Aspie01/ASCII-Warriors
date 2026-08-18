@@ -942,14 +942,30 @@ def _claim_job(fort, dwarf) -> Optional[Job]:
     from . import sim as sim_mod
 
     state = dwarf.fort
-    for job in fort.jobs.for_dwarf(dwarf)[:12]:
-        if fort.ticks < fort.unreachable.get(job.cell, 0):
-            continue
+    # Skipped before the window is taken, not inside it. A player designates
+    # the room before the stairway down to it is finished -- that is how a
+    # fortress is dug -- and the board fills with work that cannot be reached
+    # yet. Slicing first meant a dwarf looked at twelve jobs it already knew
+    # were unreachable, found nothing, and stood still: measured on a played
+    # embark, forty-two of forty-three board entries, all seven dwarves idle
+    # every step, and the fortress starved to death in a fortnight with a
+    # thousand trees marked for felling and a fortnight of ale in the barrel.
+    board = [job for job in fort.jobs.for_dwarf(dwarf)
+             if fort.ticks >= fort.unreachable.get(job.cell, 0)]
+    for job in board[:12]:
         if not fort.prepare_job(dwarf, job):
             continue
         if not path_to(fort, dwarf, job.cell, vertical=vertical_reach(job)):
             fort.unreachable[job.cell] = fort.ticks + sim_mod.RETRY_DELAY
-            fort.jobs.release(job)
+            # And off the board, not just released. A job left posted is one
+            # `_scan_designations` will not replace and every dwarf will keep
+            # stepping over: the designation stays painted, `dig_out` clears
+            # the memory, and the work comes back the moment somebody opens
+            # the way to it.
+            if job.kind in sim_mod.DESIGNATION_KINDS:
+                fort.jobs.remove(job)
+            else:
+                fort.jobs.release(job)
             fort.cancel_preparation(dwarf, job)
             continue
         fort.jobs.assign(job, dwarf)

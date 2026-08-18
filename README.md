@@ -821,6 +821,7 @@ python -m tools.smoke                       # headless adventure play-through
 python -m tools.smoke --mode fortress       # headless fortress play-through
 python -m tools.fuzz --mode fortress        # random keys, looking for crashes
 python -m tools.play --seed adv1            # play an adventurer for a long time
+python -m tools.fort --seed f1              # play a fortress for a season
 python -m compileall ascii_warriors
 ```
 
@@ -833,6 +834,13 @@ thousands of turns — drink, eat, sleep, fight what is next to you, otherwise
 wander — and then judges the run. Needs that never moved, a death by thirst
 beside water, or a stop without a death are reported as problems. Most of what
 is wrong with a simulation is only visible after a few thousand turns of it.
+
+`tools/fort.py` does the same for the other half: it designates a stairway and
+a floor of rooms, marks the trees and the shrubs, puts up a still and a farm,
+queues standing orders, and watches the season turn. What it judges is the job
+board rather than the fortress's survival — whether seven dwarves live through
+a winter depends on how well the script plays, but painted work that can be
+reached has to get done however badly it plays.
 
 The module contract lives in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 

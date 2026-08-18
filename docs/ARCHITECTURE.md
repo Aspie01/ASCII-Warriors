@@ -5625,7 +5625,95 @@ mood guard asked the loose question above. Both are the same mistake as
 §117.5's `len(below) > 0` — a guard that walks a collection has to say how big
 it expects the collection to be.
 
-## 119. Style
+## 119. Playing the fortress (v3.59)
+
+`tools/play` was v3.51's answer to a whole half of the game that nothing ever
+played: `smoke` proves the screens fit together, `fuzz` presses keys at
+random, and neither of them survives a night in the open. It found three
+defects in an afternoon.
+
+The fortress had the same hole and kept it for eight versions. `tools/fort`
+is its driver: it designates a stairway down and a floor of rooms, marks the
+trees and the shrubs, puts up a still and a farm and beds for everybody,
+queues standing orders, and then watches the season turn.
+
+### 119.1. What it is allowed to conclude
+
+The first draft asserted that the fortress should be alive at the end of the
+year, and that is the wrong assertion for this tool. Whether seven dwarves
+survive a winter depends on how well the *script* plays -- and the script is a
+hundred lines of my own judgement about where to put a farm. A driver that
+plays badly must not be able to report a defect in the game.
+
+So the invariants are about the **job board**, which the driver does control
+and which is the thing every one of its scripted actions feeds: painted work
+that can be reached has to get done. A thousand trees marked for felling and
+none felled is a defect whoever wrote the script. Seven dwarves starving on an
+embark whose surface is bare rock is a bad script.
+
+### 119.2. Four things it turned up
+
+None of them is the dramatic one I first thought I had. The measurement that
+opened this looked like *seven dwarves stand idle beside a full job board and
+starve*, and re-measuring took it apart: the shaft had run into an aquifer and
+flooded, which is what an aquifer is for; the remaining seven hundred and
+ninety-one trees were across the water; and the starvation was the driver
+never managing to place a farm. **The story did not survive the second look,
+and the fixes it led to are worth having anyway.**
+
+| | what was wrong |
+|---|---|
+| `_scan_designations` | read `fort.unreachable` with `in`. The value is *the tick a cell may be retried*, and testing membership meant a cell set aside once stayed set aside until something called `dig_out` -- which is the one thing a fortress that cannot dig will not do. A plain bug: the map was being used as a set. |
+| `_scan_designations` | walked the dict from the top on every scan, so the first `MAX_DIG_JOBS` painted cells could hold the whole budget for ever. The first thing a player paints is the room they have not reached yet. A cursor now rotates through them. |
+| `_claim_job` | sliced twelve candidates off the board and *then* skipped the ones it already knew were unreachable, so a dwarf could look at twelve known-dead jobs and find nothing with work sitting thirteenth. Filtered before the window now. |
+| `_claim_job` | left an unreachable designation job posted. `_scan_designations` will not replace a job that is still on the board, so it sat holding one of sixty slots until the retry fell due. It comes off; the designation stays painted and the memory brings it back. |
+
+Measured end to end on the driver's first embark, the last of those is the
+only one that moves the number: **415 designated cells worked against 384**.
+The other three are correctness rather than throughput, and each has a guard
+that fails without it.
+
+### 119.3. What the first draft of the script was measuring
+
+The catastrophe the driver first reported -- seven dead in a fortnight, not one
+wall dug -- was mostly the script. It marked **every tree on the map**: one
+thousand one hundred and eighty-four chop designations, against sixty job
+slots, on an embark whose surface is bare rock so the farm it tried to place
+never went down. A player marks the stand within walking distance and farms
+the soil. With sixty trees and twenty shrubs marked and a farm on soil, the
+same embark comes out: **every painted cell worked inside five days, seven
+alive of seven, a farm and a still standing.**
+
+That is the second half of §119.1 and worth saying twice. A driver's report is
+only as good as the play behind it, so its invariants have to be things that
+hold however badly it plays.
+
+One thing did survive the rewrite, and it is a measurement rather than a fix:
+seven days of the same script costs **20 seconds on seed `f1`, 19 on `fort`,
+and 430 on `f2`.** A twenty-one-fold spread for the same week of simulation.
+§110's note on `_claim_job` describes the shape of it -- every dwarf inside a
+full-budget A* that cannot succeed -- and one embark in three still finds a
+way there. That is somebody's next milestone.
+
+### 119.4. Guards that can fail
+
+Five, four re-breaks, one guard each:
+
+| broken | guard |
+|---|---|
+| membership instead of expiry | `..._set_aside_is_tried_again_when_its_time_is_up` |
+| scan from the top every time | `..._does_not_start_from_the_top_every_time` |
+| filter inside the twelve-window | `..._looks_past_the_ones_it_knows_it_cannot_reach` |
+| leave the unreachable job posted | `..._nobody_can_reach_comes_off_the_board` |
+
+The fifth pins the other half of the retry: a cell whose time is *not* up must
+stay set aside, and one set-aside cell must not stop the scan.
+
+All four are built rather than found -- a wall the map happens to contain, a
+cell with no work position at all -- because a job-board test that hunts the
+seed for the state it needs is a job-board test that skips (§115.5).
+
+## 120. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

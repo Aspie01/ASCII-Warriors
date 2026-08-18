@@ -65,6 +65,9 @@ class Fortress:
         #: What the winter has taken of the water.
         self.frost = Frost()
         self.designations = Designations()
+        #: Where the designation scanner got to last time. Transient: a save
+        #: that reloads at zero simply starts the round again.
+        self.designation_cursor = 0
         self.jobs = JobBoard()
         self.buildings: List[Building] = []
         self.stockpiles: List[Stockpile] = []

@@ -7898,3 +7898,155 @@ class TestTheJeweller(unittest.TestCase):
         self.assertGreater(self._count(fort, "ring"), 0)
         again = Fortress.from_dict(fort.to_dict())
         self.assertEqual(self._count(again, "ring"), self._count(fort, "ring"))
+
+
+class TestTheJobBoard(unittest.TestCase):
+    """What gets posted, and what a dwarf sees when it looks.
+
+    `tools/fort` is the first thing that ever played a fortress -- dug a
+    stairway, put up workshops, queued standing orders, and watched the season
+    turn -- and what it turned up was the job board rather than the dwarves.
+    Painted work that nobody can reach is normal play: a room is designated
+    before the stairway down to it is cut, and on this embark the stairway ran
+    into an aquifer and flooded, which is what an aquifer is for. The question
+    is what the fortress does with the rest of the work while that is true.
+    """
+
+    def _fort(self, seed="board"):
+        fort = embark(seed)
+        fort.designations.cells.clear()
+        fort.unreachable.clear()
+        for job in list(fort.jobs.jobs.values()):
+            fort.jobs.remove(job)
+        return fort
+
+    def _wall(self, fort, n):
+        """*n* diggable wall cells, in map order so the test can be exact."""
+        lm = fort.local
+        out = []
+        for z in range(0, lm.zmin - 1, -1):
+            for y in range(lm.height):
+                for x in range(lm.width):
+                    if fort.designations.valid(lm, x, y, z, "dig"):
+                        out.append((x, y, z))
+                        if len(out) >= n:
+                            return out
+        return out
+
+    def test_a_cell_set_aside_is_tried_again_when_its_time_is_up(self):
+        """`fort.unreachable` maps a cell to the tick it may be retried.
+
+        The scanner read it as a set -- `cell in fort.unreachable` -- so a
+        designation nobody could reach once was never posted again until
+        something called `dig_out` and cleared the whole memory, which is the
+        one thing a fortress that cannot dig will not do.
+        """
+        fort = self._fort("retry")
+        cells = self._wall(fort, 3)
+        self.assertEqual(len(cells), 3)
+        for cell in cells:
+            fort.designations.set(fort.local, *cell, "dig")
+        # Set aside, and the time already up.
+        fort.unreachable[cells[0]] = fort.ticks - 1
+        sim._scan_designations(fort, 30)
+        self.assertTrue(fort.jobs.has_job_at("dig", cells[0]),
+                        "a cell whose retry was due was never posted again")
+
+    def test_a_cell_still_set_aside_is_left_alone(self):
+        """The other half: the memory has to actually hold for its while."""
+        fort = self._fort("hold")
+        cells = self._wall(fort, 3)
+        for cell in cells:
+            fort.designations.set(fort.local, *cell, "dig")
+        fort.unreachable[cells[0]] = fort.ticks + sim.RETRY_DELAY
+        sim._scan_designations(fort, 30)
+        self.assertFalse(fort.jobs.has_job_at("dig", cells[0]))
+        self.assertTrue(fort.jobs.has_job_at("dig", cells[1]),
+                        "one set-aside cell stopped the whole scan")
+
+    def test_the_scan_does_not_start_from_the_top_every_time(self):
+        """Round-robin, or the first `MAX_DIG_JOBS` cells own the budget.
+
+        A dict walked from the beginning gives its first entries the whole job
+        budget for ever. The first thing a player paints is the room they have
+        not reached yet, so that is exactly the block that gets it.
+        """
+        fort = self._fort("robin")
+        want = sim.MAX_DIG_JOBS + 20
+        cells = self._wall(fort, want)
+        self.assertGreaterEqual(len(cells), want, "not enough rock to test on")
+        for cell in cells:
+            fort.designations.set(fort.local, *cell, "dig")
+        seen = set()
+        for _ in range(4):
+            for job in list(fort.jobs.jobs.values()):
+                fort.jobs.remove(job)
+            sim._scan_designations(fort, sim.MAX_DIG_JOBS)
+            seen |= {j.cell for j in fort.jobs.jobs.values()}
+        self.assertGreater(len(seen), sim.MAX_DIG_JOBS,
+                           "four scans and the same cells every time")
+
+    def test_a_dwarf_looks_past_the_ones_it_knows_it_cannot_reach(self):
+        """Twelve candidates, not the first twelve entries.
+
+        Filtering inside the window meant a dwarf that had already proved
+        twelve jobs unreachable found nothing and stood still, with work it
+        could do sitting thirteenth on the board.
+        """
+        from ascii_warriors.fortress import dwarf as dwarf_mod
+
+        fort = self._fort("window")
+        cells = self._wall(fort, 20)
+        self.assertGreaterEqual(len(cells), 20)
+        dwarf = next(d for d in fort.dwarves() if d.fort.labors.has("mining"))
+        for cell in cells:
+            fort.designations.set(fort.local, *cell, "dig")
+        sim._scan_designations(fort, 30)
+        board = fort.jobs.for_dwarf(dwarf)
+        self.assertGreater(len(board), 12, "not enough jobs to crowd it out")
+        for job in board[:12]:
+            fort.unreachable[job.cell] = fort.ticks + sim.RETRY_DELAY
+        got = dwarf_mod._claim_job(fort, dwarf)
+        self.assertIsNotNone(got, "the dwarf gave up with work on the board")
+        self.assertNotIn(got.cell, list(fort.unreachable))
+
+    def test_work_nobody_can_reach_comes_off_the_board(self):
+        """A posted job the scanner will not replace is one that sits for ever.
+
+        The designation stays painted and `fort.unreachable` remembers the
+        cell, so it comes back when the retry falls due -- but it does not go
+        on occupying one of `MAX_DIG_JOBS` in the meantime.
+        """
+        from ascii_warriors.fortress import dwarf as dwarf_mod
+
+        fort = self._fort("sealed")
+        lm = fort.local
+        # A wall with nothing walkable anywhere near it: sealed rock, ten
+        # levels down and far from the wagon.
+        cell = None
+        for z in range(lm.zmin, 0):
+            for y in range(4, lm.height - 4):
+                for x in range(4, lm.width - 4):
+                    if not fort.designations.valid(lm, x, y, z, "dig"):
+                        continue
+                    # Nowhere to stand and work it, which is exactly what
+                    # `path_to` fails on.
+                    if dwarf_mod.work_positions(lm, (x, y, z), vertical=True):
+                        continue
+                    cell = (x, y, z)
+                    break
+                if cell:
+                    break
+            if cell:
+                break
+        self.assertIsNotNone(cell, "no sealed rock on this embark")
+        fort.designations.set(lm, *cell, "dig")
+        sim._scan_designations(fort, 30)
+        self.assertTrue(fort.jobs.has_job_at("dig", cell))
+        for dwarf in fort.dwarves():
+            dwarf_mod._claim_job(fort, dwarf)
+        self.assertFalse(fort.jobs.has_job_at("dig", cell),
+                         "a job nobody can reach is still holding a slot")
+        self.assertIn(cell, fort.unreachable)
+        self.assertEqual(fort.designations.cells.get(cell), "dig",
+                         "the designation was thrown away with the job")
