@@ -34,6 +34,16 @@ PRAYER_TICKS = 300
 #: How far a dwarf will walk for a job before giving up on it.
 MAX_PATH_NODES = 6000
 
+#: Failures a dwarf has to have already had this turn, and candidates that
+#: have to be left on the board, before one flood fill is worth drawing to
+#: answer the rest. A fill costs the size of the component and so does the
+#: failure that asks for it, so it only pays where failures come in runs --
+#: which is exactly the difference between the embark that spends twelve
+#: million node expansions on a day and the one that spends seventeen
+#: thousand. On an ordinary fortress, where a search fails twenty times a day
+#: and never twice in a row, no fill is ever drawn.
+FILL_PAYS_OFF = 2
+
 
 class DwarfState:
     """Everything a dwarf has that only matters inside a fortress."""
@@ -952,27 +962,66 @@ def _claim_job(fort, dwarf) -> Optional[Job]:
     # thousand trees marked for felling and a fortnight of ale in the barrel.
     board = [job for job in fort.jobs.for_dwarf(dwarf)
              if fort.ticks >= fort.unreachable.get(job.cell, 0)]
-    for job in board[:12]:
+    # `within` is drawn the first time a search comes back with nothing, and
+    # answers every candidate after it for nothing. Until then this costs
+    # exactly what it always did: a fortress whose work is all reachable never
+    # builds one. See `Fortress.reach_from`.
+    here = (dwarf.x, dwarf.y, dwarf.z)
+    within = None
+    shortlist = board[:12]
+    misses = 0
+    for index, job in enumerate(shortlist):
         if not fort.prepare_job(dwarf, job):
             continue
+        spots = work_positions(fort.local, job.cell,
+                               vertical=vertical_reach(job))
+        if fort.local.walkable(*job.cell):
+            spots.append(job.cell)
+        if not spots:
+            # Nowhere to stand and work it. `path_to` answers this without
+            # searching at all, so there is nothing here worth drawing a map
+            # over -- and drawing one anyway is how a fortress that never
+            # fails a search ends up paying for thirty-five thousand cells.
+            _set_aside(fort, dwarf, job)
+            continue
+        if within is not None and not any(spot in within for spot in spots):
+            _set_aside(fort, dwarf, job)
+            continue
         if not path_to(fort, dwarf, job.cell, vertical=vertical_reach(job)):
-            fort.unreachable[job.cell] = fort.ticks + sim_mod.RETRY_DELAY
-            # And off the board, not just released. A job left posted is one
-            # `_scan_designations` will not replace and every dwarf will keep
-            # stepping over: the designation stays painted, `dig_out` clears
-            # the memory, and the work comes back the moment somebody opens
-            # the way to it.
-            if job.kind in sim_mod.DESIGNATION_KINDS:
-                fort.jobs.remove(job)
-            else:
-                fort.jobs.release(job)
-            fort.cancel_preparation(dwarf, job)
+            # That one cost the size of the component -- and so does a fill,
+            # so drawing one only pays if there are questions left for it to
+            # answer. With nothing behind it on the board it is pure cost, and
+            # measured on an ordinary embark that was nineteen fills a day
+            # preventing nothing at all.
+            misses += 1
+            if (within is None and misses >= FILL_PAYS_OFF
+                    and len(shortlist) - index > FILL_PAYS_OFF):
+                within = fort.reach_from(here)
+            _set_aside(fort, dwarf, job)
             continue
         fort.jobs.assign(job, dwarf)
         state.job = job
         state.idle_ticks = 0
         return job
     return None
+
+
+def _set_aside(fort, dwarf, job) -> None:
+    """Remember a job as unreachable and take it off the board.
+
+    Off the board, not just released: a job left posted is one
+    `_scan_designations` will not replace and every dwarf will keep stepping
+    over. The designation stays painted, `dig_out` clears the memory, and the
+    work comes back the moment somebody opens the way to it.
+    """
+    from . import sim as sim_mod
+
+    fort.unreachable[job.cell] = fort.ticks + sim_mod.RETRY_DELAY
+    if job.kind in sim_mod.DESIGNATION_KINDS:
+        fort.jobs.remove(job)
+    else:
+        fort.jobs.release(job)
+    fort.cancel_preparation(dwarf, job)
 
 
 def release_job(fort, dwarf) -> None:

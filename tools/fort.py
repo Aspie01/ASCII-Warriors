@@ -267,8 +267,12 @@ def play(seed: str, days: int, *, size: str = "small", history: int = 60,
         if c.body.dead and getattr(c.body, "death_cause", ""):
             causes[c.body.death_cause] += 1
     left = collections.Counter(fort.designations.cells.values())
+    spent = searches.report()
+    spent["fills"] = fort.reach_fills
+    spent["fill_cells"] = fort.reach_cells
+    spent["nodes_and_fills"] = spent["nodes_total"] + fort.reach_cells
     out.update({
-        "searches": searches.report(),
+        "searches": spent,
         "left": dict(left),
         "done": {k: painted[k] - left.get(k, 0) for k in painted},
         "idle": sum(1 for d in fort.dwarves() if d.fort.job is None),

@@ -8154,3 +8154,214 @@ class TestWhatSearchingCosts(unittest.TestCase):
         self.assertGreater(out["found"] + out["failed"], 0,
                            "the counter saw no searches at all")
         self.assertGreater(out["nodes_total"], 0)
+
+
+class TestDrawingTheMap(unittest.TestCase):
+    """One flood fill instead of a run of searches that cannot succeed.
+
+    §120 measured the asymmetry: a search that finds a route is over in a
+    couple of dozen nodes, and one that cannot has to expand the whole
+    component the dwarf is standing in before it can say no. The question
+    `_claim_job` is really asking -- *is this work somewhere I can get to* --
+    is answered for every cell at once by one fill, and everybody standing in
+    the component shares the answer.
+
+    A fill costs the size of the component too, so it only pays where failures
+    come in runs. Counting the fills as well as the searches, over one played
+    day:
+
+    | embark | before | after | fills |
+    |---|---|---|---|
+    | `f1`   |     16,980 |     16,980 |  0 |
+    | `fort` |     78,532 |     78,532 |  0 |
+    | `f2`   | 12,406,098 |  3,088,951 | 58 |
+    """
+
+    def _fort(self, seed="map"):
+        fort = embark(seed)
+        fort.designations.cells.clear()
+        fort.unreachable.clear()
+        for job in list(fort.jobs.jobs.values()):
+            fort.jobs.remove(job)
+        fort.reach_fills = 0
+        fort.reach_cells = 0
+        return fort
+
+    def _sealed(self, fort, n):
+        """Cells of rock with nowhere to stand and work them."""
+        from ascii_warriors.fortress import dwarf as dwarf_mod
+
+        lm = fort.local
+        out = []
+        # Coarse, and from the bottom up: deep rock is solid, so the first
+        # sweep finds what it needs. Walking every cell of an eighty thousand
+        # cell map and asking `work_positions` about each was a test that took
+        # five minutes.
+        for z in range(lm.zmin, lm.zmin + 3):
+            for y in range(4, lm.height - 4, 3):
+                for x in range(4, lm.width - 4, 3):
+                    if not fort.designations.valid(lm, x, y, z, "dig"):
+                        continue
+                    if dwarf_mod.work_positions(lm, (x, y, z), vertical=True):
+                        continue
+                    out.append((x, y, z))
+                    if len(out) >= n:
+                        return out
+        return out
+
+    def _walled_off(self, fort, n):
+        """Diggable cells that can be stood beside but not walked to.
+
+        A pocket of open air in the rock: `work_positions` finds somewhere to
+        stand and no route reaches it, which is the case that costs a whole
+        component to answer.
+        """
+        lm = fort.local
+        out = []
+        for z in range(lm.zmin, 0):
+            for y in range(3, lm.height - 3, 2):
+                for x in range(3, lm.width - 3, 2):
+                    if not fort.designations.valid(lm, x, y, z, "dig"):
+                        continue
+                    room = [(x + dx, y + dy, z)
+                            for dx in (-1, 0, 1) for dy in (-1, 0, 1)]
+                    if not any(lm.walkable(*c) for c in room):
+                        continue
+                    out.append((x, y, z))
+                    if len(out) >= n:
+                        return out
+        return out
+
+    def test_a_fortress_that_finds_its_work_never_draws_one(self):
+        """The embark where nothing fails must pay nothing at all."""
+        from ascii_warriors.fortress import dwarf as dwarf_mod
+
+        fort = self._fort("nofill")
+        dwarf = fort.dwarves()[0]
+        # Work right where the dwarf is standing: every search succeeds.
+        lm = fort.local
+        near = [c for c, _cost in fort.path_neighbours(
+            (dwarf.x, dwarf.y, dwarf.z))]
+        self.assertTrue(near)
+        for cell in near[:4]:
+            below = (cell[0], cell[1], cell[2] - 1)
+            if fort.designations.valid(lm, *below, "dig"):
+                fort.designations.set(lm, *below, "dig")
+        sim._scan_designations(fort, 20)
+        for _ in range(6):
+            dwarf_mod._claim_job(fort, dwarf)
+        self.assertEqual(fort.reach_fills, 0,
+                         "a map was drawn for a fortress that never failed")
+
+    def test_a_search_that_cannot_succeed_is_not_run_twelve_times(self):
+        """One fill, and the rest of the board answered from it."""
+        from ascii_warriors.engine import pathfind
+        from ascii_warriors.fortress import dwarf as dwarf_mod
+
+        fort = self._fort("runs")
+        cells = self._walled_off(fort, 12)
+        self.assertGreaterEqual(len(cells), 12, "no walled-off rock here")
+        for cell in cells:
+            fort.designations.set(fort.local, *cell, "dig")
+        sim._scan_designations(fort, 30)
+        dwarf = next(d for d in fort.dwarves() if d.fort.labors.has("mining"))
+        self.assertGreater(len(fort.jobs.for_dwarf(dwarf)), 6)
+
+        calls = [0]
+        real = pathfind.astar
+
+        def counted(*args, **kwargs):
+            calls[0] += 1
+            return real(*args, **kwargs)
+
+        dwarf_mod.astar = counted
+        try:
+            dwarf_mod._claim_job(fort, dwarf)
+        finally:
+            dwarf_mod.astar = real
+        self.assertLessEqual(fort.reach_fills, 1, "more than one fill drawn")
+        if fort.reach_fills:
+            self.assertLess(calls[0], 12,
+                            "the whole board was searched anyway")
+
+    def test_one_failure_on_its_own_does_not_pay_for_a_fill(self):
+        """A fill costs a component and so does the failure asking for it.
+
+        On an ordinary fortress a search fails twenty times a day and never
+        twice in a row, and drawing a map each time was measured at nineteen
+        fills preventing nothing at all.
+        """
+        from ascii_warriors.fortress import dwarf as dwarf_mod
+
+        fort = self._fort("lonely")
+        cells = self._walled_off(fort, 1)
+        self.assertTrue(cells, "no walled-off rock here")
+        fort.designations.set(fort.local, *cells[0], "dig")
+        sim._scan_designations(fort, 4)
+        dwarf = next(d for d in fort.dwarves() if d.fort.labors.has("mining"))
+        dwarf_mod._claim_job(fort, dwarf)
+        self.assertEqual(fort.reach_fills, 0,
+                         "a map was drawn for a single failure")
+
+    def test_a_question_that_costs_nothing_does_not_pay_for_a_fill(self):
+        """Rock with nowhere to stand beside it is refused without searching,
+        so there is nothing there for a map to save."""
+        from ascii_warriors.fortress import dwarf as dwarf_mod
+
+        fort = self._fort("free")
+        cells = self._sealed(fort, 12)
+        self.assertGreaterEqual(len(cells), 8, "no sealed rock here")
+        for cell in cells:
+            fort.designations.set(fort.local, *cell, "dig")
+        sim._scan_designations(fort, 30)
+        dwarf = next(d for d in fort.dwarves() if d.fort.labors.has("mining"))
+        dwarf_mod._claim_job(fort, dwarf)
+        self.assertEqual(fort.reach_fills, 0,
+                         "a map was drawn to answer a free question")
+
+    # There was a `test_digging_throws_the_map_away` here. `dig_out` does
+    # call `invalidate_reach`, and it should -- digging is the answer to
+    # "nobody can get there", so it cannot be the one thing that leaves the
+    # old answer standing. But taking the call out again did not make the
+    # test fail, and a guard that cannot fail is worse than no guard at all
+    # (§115.4, §117.5, §118.6). Whatever else clears the map on that path was
+    # not worth another afternoon to find; the invalidation stays, and this
+    # note stands in for the guard that would have pinned it.
+
+    def test_water_going_down_throws_it_away_and_rising_does_not(self):
+        """Rising water can only close a way, and a map that says reachable
+        when it is not hands the question back to A*, which answers it. Water
+        receding opens one, and that direction has to be believed."""
+        fort = self._fort("tide")
+        dwarf = fort.dwarves()[0]
+        here = (dwarf.x, dwarf.y, dwarf.z)
+        fort.reach_from(here)
+        self.assertTrue(fort._reach)
+        before = fort.deep_cells()
+        fort.water.depth[(1, 1, 0)] = 7
+        fort.reach_from(here)
+        self.assertGreater(fort.deep_cells(), before)
+        self.assertTrue(fort._reach, "a rising puddle threw the map away")
+        del fort.water.depth[(1, 1, 0)]
+        fort.reach_from(here)
+        self.assertEqual(fort.reach_fills, 2,
+                         "the map was not redrawn when the water went down")
+
+    def test_nobody_refuses_work_the_map_says_they_can_reach(self):
+        """The fill and `path_to` have to agree, or a dwarf turns down a job
+        it could have walked to."""
+        from ascii_warriors.fortress import dwarf as dwarf_mod
+
+        fort = self._fort("agree")
+        dwarf = fort.dwarves()[0]
+        here = (dwarf.x, dwarf.y, dwarf.z)
+        within = fort.reach_from(here)
+        checked = 0
+        for cell in sorted(within)[:40]:
+            if cell == here:
+                continue
+            self.assertTrue(
+                dwarf_mod.path_to(fort, dwarf, cell, adjacent=False),
+                "the map says %s is reachable and no route was found" % (cell,))
+            checked += 1
+        self.assertGreater(checked, 20, "the component was tiny")

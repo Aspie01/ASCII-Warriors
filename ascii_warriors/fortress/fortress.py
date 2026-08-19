@@ -68,6 +68,14 @@ class Fortress:
         #: Where the designation scanner got to last time. Transient: a save
         #: that reloads at zero simply starts the round again.
         self.designation_cursor = 0
+        #: cell -> every cell walkable from it. One entry per member of a
+        #: component, all pointing at the same set. Transient: rebuilt on
+        #: demand, and only ever on demand.
+        self._reach: Dict[Cell, Set[Cell]] = {}
+        self._reach_deep: Optional[int] = None
+        #: How many fills have been drawn and what they cost, for the driver.
+        self.reach_fills = 0
+        self.reach_cells = 0
         self.jobs = JobBoard()
         self.buildings: List[Building] = []
         self.stockpiles: List[Stockpile] = []
@@ -701,6 +709,74 @@ class Fortress:
         """Forget the cached water map after the terrain changes."""
         self._water_cache = None
 
+    def reach_from(self, cell: Cell) -> Set[Cell]:
+        """Every cell walkable from *cell*, as one flood fill, cached.
+
+        The question `_claim_job` actually asks is "is this work somewhere I
+        can get to", and A* answers it by expanding the whole component and
+        then saying no -- so the price of *no* is the size of the fortress,
+        paid once per candidate job per dwarf per step. Measured over a played
+        day (§120): three thousand and sixty-six failures at four thousand and
+        forty-five nodes each, twelve million node expansions, against
+        seventeen thousand on the embark beside it.
+
+        One fill answers it for every cell at once and everybody standing in
+        the component shares the answer. It is only ever built when a search
+        has already failed, so a fortress whose work is all reachable never
+        pays for one.
+
+        Thrown away when the shape of the fortress changes: `dig_out` for the
+        rock, and the set of cells too deep to wade for the water, which moves
+        without going through `dig_out` and closes corridors when it does.
+        """
+        # Only when the water *recedes*. Rising water can only close a way
+        # through, and a map that says reachable when it is not just hands the
+        # question back to A*, which answers it correctly and pays once.
+        # Receding water opens one, and a map that says unreachable when it is
+        # not would refuse the work until somebody dug -- so that direction
+        # throws the map away. Redrawing on every ripple is what made this
+        # cost more than it saved on an ordinary embark.
+        deep = self.deep_cells()
+        if self._reach_deep is None or deep < self._reach_deep:
+            self._reach = {}
+        self._reach_deep = deep
+        hit = self._reach.get(cell)
+        if hit is not None:
+            return hit
+        seen = {cell}
+        stack = [cell]
+        while stack:
+            node = stack.pop()
+            for nxt, _cost in self.path_neighbours(node):
+                if nxt not in seen:
+                    seen.add(nxt)
+                    stack.append(nxt)
+        # Counted, because a saving that moves work somewhere nobody is
+        # measuring is not a saving. `tools/fort` reports both.
+        self.reach_fills += 1
+        self.reach_cells += len(seen)
+        for member in seen:
+            self._reach[member] = seen
+        return seen
+
+    def deep_cells(self) -> int:
+        """How many cells are too deep to walk through.
+
+        A cell is either shallow enough to wade or deep enough to swim, and
+        only the second kind changes where anybody can walk -- so a river
+        rising an inch is not news. The wet cells are hundreds against the
+        eighty thousand of the fortress, so counting them is cheap.
+        """
+        from ..world.fluids import SWIM_DEPTH
+
+        return (sum(1 for v in self.water.depth.values() if v >= SWIM_DEPTH)
+                + len(self.magma.depth))
+
+    def invalidate_reach(self) -> None:
+        """Forget the reachability map: the fortress changed shape."""
+        self._reach = {}
+        self._reach_deep = None
+
     def nearest_water(self, dwarf) -> Optional[Cell]:
         """The closest cell a dwarf could drink from."""
         best: Optional[Cell] = None
@@ -885,6 +961,7 @@ class Fortress:
         # the answer to "nobody can get there", so it cannot be the one thing
         # that leaves the note saying so in place.
         self.unreachable.clear()
+        self.invalidate_reach()
         if held_before or not can_hold(self.local, cell):
             # Smoothing a wall, or turning a floor into a farm plot, changes
             # nothing the water cares about. The bank still holds.

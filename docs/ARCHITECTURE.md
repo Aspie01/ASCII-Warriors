@@ -5802,7 +5802,83 @@ thing that was unknown at the start of it — *why* one embark costs ninety
 times another — is a table now, and the seven approaches that do not work are
 written down so nobody spends another afternoon on them.
 
-## 121. Style
+## 121. Drawing the map (v3.61)
+
+§120 measured the thing and could not fix it. This is the fix, and it is the
+idea that section ended on: the question `_claim_job` asks is *"is this work
+somewhere I can get to"*, and A* answers it by expanding the whole component
+and then saying no. One flood fill answers it for every cell at once, and
+everybody standing in the component shares the answer.
+
+Seven approaches were tried and measured in §120.1 and the flood fill was the
+best of them and still did not ship, because it cost more than it saved on an
+ordinary embark. What makes it work is knowing **when not to draw one**, and
+the three conditions came out of counting rather than taste.
+
+### 121.1. Counting the fill as well as the searches
+
+The first version looked like a nine-fold win and was not one: the counter in
+`tools/fort` wraps `astar`, and a fill is not an A*. Moving work somewhere
+nobody is measuring is not a saving. `Fortress.reach_from` counts its own
+fills and the cells they walk, `tools/fort` reports `fills`, `fill_cells` and
+`nodes_and_fills`, and every number below is the honest total.
+
+With the fill counted, the first version came out **three times worse** on the
+embark that never fails a search at all, because one stray failure drew a map
+of thirty-five thousand cells.
+
+### 121.2. Three conditions, each from a measurement
+
+A fill costs the size of the component. So does the failure that asks for one.
+It is therefore only worth drawing when it will answer *more than one further
+question*, and the three conditions are three ways of asking that:
+
+- **The failure has to have cost something.** `path_to` returns False without
+  searching at all when the goal has nowhere to stand beside it — sealed rock.
+  Drawing a map to answer a free question is how the embark with zero failed
+  searches ended up paying for thirty-five thousand cells. Checked by asking
+  `work_positions` first.
+- **The failures have to come in a run.** An ordinary fortress fails twenty
+  searches a day and never twice in a turn; measured, that was nineteen fills
+  preventing nothing. The second failure in a turn draws the map, the first
+  does not.
+- **There has to be board left to answer.** A fill drawn on the last candidate
+  of a turn is pure cost.
+
+And the map is thrown away by `dig_out`, and by the water **receding** but not
+by it rising. That asymmetry is exact rather than a guess: rising water can
+only close a way through, and a map that says reachable when it is not just
+hands the question back to A*, which answers it correctly and pays once.
+Receding water opens one, and a map that says unreachable when it is not would
+have a dwarf refuse work it could walk to.
+
+### 121.3. What it comes to
+
+One played day, every cost counted:
+
+| embark | before | after | fills | failed searches |
+|---|---|---|---|---|
+| `f1`   |     16,980 |     16,980 |  0 |     0 → 0 |
+| `fort` |     78,532 |     78,532 |  0 |   21 → 21 |
+| `f2`   | 12,406,098 |  3,088,951 | 58 | 3,066 → 705 |
+
+**Four times less work on the embark that was ninety times the others, and not
+one node more on either of the ordinary ones.** An earlier version got `f2` to
+1.7 million — seven times — at the price of making `fort` nearly twice as
+expensive, and no regression anywhere is worth more than the extra two-fold.
+
+### 121.4. A guard that came out again
+
+`test_digging_throws_the_map_away` was written, passed, and was deleted before
+this shipped. `dig_out` does call `invalidate_reach` and should — digging is
+the answer to "nobody can get there", so it cannot be the one thing that
+leaves the old answer standing — but taking the call out again did not make
+the test fail, and this session has now found four guards that could not fail
+(§115.4, §117.5, §118.6). A guard that cannot fail is worse than no guard,
+because it reads like cover. The invalidation stays; a comment where the test
+was says what is unguarded and why.
+
+## 122. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).
