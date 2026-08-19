@@ -720,3 +720,178 @@ class TestWhatEverybodyIsCarrying(unittest.TestCase):
                         if it.def_id in table:
                             drawn.add(kind)
         self.assertEqual(sorted(drawn), sorted(_LOOT_TABLE))
+
+
+class TestWhatCannotBeKilled(unittest.TestCase):
+    """A quarter of the bestiary could not be killed at all.
+
+    `Body._check_state` ends a life three ways: blood loss, suffocation, or a
+    vital or thinking part destroyed. Ten of the eighty-one creatures in the
+    table have no blood -- the four undead, three of the things that live in
+    the caverns §117 filled, the demon, the bronze colossus and the forgotten
+    beast -- so the first rule never fired for them, the faint that precedes
+    it never fired either, and the third almost never happens.
+
+    Measured before this class was written: a starting warrior beats a wolf
+    forty times in forty in seven exchanges and loses to a zombie thirty-eight
+    times in forty, having cut the skin, fat and muscle off its torso, neck,
+    both arms and both legs -- sixty-six wounds across eighteen parts, nothing
+    destroyed, and the model with nothing to say about any of it.
+    """
+
+    @staticmethod
+    def _duel(beast, weapon="sword", material="iron", n=16, cap=200,
+              hit_back=True):
+        """Fight one creature *n* times and count how it goes."""
+        import tempfile as _tf
+
+        from ascii_warriors.game.item import make_item
+        from ascii_warriors.game.state import Game
+        from ascii_warriors.world.worldgen import generate_world
+
+        old = os.environ.get("ASCII_WARRIORS_SAVE_DIR")
+        os.environ["ASCII_WARRIORS_SAVE_DIR"] = _tf.mkdtemp()
+        try:
+            world = generate_world(RNG("duelworld").sub("w"), size="pocket",
+                                   history_years=5)
+            won = 0
+            for i in range(n):
+                r = RNG("duel-%s-%s-%d" % (beast, weapon, i))
+                game = Game.new_game(
+                    world, {"race": "human", "profession": "warrior"}, r)
+                p = game.player
+                for it in list(p.inventory.items):
+                    if it.is_weapon:
+                        p.inventory.items.remove(it)
+                w = make_item(r, weapon, material=material, tier=3)
+                p.inventory.add(w)
+                p.inventory.equip(w, "weapon")
+                foe = make_creature(r, beast, faction="hostile")
+                for _turn in range(cap):
+                    if p.body.dead or foe.body.dead:
+                        break
+                    combat.melee_attack(p, foe, rng=r)
+                    if hit_back and not foe.body.dead:
+                        combat.melee_attack(foe, p, rng=r)
+                    for c in (p, foe):
+                        c.body.tick(r, 10, c.attributes.factor("toughness"),
+                                    c.attributes.factor("recuperation"))
+                if foe.body.dead:
+                    won += 1
+            return won
+        finally:
+            if old is None:
+                os.environ.pop("ASCII_WARRIORS_SAVE_DIR", None)
+            else:
+                os.environ["ASCII_WARRIORS_SAVE_DIR"] = old
+
+    # -- the measure itself -------------------------------------------------- #
+
+    def test_a_whole_body_is_all_there(self):
+        c = make_creature(RNG("whole"), "human", equip=False)
+        self.assertEqual(c.body.structure_fraction(), 1.0)
+
+    def test_taking_a_body_apart_shows_in_the_measure(self):
+        c = make_creature(RNG("apart"), "human", equip=False)
+        before = c.body.structure_fraction()
+        torso = c.body.parts["upper_body"]
+        for tid in list(torso.tissues):
+            torso.tissues[tid] = 0.0
+        opened = c.body.structure_fraction()
+        self.assertLess(opened, before)
+
+    def test_an_arm_on_the_floor_is_not_part_of_you(self):
+        c = make_creature(RNG("arm"), "human", equip=False)
+        before = c.body.structure_fraction()
+        c.body.sever("left_arm_upper")
+        self.assertLess(c.body.structure_fraction(), before)
+
+    def test_a_broken_bone_is_worth_less_than_a_whole_one(self):
+        from ascii_warriors.game.body import BROKEN_WORTH
+
+        self.assertLess(BROKEN_WORTH, 1.0)
+        c = make_creature(RNG("break"), "human", equip=False)
+        before = c.body.structure_fraction()
+        c.body.parts["upper_body"].broken = True
+        self.assertLess(c.body.structure_fraction(), before)
+
+    # -- and what it does ---------------------------------------------------- #
+
+    def test_a_bloodless_body_stops_when_it_is_taken_apart(self):
+        from ascii_warriors.game.body import STRUCTURE_DEATH
+
+        c = make_creature(RNG("zed"), "zombie", equip=False)
+        self.assertTrue(c.body.bloodless)
+        for part in c.body.parts.values():
+            for tid in list(part.tissues):
+                part.tissues[tid] = STRUCTURE_DEATH - 0.2
+        c.body._check_state()
+        self.assertTrue(c.body.dead)
+        self.assertEqual(c.body.death_cause, "hacked apart")
+
+    def test_a_living_body_is_not_judged_on_it(self):
+        """A man with no muscle left is a man who has bled to death, and the
+        blood rule is what should say so."""
+        from ascii_warriors.game.body import STRUCTURE_DEATH
+
+        c = make_creature(RNG("live"), "human", equip=False)
+        self.assertFalse(c.body.bloodless)
+        for part in c.body.parts.values():
+            for tid in list(part.tissues):
+                part.tissues[tid] = STRUCTURE_DEATH - 0.2
+        c.body._check_state()
+        self.assertFalse(c.body.dead)
+
+    def test_a_warrior_can_kill_a_zombie(self):
+        """2 of 40 before; the wolf in the same test wins 40 of 40."""
+        self.assertGreaterEqual(self._duel("zombie"), 11)
+
+    def test_and_still_beats_a_wolf_in_the_same_breath(self):
+        """The rule is gated on having no blood, so nothing alive changed."""
+        self.assertGreaterEqual(self._duel("wolf"), 14)
+
+    def test_every_bloodless_thing_but_one_can_be_killed(self):
+        """Unopposed, with a good axe. The exception is named on purpose: a
+        bronze colossus takes zero wounds from two thousand blows of an
+        adamantine axe, because its natural armour subtracts a flat 30,000
+        kilopascals and nothing in the game swings that hard. That is a
+        different axis -- weapon force against natural armour -- and it is
+        left measured rather than half-fixed."""
+        from ascii_warriors.data import creatures as creature_data
+
+        bloodless = sorted(d.id for d in creature_data.CREATURES.values()
+                           if not d.blood)
+        self.assertIn("bronze_colossus", bloodless)
+        self.assertGreaterEqual(len(bloodless), 8)
+        for beast in ("zombie", "ghoul", "mummy", "forgotten_beast", "demon"):
+            self.assertIn(beast, bloodless)
+            self.assertGreaterEqual(
+                self._duel(beast, weapon="battle_axe", material="steel",
+                           n=6, cap=400, hit_back=False), 5,
+                "%s cannot be killed even unopposed" % beast)
+
+    # -- and a skeleton is bones ---------------------------------------------- #
+
+    def test_a_skeleton_has_no_flesh_on_it(self):
+        """Saying so with the material map -- skin made of bone, fat made of
+        bone -- gave it four layers of the toughest tissue in the game."""
+        c = make_creature(RNG("bones"), "skeleton", equip=False)
+        torso = c.body.parts["upper_body"]
+        self.assertEqual(sorted(torso.tissues), ["bone"])
+        for tid in ("skin", "fat", "muscle"):
+            self.assertIn(tid, c.body.missing)
+
+    def test_what_a_body_is_missing_survives_a_save(self):
+        from ascii_warriors.game.body import Body
+
+        c = make_creature(RNG("bonesave"), "skeleton", equip=False)
+        back = Body.from_dict(json.loads(json.dumps(c.body.to_dict())))
+        self.assertEqual(back.missing, c.body.missing)
+        self.assertEqual(sorted(back.parts["upper_body"].tissues), ["bone"])
+
+    def test_a_skeleton_comes_apart_under_an_axe(self):
+        """It is one layer of solid bone, so what it takes is a weapon that
+        chops: swords and hammers still glance off it."""
+        self.assertGreaterEqual(
+            self._duel("skeleton", weapon="battle_axe", material="steel",
+                       n=12, cap=300), 7)

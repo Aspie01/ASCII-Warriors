@@ -53,6 +53,8 @@ from ascii_warriors.world.worldgen import generate_world
 #: and measures nothing past it.
 PATCH_UP_AT = 0.85
 RUN_AWAY_AT = 0.62
+#: And the point at which you bind it whatever is standing over you.
+BIND_IT_NOW = 0.75
 
 #: Needs at which the driver stops what it is doing and sees to itself. Below
 #: the fatal thresholds by a wide margin, because a player who waits for
@@ -82,6 +84,18 @@ def _look_after(game, why) -> Optional[int]:
     cost = _staunch(game, why)
     if cost is not None:
         return cost
+    cost = _loot(game, why)
+    if cost is not None:
+        return cost
+    # Top up whenever you are standing at water, not only when parched. A
+    # waterskin holds four and the driver crossed three rivers with an empty
+    # one and died of thirst in the next desert.
+    if (actions.water_source_near(game)
+            and p.inventory.by_def("waterskin")
+            and p.inventory.count_of("water_drink")
+            < 4 * len(p.inventory.by_def("waterskin"))):
+        why["filled the skin"] += 1
+        return actions.drink(game)
     if p.needs.thirst > THIRSTY:
         cost = actions.drink(game)
         if cost > 0:
@@ -109,13 +123,18 @@ def _look_after(game, why) -> Optional[int]:
 
 
 def _staunch(game, why) -> Optional[int]:
-    """Bandage what is bleeding, when there is a moment to do it in."""
+    """Bandage what is bleeding, when there is a moment to do it in.
+
+    Or when there is not: past `BIND_IT_NOW` the bleeding is what is going to
+    kill you and the thing in front of you is not, so you spend the turn.
+    """
     from ascii_warriors.game import medical
 
     p = game.player
-    if p.body.blood_fraction() > PATCH_UP_AT:
+    blood = p.body.blood_fraction()
+    if blood > PATCH_UP_AT:
         return None
-    if _adjacent_foe(game) is not None:
+    if _adjacent_foe(game) is not None and blood > BIND_IT_NOW:
         return None
     if not medical.treatable(p):
         return None
@@ -147,6 +166,36 @@ def _run_away(game, why) -> Optional[int]:
         return None
     why["ran"] += 1
     return cost
+
+
+#: What is worth stopping to pick up off a body.
+WORTH_TAKING = ("bandage", "splint", "waterskin", "water_drink", "meat",
+                "bread", "cheese", "berries", "plump_helmet", "dwarven_ale",
+                "wine", "beer", "mead", "rum", "torch")
+
+
+def _loot(game, why) -> Optional[int]:
+    """Take what you need off what you killed.
+
+    Everybody in the world carries a bandage since v3.63 and it falls to the
+    floor when they do. The driver walked over all of it: three bandages out
+    of the starting kit, and then 95 turns in one run reporting "bleeding,
+    and nothing to bind it with" while standing on a pile of them.
+    """
+    p = game.player
+    if _adjacent_foe(game) is not None:
+        return None
+    pile = game.items_at(p.x, p.y, p.z)
+    if not pile:
+        return None
+    for it in pile:
+        if it.def_id not in WORTH_TAKING:
+            continue
+        if it.def_id == "bandage" and len(p.inventory.by_def("bandage")) >= 6:
+            continue
+        why["took what it needed"] += 1
+        return actions.pick_up(game, it)
+    return None
 
 
 def _get_out_of_the_water(game, why) -> Optional[int]:
@@ -295,21 +344,26 @@ def _beside(game, other) -> bool:
 
 
 def _travel_toward(game, wx: int, wy: int, why) -> Optional[int]:
-    """One step across the world map toward a world tile."""
+    """One step along a route across the world map.
+
+    The route rather than the bearing. Walking greedily at the goal and
+    trying four neighbours when that failed left the driver hemmed in by a
+    coastline for 3999 turns out of 4000, three runs in ten. `route_overland`
+    is what the travel screen has always drawn for the player.
+    """
     p = game.player
     if (p.wx, p.wy) == (wx, wy):
         return None
-    dx, dy = geometry.normalize_dir(wx - p.wx, wy - p.wy)
     if not game.can_travel():
         why["could not set out"] += 1
         return None
-    if not game.travel_step(dx, dy):
-        # Water, or the edge of the world. Try going round it.
-        for adx, ady in ((dx, 0), (0, dy), (dy, dx), (-dy, -dx)):
-            if (adx, ady) != (0, 0) and game.travel_step(adx, ady):
-                why["went round"] += 1
-                return 0
-        why["hemmed in"] += 1
+    route = game.route_overland(wx, wy)
+    if len(route) < 2:
+        why["no way there overland"] += 1
+        return None
+    step = route[1]
+    if not game.travel_step(step[0] - p.wx, step[1] - p.wy):
+        why["the road was shut"] += 1
         return None
     why["travelled"] += 1
     _check_arrival(game, why)

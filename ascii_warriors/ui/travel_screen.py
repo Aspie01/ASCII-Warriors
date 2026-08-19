@@ -5,9 +5,8 @@ from __future__ import annotations
 from typing import List, Tuple
 
 from ..data import biomes as biome_data
-from ..engine import colors, geometry, keys
+from ..engine import colors, keys
 from ..engine.colors import Color
-from ..engine.pathfind import astar
 from ..engine.screen import Screen
 from ..engine.widgets import key_hint
 from .app import Scene
@@ -208,18 +207,7 @@ class TravelScene(Scene):
             self.message = "You cannot travel onto open water."
             return
 
-        def neighbours(node):
-            x, y = node
-            for nx, ny in world.neighbours(x, y):
-                if world.tile(nx, ny).is_ocean:
-                    continue
-                yield ((nx, ny), world.travel_cost(nx, ny))
-
-        path = astar(
-            (game.player.wx, game.player.wy), (tx, ty), neighbours,
-            lambda a, b: geometry.chebyshev(a[0], a[1], b[0], b[1]),
-            max_nodes=40000,
-        )
+        path = game.route_overland(tx, ty)
         if not path:
             self.message = "You cannot find a way there."
             return

@@ -30,10 +30,19 @@ TISSUE_OVERRIDES: Dict[str, Dict[str, str]] = {
         "eye": "bronze", "tooth": "bronze", "nail": "bronze", "hair": "bronze",
     },
     "skeleton": {
-        "skin": "bone", "fat": "bone", "muscle": "bone", "nerve": "bone",
-        "brain": "bone", "heart": "bone", "lung": "bone", "gut": "bone",
-        "liver": "bone", "eye": "bone", "cartilage": "bone",
+        "nerve": "bone", "brain": "bone", "heart": "bone", "lung": "bone",
+        "gut": "bone", "liver": "bone", "eye": "bone", "cartilage": "bone",
     },
+}
+
+#: Tissue layers a creature simply does not have. A skeleton is bones with
+#: nothing on them, and saying so with the material map instead -- skin made
+#: of bone, fat made of bone, muscle made of bone -- gave it four layers of
+#: the toughest tissue in the game to chew through. It was tougher than a
+#: living man: a dwarf with a steel warhammer lost to one forty times in
+#: forty, over a hundred and thirty exchanges.
+TISSUE_MISSING: Dict[str, Tuple[str, ...]] = {
+    "skeleton": ("skin", "fat", "muscle", "hair", "nail"),
 }
 
 
@@ -75,7 +84,9 @@ class Creature:
         self.wx = 0
         self.wy = 0
 
-        self.body = Body(defn.body_plan, defn.size, TISSUE_OVERRIDES.get(def_id))
+        self.body = Body(defn.body_plan, defn.size,
+                         TISSUE_OVERRIDES.get(def_id),
+                         TISSUE_MISSING.get(def_id, ()))
         if not defn.blood:
             self.body.bloodless = True
         self.attributes = roll_attributes(rng, defn.attributes)

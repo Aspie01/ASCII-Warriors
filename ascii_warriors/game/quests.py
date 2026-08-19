@@ -310,6 +310,13 @@ def generate_quest(rng: RNG, game, giver) -> Optional[Quest]:
             continue
         if (q.kind, q.site_id, q.target_hf) in taken:
             continue
+        # Somewhere you can walk to. A fifth of the sites in a measured world
+        # -- sixteen of sixty-one, ten of its forty-five settlements -- are
+        # across open water with no route to them at all, and every builder
+        # here was free to name one. Asked once, in the one place that hands
+        # work out, rather than five times in five builders.
+        if not game.route_overland(q.wx, q.wy):
+            continue
         q.giver_name = giver.display_name()
         q.giver_hf = giver.hf_id
         home = game.current_site()

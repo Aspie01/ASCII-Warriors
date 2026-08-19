@@ -1306,6 +1306,36 @@ class Game:
         self.player.add_exp("navigation", 6)
         return True
 
+    def route_overland(self, tx: int, ty: int) -> List[Tuple[int, int]]:
+        """A walkable route across the world map, or an empty list.
+
+        The travel screen has drawn this since it was written and kept it to
+        itself, so anything else that wanted to cross the world walked
+        greedily toward the goal and stopped at the first bay. Measured on
+        the driver that plays the game: three runs in ten spent every one of
+        four thousand turns unable to take a step, hemmed in by a coastline
+        four tiles wide.
+        """
+        from ..engine import geometry as geo
+        from ..engine.pathfind import astar
+
+        world = self.world
+        if not world.in_bounds(tx, ty) or world.tile(tx, ty).is_ocean:
+            return []
+
+        def neighbours(node):
+            x, y = node
+            for nx, ny in world.neighbours(x, y):
+                if world.tile(nx, ny).is_ocean:
+                    continue
+                yield ((nx, ny), world.travel_cost(nx, ny))
+
+        return astar(
+            (self.player.wx, self.player.wy), (tx, ty), neighbours,
+            lambda a, b: geo.chebyshev(a[0], a[1], b[0], b[1]),
+            max_nodes=40000,
+        ) or []
+
     def can_travel(self) -> bool:
         """True if the player may enter world-map travel right now."""
         for c in self.visible_creatures():

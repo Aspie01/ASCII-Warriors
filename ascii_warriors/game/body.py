@@ -8,7 +8,7 @@ on a specific part and works through its tissue layers in order.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Mapping, Optional
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from ..data import bodies as body_data
 from ..data import materials as mat_data
@@ -21,6 +21,12 @@ from .contact import bite, organ_chance, spread
 
 #: Blood volume as a fraction of body volume, in litres per cm^3.
 BLOOD_PER_VOLUME = 0.00007
+#: What is left of a bloodless body when it stops. See `structure_fraction`.
+STRUCTURE_DEATH = 0.70
+
+#: What a part with a broken bone in it is still worth structurally.
+BROKEN_WORTH = 0.35
+
 #: Below this fraction of blood a creature falls unconscious.
 BLOOD_FAINT = 0.45
 #: Below this fraction of blood a creature dies.
@@ -189,17 +195,26 @@ class Body:
         plan_id: str,
         size: int,
         materials: Optional[Mapping[str, str]] = None,
+        missing: Sequence[str] = (),
     ) -> None:
         self.plan_id = plan_id
         self.size = max(1, size)
         self.materials: Dict[str, str] = dict(materials or {})
+        #: Tissue layers this creature simply does not have. A skeleton is
+        #: bones with nothing on them; giving it skin, fat and muscle made of
+        #: bone made it four layers of the toughest tissue in the game, and a
+        #: dwarf with a steel warhammer lost to one forty times in forty.
+        self.missing: Tuple[str, ...] = tuple(missing)
         parts_def = body_data.build_plan(plan_id)
         total_rel = sum(p.rel_size for p in parts_def) or 1
         self.parts: Dict[str, PartState] = {}
         self.order: List[str] = []
         for pdef in parts_def:
             part_size = max(1, int(self.size * pdef.rel_size / total_rel))
-            self.parts[pdef.id] = PartState(pdef, part_size)
+            part = PartState(pdef, part_size)
+            for tid in self.missing:
+                part.tissues.pop(tid, None)
+            self.parts[pdef.id] = part
             self.order.append(pdef.id)
 
         self.max_blood = max(0.5, self.size * BLOOD_PER_VOLUME)
@@ -313,6 +328,31 @@ class Body:
     def pain_level(self) -> float:
         """Current pain relative to tolerance, 0..1+."""
         return self.pain / self.pain_tolerance()
+
+    def structure_fraction(self) -> float:
+        """How much of this body still holds together, 0..1.
+
+        Averaged over each part's tissue layers and weighted by part size, so
+        a torso opened up counts for more than a finger, and a broken bone
+        counts for most of what the part was worth: a thing held together by
+        its skeleton is not held together by a snapped one.
+
+        Only bloodless bodies are judged on this. Everything else in the game
+        dies of blood loss long before it comes apart, which is exactly why
+        this had to be written.
+        """
+        total = left = 0.0
+        for part in self.parts.values():
+            total += part.size
+            if part.gone or part.destroyed:
+                continue
+            share = 1.0
+            if part.tissues:
+                share = sum(part.tissues.values()) / len(part.tissues)
+            if part.broken:
+                share *= BROKEN_WORTH
+            left += part.size * share
+        return left / total if total > 0 else 1.0
 
     def blood_fraction(self) -> float:
         """Remaining blood as a fraction of full."""
@@ -509,6 +549,19 @@ class Body:
         frac = self.blood_fraction()
         if frac <= BLOOD_DEATH:
             self._die("bled to death")
+            return
+        # A thing with no blood cannot bleed out and does not faint, so the
+        # two rules that end nearly every fight in this game never applied to
+        # it. Ten of the eighty-one creatures in the table are bloodless --
+        # the four undead, three of the things that live in the caverns, the
+        # demon, the bronze colossus and the forgotten beast -- and in
+        # practice none of them could be killed at all. Measured: a starting
+        # warrior beats a wolf forty times in forty in seven exchanges and
+        # loses to a zombie thirty-eight times in forty, having cut the skin,
+        # fat and muscle off its torso, neck, both arms and both legs on the
+        # way. What stops one is being taken apart.
+        if self.bloodless and self.structure_fraction() <= STRUCTURE_DEATH:
+            self._die("hacked apart")
             return
         if not self.can_breathe():
             self._die("suffocated")
@@ -728,6 +781,7 @@ class Body:
             "dead": self.dead,
             "cause": self.death_cause,
             "bloodless": self.bloodless,
+            "missing": list(self.missing),
             "warned": self._blood_warned,
         }
 
@@ -749,6 +803,7 @@ class Body:
         b.dead = bool(d.get("dead", False))
         b.death_cause = str(d.get("cause", ""))
         b.bloodless = bool(d.get("bloodless", False))
+        b.missing = tuple(str(t) for t in d.get("missing", ()))
         b._blood_warned = float(d.get("warned", 1.0))
         return b
 

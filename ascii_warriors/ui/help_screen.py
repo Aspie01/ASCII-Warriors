@@ -815,6 +815,14 @@ is severed, or when it bleeds out. That last one is the most common. A deep cut
 to a limb will kill a goblin in a minute or two of fighting even if you never
 land another blow.
 
+Unless it has no blood in it. The undead, the things in the deep caverns, the
+demon and the forgotten beast do not bleed and do not faint, so none of that
+touches them: you stop one by taking it apart, and it stays up until enough of
+it is cut away or broken. Bring the right weapon. A skeleton is bones with
+nothing on them, and bone shears far more easily than it crushes -- a battle
+axe takes one apart, a hammer rings off it. A zombie still has flesh on it, and
+a hammer flattens it.
+
 Armour subtracts from the force of a blow according to its material and its
 thickness -- and according to how widely the blow arrived. Armour works by
 spreading a strike over more of itself than the strike landed on, so the more

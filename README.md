@@ -549,6 +549,14 @@ Aim at a specific body part if you want a leg broken.
 A bronze colossus is made of bronze all the way through, and your iron sword will
 not do anything to it at all.
 
+**What has no blood in it.** A quarter of the bestiary — the undead, the things
+in the deep caverns, the demon and the forgotten beast — cannot bleed, so
+bleeding is not how you stop one. You stop it by taking it apart: cut and break
+enough of it and it comes down. That makes the weapon matter more than usual.
+A skeleton is bones with nothing on them, and bone shears far more easily than
+it crushes, so a battle axe takes one apart where a warhammer rings off it and
+a sword mostly glances. A zombie still has flesh, and a hammer flattens it.
+
 **Characters.** Nineteen attributes on a 0–5000 scale with DF's descriptive
 ladder ("unbelievably strong", "abysmally clumsy"). Sixty-odd skills that improve
 by use, from Dabbling to Legendary+5. Thirty personality facets and twenty

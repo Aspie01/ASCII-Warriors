@@ -6376,7 +6376,148 @@ nothing. That is a bot that hunts badly, not a game that cannot be played, and
 pretending otherwise with a failing invariant would make the driver useless as
 a check. Making it hunt is the next thing to do to it.
 
-## 125. Style
+## 125. The things that could not be killed (v3.65)
+
+§124 left the driver taking work and finishing none of it, and said the next
+thing to do was make it hunt. It turned out not to be a hunting problem. The
+driver took a bounty for three zombies, walked to where they were, swung at
+one twenty-nine times, and bled to death without killing it.
+
+`Body._check_state` ends a life three ways:
+
+```python
+if frac <= BLOOD_DEATH:            self._die("bled to death")
+if not self.can_breathe():         self._die("suffocated")
+if part.destroyed and VITAL/THOUGHT: self._die("%s destroyed")
+```
+
+**Ten of the eighty-one creatures in the table have no blood.** The four
+undead; the cave spider, the giant cave spider and the giant desert scorpion,
+which is to say three of the things §117 put in the caverns; the demon; the
+bronze colossus; and the forgotten beast. For every one of them the first rule
+could never fire, the faint that precedes it could never fire, and the third
+needs a blow to reach a heart or a brain, which almost never happens.
+
+They were, in practice, unkillable. Measured, forty duels each:
+
+| | wins | exchanges |
+|---|---|---|
+| starting warrior vs wolf | **40 / 40** | 7 |
+| starting warrior vs goblin | 36 / 40 | 7 |
+| starting warrior vs zombie | **2 / 40** | 55 |
+| starting warrior vs skeleton | 2 / 40 | 111 |
+| starting warrior vs mummy | **0 / 40** | 16 |
+| dwarf with a steel warhammer vs skeleton | **0 / 40** | 135 |
+
+Taking a zombie apart and looking at what was left after forty-eight
+exchanges: **sixty-six wounds across eighteen parts, nothing destroyed**, the
+skin, fat and muscle cut off its torso, neck, both arms and both legs, and the
+model with nothing to say about any of it. `blood_fraction` reads 1.00 for a
+body that does not bleed, so the rule that ends nearly every fight in this
+game was reading a constant.
+
+### 125.1. What stops one is being taken apart
+
+`Body.structure_fraction` is the measure the bloodless needed, and it is built
+entirely out of bookkeeping that was already there: each part's tissue layers
+already carry a remaining fraction, and `PartState.broken` is already set when
+a blow cracks bone. Averaged per part over its layers, weighted by part size
+so a torso opened up counts for more than a finger, and a broken bone worth
+`BROKEN_WORTH` of what the part was -- a thing held together by its skeleton
+is not held together by a snapped one.
+
+```python
+if self.bloodless and self.structure_fraction() <= STRUCTURE_DEATH:
+    self._die("hacked apart")
+```
+
+Gated on `bloodless`, so nothing alive changed: a man with no muscle left is a
+man who has bled to death, and the blood rule is what should say so. The wolf
+and the goblin duels come out identical to the digit.
+
+### 125.2. A skeleton is bones with nothing on them
+
+`TISSUE_OVERRIDES` mapped a skeleton's skin, fat and muscle to the material
+`bone` -- which is not "it has no flesh", it is **four layers of the toughest
+tissue in the game**. A skeleton was tougher than a living man, and a dwarf
+with a steel warhammer lost to one forty times in forty over a hundred and
+thirty-five exchanges.
+
+`Body` takes a `missing` list now, and a skeleton is missing skin, fat, muscle,
+hair and nails. Its torso reads `{'bone': 1.0}`, which is what a skeleton is.
+
+### 125.3. Where it leaves the bestiary
+
+Unopposed, with a good steel axe, blows to kill:
+
+| | before | after |
+|---|---|---|
+| ghoul | never | 14 |
+| zombie | never | 16 |
+| mummy | never | 18 |
+| forgotten beast | never | 17 |
+| demon | never | 32 |
+| cave spider | never | 52 |
+| giant cave spider | never | 483 |
+| skeleton | never | 775 |
+| giant desert scorpion | never | 782 |
+| **bronze colossus** | never | **still never** |
+
+And in a real fight, with the thing hitting back: a starting warrior now beats
+a zombie 26 times in 30 with the iron sword they set out with, and 30 in 30
+with a steel hammer or axe. A skeleton takes a chopping weapon -- 24 in 30 with
+a steel battle axe, 3 in 30 with a sword, 0 with a hammer -- which follows from
+bone shearing at 115,000 and resisting impact at 200,000, numbers this project
+took from Dwarf Fortress and has no business changing to make a fight easier.
+
+### 125.4. The colossus, measured and left
+
+A bronze colossus takes **zero wounds from two thousand blows of an adamantine
+axe** -- adamantine shears at 5,000,000 against bronze's 130,000, so this is
+not toughness, it is a wall. `combat` subtracts `natural_armor * 3000` from
+every blow and the colossus has 10 of it: a flat thirty thousand kilopascals,
+which nothing in the game swings hard enough to clear.
+
+That is a different axis -- weapon force against natural armour, which sets
+the shape of every fight in the game -- and it wants its own measurement pass
+rather than a threshold nudged at the end of this one. It is written down here
+and named in `test_every_bloodless_thing_but_one_can_be_killed`, so the
+exception is deliberate and visible rather than a gap somebody finds later.
+
+### 125.4a. And the errand it was blocking
+
+The bounty the driver was stuck on -- three zombies in the Iron Meadows,
+eleven thousand nine hundred and fifty-six turns of swinging at something that
+could not die -- **completes in 180 turns now**. That is the whole loop closed
+by playing: walk into a town, take work, cross the world to where it points,
+kill what is there, and carry it back. `explore` closes too. The other three
+kinds still end with the driver bleeding to death on the road, which is §124.6
+and is still true.
+
+### 125.5. And three things the driver needed to get there
+
+Found on the way, because a driver that cannot reach the job cannot report on
+it.
+
+**It had no map.** `tools/play` walked greedily at its destination and tried
+four neighbouring squares when a step failed. Three runs in ten spent **every
+one of four thousand turns hemmed in**, stopped by a coastline four tiles
+wide. The travel screen has drawn a proper route since it was written and kept
+it to itself; `Game.route_overland` is that A* moved down into the game, and
+the screen and the driver both ask it now.
+
+**It crossed rivers with an empty waterskin.** It drank when parched and
+never otherwise, so it walked past water with a half-full skin and died of
+thirst in the next desert twice in ten runs. It tops up at every source now,
+which is what the skin is for.
+
+**It walked over what it needed.** Everybody in the world carries a bandage
+since §123 and it falls to the floor when they do; the driver had three from
+its own kit and then spent ninety-five turns in one run reporting *"bleeding,
+and nothing to bind it with"*. It picks up bandages, food and drink off what
+it kills.
+
+## 126. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

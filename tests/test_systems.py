@@ -3180,7 +3180,66 @@ class TestPlayingTheAdventure(GameFixture):
         cost = play._look_after(self.game, why)
         self.assertIsNotNone(cost, "it ignored a parched character")
         self.assertEqual(p.needs.thirst, 0)
-        self.assertEqual(why["drank"], 1)
+        # Either counter is the same act: standing at water it fills the skin
+        # as well, which is what it is for, and drinking from the source is
+        # what sets the thirst to nothing.
+        self.assertEqual(why["drank"] + why["filled the skin"], 1)
+
+    def test_it_fills_the_skin_at_the_water_rather_than_at_the_next_desert(self):
+        """It drank when parched and never otherwise, so it walked past three
+        rivers with a half-full skin and died of thirst twice in ten runs."""
+        from tools import play
+
+        why = collections.Counter()
+        p = self.game.player
+        self.game.local.set_tile(p.x + 1, p.y, p.z, "shallow_water")
+        p.needs.thirst = 0
+        for it in list(p.inventory.items):
+            if it.def_id == "water_drink":
+                p.inventory.items.remove(it)
+        self.assertTrue(p.inventory.by_def("waterskin"))
+        self.assertIsNotNone(play._look_after(self.game, why))
+        self.assertEqual(why["filled the skin"], 1)
+        self.assertGreater(p.inventory.count_of("water_drink"), 0)
+
+    def test_it_takes_the_bandage_off_what_it_killed(self):
+        """Everybody in the world carries one since v3.63 and it falls to the
+        floor when they do; the driver walked over all of it and spent 95
+        turns in one run with nothing to bind a wound with."""
+        from ascii_warriors.game.item import Item
+        from tools import play
+
+        why = collections.Counter()
+        game, p = self.game, self.game.player
+        for c in list(game.creatures.values()):
+            if not c.is_player:
+                game.remove_creature(c)
+        for it in list(p.inventory.items):
+            if it.def_id == "bandage":
+                p.inventory.items.remove(it)
+        game.drop_item(Item("bandage", "pig_tail_cloth"), p.x, p.y, p.z)
+        self.assertIsNotNone(play._loot(game, why))
+        self.assertEqual(why["took what it needed"], 1)
+        self.assertTrue(p.inventory.by_def("bandage"))
+
+    def test_it_follows_the_route_rather_than_the_bearing(self):
+        """Walking greedily at the goal left it hemmed in by a coastline for
+        3999 turns out of 4000, three runs in ten."""
+        from tools import play
+
+        why = collections.Counter()
+        game, p = self.game, self.game.player
+        for c in list(game.creatures.values()):
+            if not c.is_player:
+                game.remove_creature(c)
+        town = next((s for s in self.world.sites if s.is_settlement
+                     and (s.wx, s.wy) != (p.wx, p.wy)
+                     and game.route_overland(s.wx, s.wy)), None)
+        self.assertIsNotNone(town, "nowhere to walk to")
+        wanted = game.route_overland(town.wx, town.wy)[1]
+        self.assertIsNotNone(play._travel_toward(game, town.wx, town.wy, why))
+        self.assertEqual((p.wx, p.wy), wanted)
+        self.assertEqual(why["travelled"], 1)
 
     def test_the_play_driver_runs_and_reports(self):
         """And it has to come back with numbers, not just print them."""
@@ -9572,3 +9631,102 @@ class TestTheErrand(unittest.TestCase):
         p.needs.thirst = 20000
         self.assertGreater(actions.drink(game), 0, "it refused the ale")
         self.assertLess(p.needs.thirst, 20000)
+
+
+class TestTheWayAcrossTheWorld(unittest.TestCase):
+    """`route_overland`: one place that knows how to cross a coastline.
+
+    The travel screen has drawn a route with A* since it was written and kept
+    it to itself, so the driver that plays the game walked greedily at its
+    destination and tried four neighbours when a step failed. Three runs in
+    ten spent every one of four thousand turns hemmed in by a bay.
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.mkdtemp()
+        self._old = os.environ.get("ASCII_WARRIORS_SAVE_DIR")
+        os.environ["ASCII_WARRIORS_SAVE_DIR"] = self._tmp
+        rng = RNG("overland")
+        self.world = generate_world(rng.sub("w"), size="small",
+                                    history_years=20)
+        self.game = Game.new_game(
+            self.world, {"race": "human", "profession": "warrior"}, rng)
+
+    def tearDown(self):
+        if self._old is None:
+            os.environ.pop("ASCII_WARRIORS_SAVE_DIR", None)
+        else:
+            os.environ["ASCII_WARRIORS_SAVE_DIR"] = self._old
+
+    def _reachable_towns(self):
+        return [s for s in self.world.sites if s.is_settlement
+                and self.game.route_overland(s.wx, s.wy)]
+
+    def test_it_finds_a_way_to_the_places_there_is_a_way_to(self):
+        p = self.game.player
+        towns = self._reachable_towns()[:8]
+        self.assertTrue(towns)
+        for town in towns:
+            route = self.game.route_overland(town.wx, town.wy)
+            self.assertEqual(route[0], (p.wx, p.wy))
+            self.assertEqual(route[-1], (town.wx, town.wy))
+
+    def test_and_says_so_when_there_is_not(self):
+        """Some towns are across open water. Measured on one small world: ten
+        of forty-five settlements and sixteen of sixty-one sites."""
+        far = [s for s in self.world.sites
+               if not self.game.route_overland(s.wx, s.wy)]
+        for site in far:
+            self.assertEqual(self.game.route_overland(site.wx, site.wy), [])
+
+    def test_the_route_never_crosses_open_water(self):
+        town = max(self._reachable_towns(),
+                   key=lambda s: max(abs(s.wx - self.game.player.wx),
+                                     abs(s.wy - self.game.player.wy)))
+        route = self.game.route_overland(town.wx, town.wy)
+        self.assertTrue(route)
+        for wx, wy in route:
+            self.assertFalse(self.world.tile(wx, wy).is_ocean,
+                             "the route swims through (%d, %d)" % (wx, wy))
+
+    def test_every_step_of_it_is_one_the_game_will_take(self):
+        town = self._reachable_towns()[0]
+        route = self.game.route_overland(town.wx, town.wy)
+        self.assertTrue(route)
+        for a, b in zip(route, route[1:]):
+            self.assertLessEqual(max(abs(b[0] - a[0]), abs(b[1] - a[1])), 1)
+        # And it walks: the driver's whole errand rests on this.
+        p = self.game.player
+        for _ in range(len(route) - 1):
+            nxt = self.game.route_overland(town.wx, town.wy)[1]
+            self.assertTrue(self.game.travel_step(nxt[0] - p.wx, nxt[1] - p.wy))
+        self.assertEqual((p.wx, p.wy), (town.wx, town.wy))
+
+    def test_there_is_no_route_into_the_sea(self):
+        ocean = next(((x, y) for y in range(self.world.height)
+                      for x in range(self.world.width)
+                      if self.world.tile(x, y).is_ocean), None)
+        self.assertIsNotNone(ocean, "a world with no sea in it")
+        self.assertEqual(self.game.route_overland(*ocean), [])
+
+    def test_nobody_is_sent_somewhere_they_cannot_walk_to(self):
+        """Every builder was free to name a town across the water."""
+        from ascii_warriors.game import quests as quest_mod
+
+        town = self._reachable_towns()[0]
+        self.game.enter_world_tile(town.wx, town.wy)
+        giver = next(c for c in self.game.creatures.values()
+                     if c.ai and c.ai.role in ("lord", "tavern_keeper",
+                                               "guard", "priest", "merchant"))
+        offered = 0
+        for _ in range(30):
+            self.game.quests = quest_mod.QuestLog()
+            q = quest_mod.generate_quest(self.game.rng, self.game, giver)
+            if q is None:
+                continue
+            offered += 1
+            self.assertTrue(
+                self.game.route_overland(q.wx, q.wy),
+                "%s sends you to (%d, %d), which you cannot walk to"
+                % (q.kind, q.wx, q.wy))
+        self.assertGreater(offered, 10)
