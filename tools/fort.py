@@ -160,6 +160,66 @@ def _queue_the_orders(fort) -> List[str]:
     return queued
 
 
+class _Searches:
+    """Counts what the pathfinder was asked and what it cost to answer.
+
+    Wall-clock across embarks is not a number this box can measure honestly --
+    it moves by a factor of three depending on what else is running -- but the
+    node counts do not move at all. A search that finds a route and one that
+    cannot are different in kind, not in degree, and this is how you see it.
+    """
+
+    def __init__(self) -> None:
+        self.found = 0
+        self.failed = 0
+        self.found_nodes = 0
+        self.failed_nodes = 0
+
+    def __enter__(self):
+        from ascii_warriors.engine import pathfind
+        from ascii_warriors.fortress import dwarf as dwarf_mod
+
+        self._real = pathfind.astar
+
+        def counted(start, goal, neighbours, heuristic, max_nodes=50000):
+            seen = [0]
+
+            def wrapped(node):
+                seen[0] += 1
+                return neighbours(node)
+
+            route = self._real(start, goal, wrapped, heuristic,
+                               max_nodes=max_nodes)
+            if route:
+                self.found += 1
+                self.found_nodes += seen[0]
+            else:
+                self.failed += 1
+                self.failed_nodes += seen[0]
+            return route
+
+        pathfind.astar = counted
+        dwarf_mod.astar = counted
+        self._modules = (pathfind, dwarf_mod)
+        return self
+
+    def __exit__(self, *exc):
+        pathfind, dwarf_mod = self._modules
+        pathfind.astar = self._real
+        dwarf_mod.astar = self._real
+        return False
+
+    def report(self) -> Dict[str, Any]:
+        """The two numbers that matter, and the ratio between them."""
+        return {
+            "found": self.found,
+            "failed": self.failed,
+            "nodes_per_success": self.found_nodes // max(1, self.found),
+            "nodes_per_failure": self.failed_nodes // max(1, self.failed),
+            "nodes_total": self.found_nodes + self.failed_nodes,
+        }
+
+
 def play(seed: str, days: int, *, size: str = "small", history: int = 60,
          report=None) -> Dict[str, Any]:
     """Run one fortress for *days* and return what the year did to it."""
@@ -185,6 +245,8 @@ def play(seed: str, days: int, *, size: str = "small", history: int = 60,
         "started_with": start, "days": 0, "low_food": None, "low_drink": None,
     }
     low_food, low_drink = 1 << 30, 1 << 30
+    searches = _Searches()
+    searches.__enter__()
     for day in range(days):
         sim.run(fort, STEPS_PER_DAY)
         out["days"] = day + 1
@@ -199,12 +261,14 @@ def play(seed: str, days: int, *, size: str = "small", history: int = 60,
         if not fort.dwarves():
             break
 
+    searches.__exit__()
     causes = collections.Counter()
     for c in fort.creatures.values():
         if c.body.dead and getattr(c.body, "death_cause", ""):
             causes[c.body.death_cause] += 1
     left = collections.Counter(fort.designations.cells.values())
     out.update({
+        "searches": searches.report(),
         "left": dict(left),
         "done": {k: painted[k] - left.get(k, 0) for k in painted},
         "idle": sum(1 for d in fort.dwarves() if d.fort.job is None),
@@ -238,7 +302,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if not args.quiet:
         for key in ("at", "painted", "done", "left", "built", "orders",
                     "water_cells", "aquifer", "started_with", "alive", "idle",
-                    "deaths", "food", "drink", "wealth", "beds", "days"):
+                    "deaths", "food", "drink", "wealth", "beds", "days",
+                    "searches"):
             print("  %-13s %s" % (key, out[key]))
 
     # What this driver can honestly assert is about the *job board*: a

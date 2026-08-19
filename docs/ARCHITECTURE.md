@@ -5713,7 +5713,96 @@ All four are built rather than found -- a wall the map happens to contain, a
 cell with no work position at all -- because a job-board test that hunts the
 seed for the state it needs is a job-board test that skips (§115.5).
 
-## 120. Style
+## 120. What searching costs (v3.60)
+
+§119 ended with a number handed forward: seven days of the same script cost
+twenty seconds on one embark and four hundred and thirty on another. This is
+what is under it, and — being honest about where this one got to — it is a
+measurement and a guard rather than a fix.
+
+`tools/fort` now counts what the pathfinder was asked over a played day:
+
+| embark | found | nodes each | failed | nodes each | total |
+|---|---|---|---|---|---|
+| `f1`   |  180 |  94 |     0 |     — |     16,980 |
+| `fort` |  117 |  25 |    21 | 3,596 |     78,532 |
+| `f2`   |  136 |  28 | **3,066** | **4,045** | **12,406,098** |
+
+**Seven hundred and thirty times the work for the same simulated day, and
+ninety-nine point four percent of it spent proving there is no way there.**
+
+The asymmetry is the whole of it. A* finds a route by walking towards the
+goal, so a search that succeeds is over in a couple of dozen nodes. A search
+that *fails* has to expand the entire component the dwarf is standing in
+before it can say no — four thousand and forty-five nodes, every time, because
+that is the size of the fortress on that embark. The price of "no" is the
+size of the map, and `_claim_job` asks it once per candidate job per dwarf per
+step.
+
+Wall clock is not quoted as a result anywhere here. On this box it moves by a
+factor of three with whatever else is running, which is enough to have made
+three of the attempts below look better or worse than they were. Node counts
+do not move at all.
+
+### 120.1. Seven attempts, and why each one is not in the tree
+
+| attempt | `f1` | `f2` | `fort` |
+|---|---|---|---|
+| eager flood fill, one component per dwarf | **283s** | 23s | — |
+| fill invalidated on the deep-water signature | slow | — | — |
+| A* budget scaled by distance to the goal | 25s | 64s | 3.4s |
+| fill drawn only after 8 failures, redrawn every 600 ticks | 3.5s | 95s | **16s** |
+| the same, redrawn every 2400 ticks | 3.4s | 83s | **7.1s** |
+| at most two failed searches per dwarf per turn | 3.4s | 257s | 4.3s |
+| `RETRY_DELAY` from four hours to two days | 3.4s | 273s | 4.3s |
+
+(baseline: 3.3s, 300s, 3.4s)
+
+Each one is a real idea and each one has a reason it does not ship:
+
+- **The flood fill is right and its cost is wrong.** One fill answers "can
+  anybody standing here reach there" for every cell at once, which is exactly
+  the question A* is being made to answer the expensive way. But the fill
+  costs the size of the component too — and on an open embark like `f1` the
+  component is thirty-five thousand cells, redrawn every time the water
+  crosses the wading line, which it does a hundred and fifty times a day. It
+  is ruinous precisely where it is not needed: `f1` never runs a failing
+  search at all.
+- **Capping the search by distance** refuses long routes that do exist. `f1`
+  went from zero failures to enough of them to be seven times slower.
+- **Capping failures per turn** barely moved `f2`, because its failures are
+  spread thinly across steps rather than bunched in one.
+- **Waiting longer before a retry** did nothing, and the measurement says why:
+  fifty-nine cells were set aside on `f2` over a whole day. The three thousand
+  failures are three thousand *different* cells — the round-robin scanner of
+  §119.2 walking the designation set — so a memory keyed on the cell has
+  almost nothing to remember.
+
+The shape of the real fix is visible from that last line: the question is not
+"has this cell failed before" but "is this cell in a part of the map anybody
+can get to", and the answer wants to be computed once for the map rather than
+once per cell. The flood fill is that answer; what it needs is to be
+maintained incrementally as the water moves rather than thrown away, and that
+is a bigger piece of work than a milestone that started out measuring
+something else.
+
+### 120.2. What is in the tree
+
+The measurement, made reproducible. `tools/fort` reports `found`, `failed`,
+`nodes_per_success`, `nodes_per_failure` and `nodes_total` for every run, so
+the next attempt starts from the table above rather than from a stopwatch.
+
+And a guard that pins the asymmetry itself: a search to an adjacent cell
+against a search into sealed rock, on the same embark, asserting the second
+costs at least twenty times the first. If a future change makes failure cheap,
+that test fails and the table in this section is what needs rewriting.
+
+**A milestone that ends in a measurement is not a milestone that failed.** The
+thing that was unknown at the start of it — *why* one embark costs ninety
+times another — is a table now, and the seven approaches that do not work are
+written down so nobody spends another afternoon on them.
+
+## 121. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

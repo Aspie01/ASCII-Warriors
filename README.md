@@ -840,7 +840,10 @@ a floor of rooms, marks the trees and the shrubs, puts up a still and a farm,
 queues standing orders, and watches the season turn. What it judges is the job
 board rather than the fortress's survival — whether seven dwarves live through
 a winter depends on how well the script plays, but painted work that can be
-reached has to get done however badly it plays.
+reached has to get done however badly it plays. It also reports what the
+pathfinder was asked and what it cost, which is how the difference between an
+embark that simulates a day in seventeen thousand node expansions and one that
+takes twelve million was found.
 
 The module contract lives in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 

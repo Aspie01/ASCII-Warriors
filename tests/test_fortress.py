@@ -8050,3 +8050,107 @@ class TestTheJobBoard(unittest.TestCase):
         self.assertIn(cell, fort.unreachable)
         self.assertEqual(fort.designations.cells.get(cell), "dig",
                          "the designation was thrown away with the job")
+
+
+class TestWhatSearchingCosts(unittest.TestCase):
+    """A search that finds a route, and one that cannot.
+
+    `tools/fort` reports what the pathfinder was asked over a played day, and
+    the two kinds are different in kind rather than degree:
+
+    | embark | found | nodes each | failed | nodes each | total |
+    |---|---|---|---|---|---|
+    | `f1`   |  180 |  94 |    0 |     - |     16,980 |
+    | `fort` |  117 |  25 |   21 | 3,596 |     78,532 |
+    | `f2`   |  136 |  28 | 3,066 | 4,045 | 12,406,098 |
+
+    Seven hundred and thirty times the work for the same simulated day, and
+    ninety-nine point four percent of it spent proving there is no way there.
+    A* has to expand the whole component the dwarf is standing in before it
+    can say no, so the price of the answer is the size of the fortress and it
+    is paid every single time the question is asked.
+
+    Wall clock is not measured here: on this box it moves by a factor of three
+    with what else is running. Node counts do not move at all.
+    """
+
+    def _fort(self, seed="cost"):
+        fort = embark(seed)
+        fort.designations.cells.clear()
+        fort.unreachable.clear()
+        for job in list(fort.jobs.jobs.values()):
+            fort.jobs.remove(job)
+        return fort
+
+    @staticmethod
+    def _count(fort, start, goal):
+        """Run one search and return (found, nodes expanded)."""
+        from ascii_warriors.engine.pathfind import astar
+        from ascii_warriors.fortress.dwarf import MAX_PATH_NODES, _heuristic
+
+        seen = [0]
+
+        def counted(node):
+            seen[0] += 1
+            return fort.path_neighbours(node)
+
+        route = astar(start, goal, counted, _heuristic,
+                      max_nodes=MAX_PATH_NODES)
+        return (bool(route), seen[0])
+
+    def test_finding_a_route_is_cheap_and_not_finding_one_is_not(self):
+        """The asymmetry, pinned, so a fix has something to be measured on."""
+        from ascii_warriors.fortress import dwarf as dwarf_mod
+
+        fort = self._fort("asym")
+        lm = fort.local
+        dwarf = fort.dwarves()[0]
+        start = (dwarf.x, dwarf.y, dwarf.z)
+        near = next((c for c, _cost in fort.path_neighbours(start)), None)
+        self.assertIsNotNone(near, "the dwarf is standing in a sealed box")
+        found, cheap = self._count(fort, start, near)
+        self.assertTrue(found)
+
+        # Somewhere with nowhere to stand beside it: sealed rock.
+        sealed = None
+        for z in range(lm.zmin, 0):
+            for y in range(4, lm.height - 4):
+                for x in range(4, lm.width - 4):
+                    if not lm.in_bounds(x, y, z) or lm.walkable(x, y, z):
+                        continue
+                    if dwarf_mod.work_positions(lm, (x, y, z), vertical=True):
+                        continue
+                    sealed = (x, y, z)
+                    break
+                if sealed:
+                    break
+            if sealed:
+                break
+        self.assertIsNotNone(sealed, "no sealed rock on this embark")
+        found, dear = self._count(fort, start, sealed)
+        self.assertFalse(found, "there was a way into solid rock")
+        self.assertGreater(dear, cheap * 20,
+                           "a search that fails is meant to be the expensive "
+                           "one -- if this has stopped being true the "
+                           "measurement above is out of date")
+        self.assertGreater(dear, 500,
+                           "the failing search no longer expands a component")
+
+    def test_the_driver_reports_what_it_spent(self):
+        """`tools/fort` counts them, which is how the table above was made."""
+        from tools.fort import _Searches
+
+        from ascii_warriors.fortress import dwarf as dwarf_mod
+
+        fort = self._fort("report")
+        dwarf = fort.dwarves()[0]
+        # Somewhere across the map, so a search actually runs rather than the
+        # dwarf finding it is already standing where the work is.
+        far = (fort.local.width - 2, fort.local.height - 2, dwarf.z)
+        counter = _Searches()
+        with counter:
+            dwarf_mod.path_to(fort, dwarf, far)
+        out = counter.report()
+        self.assertGreater(out["found"] + out["failed"], 0,
+                           "the counter saw no searches at all")
+        self.assertGreater(out["nodes_total"], 0)
