@@ -546,8 +546,15 @@ a goblin's arm off in one swing if it gets through. Edged weapons cause bleeding
 blunt weapons break bones and stun. You can dodge, block with a shield and parry.
 Aim at a specific body part if you want a leg broken.
 
-A bronze colossus is made of bronze all the way through, and your iron sword will
-not do anything to it at all.
+The metal your weapon is made of decides what it can get *through*. Against a
+man it does not matter — flesh yields to anything, and no metal is better than
+another at cutting something soft — but bone, plate and a thing made of bronze
+are all questions about the edge. An iron blade will not cut a skeleton and a
+steel one will. A bronze colossus is made of bronze all the way through, and
+nothing short of adamantine will mark it. Adamantine weighs almost nothing,
+which is a real cost: it goes through armour as though it were not there and
+then arrives behind it carrying very little, so it is a light sword against a
+man and the only answer to anything hard.
 
 **What has no blood in it.** A quarter of the bestiary — the undead, the things
 in the deep caverns, the demon and the forgotten beast — cannot bleed, so

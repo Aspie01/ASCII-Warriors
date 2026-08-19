@@ -9,6 +9,10 @@ from .colors import Color
 from .screen import Frag, Markup, Screen, frag_len, frag_slice, frag_str, wrap_frags
 
 
+#: Distinguishes "no value given" from a value of `None`.
+_UNSET = object()
+
+
 class MenuItem:
     """One row in a :class:`ListMenu`."""
 
@@ -17,7 +21,7 @@ class MenuItem:
     def __init__(
         self,
         label: Markup,
-        value: Any = None,
+        value: Any = _UNSET,
         *,
         hotkey: Optional[str] = None,
         desc: Markup = "",
@@ -25,7 +29,12 @@ class MenuItem:
         group: Optional[str] = None,
     ) -> None:
         self.label = label
-        self.value = value if value is not None else frag_str(label)
+        #: A row with no value of its own stands for its own text, which is
+        #: what most menus want. Passing `None` used to get that too, so a row
+        #: that meant *nothing* -- an empty equipment slot, a heading -- came
+        #: back as the string it was drawn with, and the inventory screen
+        #: called `full_description` on "Head           (empty)" and crashed.
+        self.value = frag_str(label) if value is _UNSET else value
         self.hotkey = hotkey
         self.desc = desc
         self.enabled = enabled
@@ -124,7 +133,11 @@ class ListMenu:
         vis = self.visible_items()
         if 0 <= self.index < len(vis):
             it = vis[self.index]
-            return None if it.is_header else it
+            # A row that is switched off is not a selection either. Only
+            # headings were excluded, so a greyed-out row -- "(no saved
+            # games)", an empty armour slot -- could be highlighted and acted
+            # on, and every screen had to remember to check for itself.
+            return None if it.is_header or not it.enabled else it
         return None
 
     @property

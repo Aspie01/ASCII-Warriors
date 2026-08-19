@@ -895,3 +895,179 @@ class TestWhatCannotBeKilled(unittest.TestCase):
         self.assertGreaterEqual(
             self._duel("skeleton", weapon="battle_axe", material="steel",
                        n=12, cap=300), 7)
+
+
+class TestTheMetalInYourSword(unittest.TestCase):
+    """A weapon's material reached the calculation through its mass.
+
+    The README calls this "real material science", and every material in the
+    table carries shear and impact yields in kilopascals -- and a weapon's own
+    material was used for exactly one thing: `effective_kind` asked whether it
+    could hold an edge at all. Its yield never entered the sum. What decided a
+    blow was momentum, and momentum is mostly mass.
+
+    So a copper sword killed a goblin faster than a steel one, because copper
+    is denser; and adamantine -- which shears at five million against steel's
+    four hundred and thirty thousand, and is the point of the deepest mine in
+    the game -- was the *worst* weapon material there is, taking twice as many
+    blows as anything else, because it weighs a fortieth of what steel does.
+    """
+
+    @staticmethod
+    def _blows(weapon, material, beast, n=9, cap=400, armour_mat=""):
+        """Median blows to put something down, unopposed."""
+        import tempfile as _tf
+
+        from ascii_warriors.game.state import Game
+        from ascii_warriors.world.worldgen import generate_world
+
+        old = os.environ.get("ASCII_WARRIORS_SAVE_DIR")
+        os.environ["ASCII_WARRIORS_SAVE_DIR"] = _tf.mkdtemp()
+        try:
+            world = generate_world(RNG("metalworld").sub("w"), size="pocket",
+                                   history_years=5)
+            hits = []
+            for i in range(n):
+                r = RNG("metal-%s-%s-%s-%d" % (weapon, material, beast, i))
+                game = Game.new_game(
+                    world, {"race": "human", "profession": "warrior"}, r)
+                p = game.player
+                for it in list(p.inventory.items):
+                    if it.is_weapon:
+                        p.inventory.items.remove(it)
+                w = Item(weapon, material, quality=2)
+                p.inventory.add(w)
+                p.inventory.equip(w, "weapon")
+                foe = make_creature(r, beast, faction="hostile", equip=False)
+                if armour_mat:
+                    for piece in ("breastplate", "helm", "greaves"):
+                        foe.inventory.add(Item(piece, armour_mat, quality=2))
+                    foe.inventory.auto_equip()
+                t = 0
+                while t < cap and not foe.body.dead:
+                    combat.melee_attack(p, foe, rng=r)
+                    foe.body.tick(r, 10, 1.0, 1.0)
+                    t += 1
+                hits.append(t)
+            hits.sort()
+            return hits[len(hits) // 2]
+        finally:
+            if old is None:
+                os.environ.pop("ASCII_WARRIORS_SAVE_DIR", None)
+            else:
+                os.environ["ASCII_WARRIORS_SAVE_DIR"] = old
+
+    # -- the measure --------------------------------------------------------- #
+
+    def test_iron_is_the_anchor_and_the_rest_is_read_off_the_table(self):
+        from ascii_warriors.data import materials as mat_data
+        from ascii_warriors.game.body import (
+            KEEN_CEILING, KEEN_FLOOR, keenness,
+        )
+
+        self.assertEqual(keenness(mat_data.get("iron"), True), 1.0)
+        self.assertEqual(keenness(None, True), 1.0)
+        order = ["copper", "bronze", "iron", "steel", "adamantine"]
+        keen = [keenness(mat_data.get(m), True) for m in order]
+        self.assertEqual(keen, sorted(keen), "the table is not in order")
+        self.assertLess(keen[0], 1.0, "copper is not softer than iron")
+        self.assertGreater(keen[3], 1.0, "steel is no better than iron")
+        # Under the ceiling, which is the point of where the ceiling is: at
+        # 3.0 the hardest thing in the game came out worse than steel.
+        self.assertGreater(keen[4], 5.0, "adamantine is barely better")
+        self.assertLessEqual(keen[4], KEEN_CEILING)
+        self.assertGreaterEqual(keenness(mat_data.get("obsidian"), True),
+                                KEEN_FLOOR)
+
+    # -- and what it does ----------------------------------------------------- #
+
+    def test_the_metal_decides_whether_you_can_cut_bone(self):
+        """A skeleton is one layer of solid bone. Iron glances off it."""
+        iron = self._blows("sword", "iron", "skeleton", cap=300)
+        steel = self._blows("sword", "steel", "skeleton", cap=300)
+        adam = self._blows("sword", "adamantine", "skeleton", cap=300)
+        self.assertEqual(iron, 300, "an iron sword now cuts bone")
+        self.assertLess(steel, 300, "a steel sword still cannot")
+        self.assertLess(adam, steel, "adamantine is no better than steel")
+
+    def test_armour_asks_what_hit_it(self):
+        """Plate stopped a copper knife and an adamantine one identically."""
+        from ascii_warriors.data import materials as mat_data
+
+        foe = make_creature(RNG("plated"), "human", equip=False)
+        for piece in ("breastplate", "helm"):
+            foe.inventory.add(Item(piece, "steel", quality=2))
+        foe.inventory.auto_equip()
+        soft, _o = combat.armor_protection(
+            foe, "upper_body", "edge", edge=mat_data.get("copper"))
+        plain, _o = combat.armor_protection(
+            foe, "upper_body", "edge", edge=mat_data.get("iron"))
+        keen, _o = combat.armor_protection(
+            foe, "upper_body", "edge", edge=mat_data.get("adamantine"))
+        self.assertGreater(soft, plain, "copper defeats as much as iron")
+        self.assertLess(keen, plain, "adamantine defeats no more than iron")
+        self.assertLess(keen * 3, plain, "the metal barely counts")
+
+    def test_the_colossus_falls_to_the_one_thing_that_should_fell_it(self):
+        """§125.4 left it taking zero wounds from two thousand blows."""
+        steel = self._blows("sword", "steel", "bronze_colossus", n=5, cap=400)
+        adam = self._blows("sword", "adamantine", "bronze_colossus",
+                           n=5, cap=400)
+        self.assertEqual(steel, 400, "steel now fells a bronze colossus")
+        self.assertLess(adam, 400, "adamantine still cannot scratch it")
+
+    def test_the_metal_buys_nothing_against_flesh(self):
+        """The gate on hardness is what keeps this from being a rebalance:
+        with it off, a steel sword kills a goblin in three blows against
+        iron's seven, purely for being steel."""
+        iron = self._blows("sword", "iron", "goblin", n=13)
+        steel = self._blows("sword", "steel", "goblin", n=13)
+        self.assertGreaterEqual(
+            steel * 1.5, iron,
+            "steel is %d blows against iron's %d: the metal is deciding a "
+            "fight it has no business in" % (steel, iron))
+
+    def test_a_wolf_is_not_charged_for_having_bone_teeth(self):
+        """`attack_material` answers "bone" for a natural attack so
+        `effective_kind` can ask whether it holds an edge. Handing that to
+        the armour made every claw and bite in the world face a plate 1.6
+        times thicker than it used to."""
+        from ascii_warriors.data import materials as mat_data
+
+        def coat(seed):
+            c = make_creature(RNG(seed), "human", equip=False)
+            c.inventory.add(Item("leather_armor", "leather", quality=2))
+            c.inventory.auto_equip()
+            return c
+
+        bare, _o = combat.armor_protection(coat("a"), "upper_body", "blunt",
+                                           edge=None)
+        as_bone, _o = combat.armor_protection(coat("a"), "upper_body", "blunt",
+                                              edge=mat_data.get("bone"))
+        self.assertGreater(as_bone, bare, "bone is not softer than iron")
+
+        # And what a bite actually meets is the first of those.
+        wolf = make_creature(RNG("wolf2"), "wolf", faction="hostile")
+        attack = max((n.attack for n in wolf.defn.attacks),
+                     key=lambda a: a.penetration)
+        momentum = combat.compute_momentum(wolf, None, attack)
+        kind = combat.effective_kind(None, attack)
+        for i in range(40):
+            foe = coat("b%d" % i)
+            expected, _o = combat.armor_protection(
+                foe, "upper_body", kind, attack.contact, momentum, edge=None)
+            result = combat.melee_attack(
+                wolf, foe, attack_def=attack, target_part="upper_body",
+                rng=RNG("bite%d" % i))
+            if not result.hit:
+                continue
+            self.assertAlmostEqual(max(0.0, momentum - expected),
+                                   result.damage, places=3)
+            return
+        self.fail("the wolf never landed a bite in forty tries")
+
+    def test_an_ordinary_fight_did_not_move(self):
+        """Everything in the world carries iron, which is the anchor: a wolf
+        has to cost what a wolf cost."""
+        self.assertLessEqual(self._blows("sword", "iron", "wolf"), 8)
+        self.assertLessEqual(self._blows("sword", "iron", "goblin"), 8)

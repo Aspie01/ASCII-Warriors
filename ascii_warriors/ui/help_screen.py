@@ -834,6 +834,15 @@ spear point, a pick or a war hammer hand it a few square millimetres and go
 through. That is the whole of the weapon triangle: the edge is for the man with
 no armour, the point is for the man who has some.
 
+What your weapon is made of matters for the same reason, and only where things
+are hard. Against a man it does not show at all: flesh yields to anything.
+Against bone and plate it decides everything. An iron blade will not cut a
+skeleton and a steel one will. Copper is heavy and soft and folds on armour.
+Adamantine weighs almost nothing, which is a real cost -- it passes through
+plate as though it were not there and then arrives behind it carrying very
+little -- so it is a light sword against a man and the only thing in the world
+that will mark a bronze colossus.
+
 None of that applies to a hammer, and this is the part worth knowing. Stopping
 a cut is a question about the armour: either the edge shears it or nothing at
 all comes through, and nothing in the weapon table cuts a steel breastplate.

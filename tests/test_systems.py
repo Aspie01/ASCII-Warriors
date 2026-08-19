@@ -6639,10 +6639,17 @@ class TestContactArea(unittest.TestCase):
             return len(taken), (sum(taken) / len(taken) if taken else 0.0)
 
         axes, axe_blows = blows_to_lose("great_axe", "hack")
-        spears, _sb = blows_to_lose("spear", "stab")
+        spears, spear_blows = blows_to_lose("spear", "stab")
         self.assertGreaterEqual(axes, 10)
         self.assertLess(axe_blows, 12.0)
-        self.assertLess(spears, axes)
+        # How much faster, not how many trials got there inside thirty blows.
+        # The count saturated -- both reached twelve of twelve once a steel
+        # point could grind through the bone in the arm at all -- while the
+        # thing the contact model actually claims got *sharper*: an axe takes
+        # the arm off in four blows and a spear needs fourteen.
+        self.assertGreaterEqual(spears, 1, "a spear never gets through at all")
+        self.assertGreater(spear_blows, axe_blows * 2.0,
+                           "a spear takes an arm off as fast as an axe")
 
     # -- the choice ---------------------------------------------------------- #
 

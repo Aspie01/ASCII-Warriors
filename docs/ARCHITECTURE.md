@@ -6517,7 +6517,173 @@ its own kit and then spent ninety-five turns in one run reporting *"bleeding,
 and nothing to bind it with"*. It picks up bandages, food and drink off what
 it kills.
 
-## 126. Style
+## 126. The metal in your sword (v3.66)
+
+§125.4 left the bronze colossus taking zero wounds from two thousand blows of
+an adamantine axe, and said the reason wanted its own measurement pass rather
+than a threshold nudged at the end of that one. This is that pass, and the
+colossus turned out to be the smallest part of it.
+
+The README calls this "real material science". Every material in the table
+carries shear and impact yields in kilopascals. And a *weapon's* material was
+used for exactly one thing:
+
+```python
+def effective_kind(weapon, attack_def):
+    """Whether an attack actually cuts, given the weapon's material."""
+    if attack_def.kind != "edge":  return "blunt"
+    if not attack_material(weapon, attack_def).can_hold_edge:  return "blunt"
+    return "edge"
+```
+
+A boolean. Nowhere else. What decided a blow was momentum, and momentum is
+mostly mass:
+
+```python
+momentum += WEIGHT_MOMENTUM * mass * strength
+```
+
+So the metal in your sword mattered only through how much it weighed.
+
+### 126.1. Which points the wrong way
+
+Blows to put down an unarmoured goblin, median of fifteen, same weapon, same
+quality, different metal:
+
+| | copper | bronze | iron | steel | adamantine |
+|---|---|---|---|---|---|
+| sword | 7 | 6 | 5 | 7 | **10** |
+| battle axe | 4 | 6 | 4 | 6 | **10** |
+| warhammer | 7 | 9 | 10 | 8 | **20** |
+
+**Copper beat steel, and adamantine was the worst material in the game** --
+twice the blows of anything else. Copper is the densest metal in the table
+(8930) and adamantine the lightest (200), and that is the whole explanation.
+The hardest substance in the world, shearing at five million against steel's
+four hundred and thirty thousand, the point of the deepest mine in the game,
+made the worst weapons in it.
+
+That table also says something else worth knowing: against *flesh*, nothing
+distinguishes the metals, because `hurt` is clamped at 1.0 and skin yields at
+20,000. Any metal is already at the cap. The metal is supposed to matter where
+things are hard -- bone, plate, a thing made of bronze -- and that is where the
+measurement had to be taken.
+
+### 126.2. What the edge is worth
+
+`body.keenness` is one function, anchored on iron because iron is what the
+game is balanced around and what almost everybody in the world carries:
+
+```python
+keen = clamp((edge.shear_yield / iron.shear_yield) ** 0.5, 0.6, 6.0)
+```
+
+Square-rooted because the raw ratio spans a factor of forty; floored so a
+wooden club is not useless; and the ceiling at 6.0 rather than 3.0 because at
+3.0 adamantine came out *still worse than steel* -- it is thirty-nine times
+lighter, and the ceiling has to let the data say what the data says.
+
+It is asked in two places, and both of them were missing it:
+
+- `Body.apply_damage` divides a tissue layer's resistance by it -- **but only
+  for a layer that is hard**. Skin shears at 20,000 and muscle at 30,000
+  against bone's 115,000, and no metal is better than any other at cutting
+  something soft. That threshold is the difference between a fix and a
+  rebalance: scaling every layer flattened the weapon triangle, because a
+  spear's narrow bite is not at the damage cap and lifting it pushed a spear
+  over a threshold that belongs to an axe. Measured with the flat version, an
+  axe and a spear both took an arm off in twelve trials of twelve.
+- `combat.armor_protection` divides what armour absorbs by it, because a
+  blade much harder than the plate defeats more of the plate. Nothing here
+  asked before: armour stopped a copper knife and an adamantine one
+  identically, which is the whole reason the colossus could not be scratched.
+
+### 126.3. Where it leaves things
+
+Blows to put something down, median of thirteen, 500 the cap:
+
+| target | copper | bronze | iron | steel | adamantine |
+|---|---|---|---|---|---|
+| skeleton (sword) | never | never | never | **47** | **21** |
+| skeleton (axe) | 111 | 36 | 33 | **18** | 22 |
+| **bronze colossus (sword)** | never | never | never | never | **282** |
+| man in steel plate (sword) | 11 | 13 | 14 | 13 | 21 |
+
+An iron blade cannot cut bone and a steel one can. A bronze colossus falls to
+adamantine and to nothing else. Both are what the numbers in the material
+table have said all along.
+
+The last row is the model saying something it could not say before and is
+worth reading twice: an adamantine sword is *slower* against an armoured man
+than an iron one. It goes through the plate as though it were not there --
+that is what dividing the absorption by 5.7 does -- and then arrives at the
+flesh behind it carrying a fifth of the momentum, because it weighs a
+fortieth of what steel does and flesh does not care how sharp you are. The
+legendary metal is for what is hard. Against a man it is a light sword.
+
+And the ordinary fight did not move at all, which is what anchoring on iron
+and gating on hardness were both for:
+
+| | v3.65 | v3.66 |
+|---|---|---|
+| warrior vs wolf | 40 / 0 | 40 / 0 |
+| warrior vs goblin | 36 / 4 | 37 / 3 |
+| warrior vs zombie | 32 / 8 | 32 / 8 |
+| warrior vs skeleton | 2 / 37 | 2 / 37 |
+| warrior vs mummy | 1 / 39 | 1 / 39 |
+| hammerdwarf vs skeleton | 0 / 38 | 0 / 38 |
+
+Everything in the world carries iron, and iron is 1.0.
+
+### 126.4. One thing left named
+
+The ranged path already carried its own material term, two dozen lines above
+where the armour is subtracted:
+
+```python
+momentum *= 1.0 + ammo.mat.shear_yield / 400000.0
+```
+
+That is the same idea as `keenness` written a second way, and it predates it.
+Passing both would count the metal twice, so the arrow keeps the older one and
+the call site says why. Which of the two should go is a question about
+archery's balance rather than about material science, and it is left named
+rather than half-changed.
+
+### 126.5. And what the fuzzer found while checking it
+
+Moving the dice moved the fuzzer's key sequences, and adventure seed 23
+crashed on frame 1088:
+
+```
+AttributeError: 'str' object has no attribute 'full_description'
+```
+
+The inventory screen had highlighted an empty armour slot and asked the string
+`"Head           (empty)"` to describe itself. Two defects in the shared widget
+layer, both general, both there since it was written:
+
+```python
+self.value = value if value is not None else frag_str(label)
+```
+
+**A row could not mean nothing.** Standing for its own text is the right
+default and most menus want it -- but passing `None` explicitly got it too, so
+every row that meant *nothing* (an empty slot, a heading, "(no saved games)")
+came back as the string it was drawn with. A sentinel separates "no value
+given" from "a value of None".
+
+**And a row that was switched off was still a selection.** `ListMenu.selected`
+excluded headings and not disabled rows, so a greyed-out row could be
+highlighted and acted on, and every screen had to remember to check for
+itself. Now it cannot be selected at all.
+
+Either fix alone stops the crash, which is why the test that reproduces it
+only fails with both reverted -- and it is worth having anyway, because what
+it asserts is the thing the player cares about: walking the cursor down every
+row of the equipment screen does not end the game.
+
+## 127. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

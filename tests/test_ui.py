@@ -382,3 +382,70 @@ class TestTheDoorBackIntoAWorld(UITestBase):
 
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
+
+
+class TestARowThatMeansNothing(unittest.TestCase):
+    """A `MenuItem` given no value stands for its own text, which is what
+    most menus want -- and passing `None` got that too, so a row that meant
+    *nothing* came back as the string it was drawn with.
+
+    Found by fuzz seed 23: the inventory screen highlighted an empty armour
+    slot and called `full_description` on the string "Head (empty)".
+    """
+
+    def test_a_row_with_no_value_stands_for_its_own_text(self):
+        from ascii_warriors.engine.widgets import MenuItem
+
+        self.assertEqual(MenuItem("Onwards").value, "Onwards")
+
+    def test_a_row_given_nothing_means_nothing(self):
+        from ascii_warriors.engine.widgets import MenuItem
+
+        self.assertIsNone(MenuItem("Head  (empty)", None).value)
+
+    def test_a_row_that_is_switched_off_is_not_a_selection(self):
+        from ascii_warriors.engine.widgets import ListMenu, MenuItem
+
+        menu = ListMenu([
+            MenuItem("(no saved games)", None, enabled=False),
+            MenuItem("A real one", "real"),
+        ])
+        menu.index = 0
+        self.assertIsNone(menu.selected)
+        self.assertIsNone(menu.selected_value)
+        menu.index = 1
+        self.assertEqual(menu.selected_value, "real")
+
+    def test_the_inventory_screen_survives_an_empty_slot(self):
+        import os
+        import tempfile
+
+        from ascii_warriors.engine.terminal import HeadlessTerminal
+        from ascii_warriors.game.state import Game
+        from ascii_warriors.ui.app import App
+        from ascii_warriors.ui.inventory_screen import InventoryScene
+        from ascii_warriors.world.worldgen import generate_world
+
+        old = os.environ.get("ASCII_WARRIORS_SAVE_DIR")
+        os.environ["ASCII_WARRIORS_SAVE_DIR"] = tempfile.mkdtemp()
+        try:
+            rng = RNG("emptyslot")
+            world = generate_world(rng.sub("w"), size="pocket",
+                                   history_years=5)
+            game = Game.new_game(
+                world, {"race": "human", "profession": "warrior"}, rng)
+            app = App(HeadlessTerminal(100, 34))
+            app.game = game
+            scene = InventoryScene(app)
+            app.push(scene)
+            scene.tabs.index = 1          # the equipped tab
+            scene.refresh()
+            for index in range(len(scene.menu.items)):
+                scene.menu.index = index
+                app.draw()                # used to raise on an empty slot
+            self.assertTrue(app.term.frames)
+        finally:
+            if old is None:
+                os.environ.pop("ASCII_WARRIORS_SAVE_DIR", None)
+            else:
+                os.environ["ASCII_WARRIORS_SAVE_DIR"] = old

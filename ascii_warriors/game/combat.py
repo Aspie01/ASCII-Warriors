@@ -18,6 +18,7 @@ from ..engine.rng import RNG
 from ..engine.scheduler import ACTION_COST
 from ..engine.screen import Frag
 from . import armour
+from . import body as body_mod
 from . import contact as contact_mod
 from .contact import spread
 from .item import Item, severed_part
@@ -331,6 +332,7 @@ def effective_kind(weapon: Optional[Item], attack_def: AttackDef) -> str:
 def armor_protection(
     defender, part_id: str, kind: str, contact: int = int(contact_mod.REFERENCE),
     momentum: float = 0.0,
+    edge=None,
 ) -> Tuple[float, Optional[Item]]:
     """How much momentum a part's armour absorbs, and the outermost piece.
 
@@ -373,6 +375,11 @@ def armor_protection(
     # Natural armour spreads a blow for the same reason plate does: a hide is
     # thick, and a point goes between the scales of it either way.
     total *= spread(contact)
+    # And what the blade is made of decides how much of the plate it defeats.
+    # Nothing here asked: armour stopped a copper knife and an adamantine one
+    # identically, which is why a bronze colossus could not be scratched by
+    # the hardest thing in the game. See `body.keenness`.
+    total /= body_mod.keenness(edge, kind == "edge")
     if kind != "edge" and momentum > 0.0:
         # An impact is not stopped by not being cut. However good the plate,
         # it is driven into the man wearing it, and how well he wears it is
@@ -676,8 +683,15 @@ def melee_attack(
     momentum = compute_momentum(attacker, weapon, attack_def)
     if ambush:
         momentum *= stealth.AMBUSH_MOMENTUM
+    # The weapon's material, and only a weapon's: `attack_material` answers
+    # "bone" for a bare fist so `effective_kind` can ask whether it holds an
+    # edge, and that is not a statement that a wolf's teeth are made of bone.
+    # Passing it here charged every claw and bite in the game the keenness of
+    # bone -- 0.61 against a blunt blow -- and quietly made every animal in
+    # the world thirty-nine per cent weaker.
     absorbed, outer = armor_protection(
-        defender, part.id, kind, attack_def.contact, momentum)
+        defender, part.id, kind, attack_def.contact, momentum,
+        edge=weapon.mat if weapon is not None else None)
     delivered = momentum - absorbed
     result.damage = max(0.0, delivered)
 
@@ -703,7 +717,8 @@ def melee_attack(
         return result
 
     clauses = defender.body.apply_damage(
-        part.id, kind, delivered, attack_def.contact, attack_def.penetration, rng
+        part.id, kind, delivered, attack_def.contact, attack_def.penetration,
+        rng, edge=weapon.mat if weapon is not None else None,
     )
     result.hit = True
 
@@ -1016,6 +1031,12 @@ def ranged_attack(
         _emit(log, result)
         return result
 
+    # No `edge` here: the shot already carries its material, two dozen lines
+    # up, as `momentum *= 1.0 + ammo.mat.shear_yield / 400000`. That is the
+    # same idea as `body.keenness` written a second way and it predates it;
+    # passing both would count the metal twice. One of the two should go, and
+    # which one is a question about archery's balance rather than about
+    # material science, so it is left named rather than half-changed.
     clauses = defender.body.apply_damage(
         part.id, kind, delivered, attack.contact, attack.penetration, rng
     )

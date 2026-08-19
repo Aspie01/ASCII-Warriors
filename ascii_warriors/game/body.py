@@ -21,6 +21,47 @@ from .contact import bite, organ_chance, spread
 
 #: Blood volume as a fraction of body volume, in litres per cm^3.
 BLOOD_PER_VOLUME = 0.00007
+#: What the material doing the cutting is worth, against iron. A blade much
+#: harder than what it meets shears more of what it meets, and a soft one
+#: folds -- which is the whole of "real material science" as far as a weapon
+#: is concerned, and the model did not have it: a weapon's material reached
+#: the calculation through its *mass* and through whether it could hold an
+#: edge at all, and through nothing else. So a copper sword killed a goblin
+#: faster than a steel one, because copper is denser, and adamantine -- the
+#: hardest thing in the game, shearing at five million against steel's four
+#: hundred and thirty thousand -- was the worst weapon material there is,
+#: taking twice as many blows as anything else, because it weighs nothing.
+#:
+#: Square-rooted, because the raw ratio spans a factor of forty across the
+#: metals; clamped, because the game is balanced around iron and a fight
+#: should still be a fight; and anchored on iron for the same reason.
+#: The yield above which what a blade is made of starts to matter. Skin
+#: shears at 20,000 and muscle at 30,000; bone at 115,000. Everything in this
+#: game dies of a cut to something soft, and no metal is better than any other
+#: at cutting something soft.
+KEEN_MATTERS_ABOVE = 50000
+
+KEEN_REFERENCE = "iron"
+KEEN_FLOOR = 0.6
+#: High enough not to clip adamantine, whose square-rooted ratio against iron
+#: is 5.7. Clamping it to 3 left the hardest thing in the game *still* worse
+#: than steel, because it is thirty-nine times lighter and momentum is most
+#: of a blow: the ceiling has to let the data say what the data says.
+KEEN_CEILING = 6.0
+
+
+def keenness(edge: Optional[Any], edged: bool) -> float:
+    """How much better than iron *edge* is at getting through things."""
+    if edge is None:
+        return 1.0
+    iron = mat_data.get(KEEN_REFERENCE)
+    mine = edge.shear_yield if edged else edge.impact_yield
+    theirs = iron.shear_yield if edged else iron.impact_yield
+    if mine <= 0 or theirs <= 0:
+        return 1.0
+    return max(KEEN_FLOOR, min(KEEN_CEILING, (mine / float(theirs)) ** 0.5))
+
+
 #: What is left of a bloodless body when it stops. See `structure_fraction`.
 STRUCTURE_DEATH = 0.70
 
@@ -387,6 +428,7 @@ class Body:
         penetration: int,
         rng: RNG,
         wound: str = "",
+        edge: Optional[Any] = None,
     ) -> List[str]:
         """Drive *force* into a part and return the resulting effect clauses.
 
@@ -412,6 +454,8 @@ class Body:
         edged = kind == "edge"
         width = spread(contact)
         cost = bite(contact)
+        # What the blow is made of. See `keenness`.
+        keen = keenness(edge, edged)
         layers = list(part.defn.tissues)
 
         for tid in layers:
@@ -425,6 +469,16 @@ class Body:
             # Thicker layers resist more; damaged layers resist less.
             resist = yield_str * (0.35 + 0.65 * frac)
             resist *= 0.6 + 0.4 * (tissue.rel_thickness / 6.0)
+
+            # The metal only counts against something hard. Flesh yields to
+            # anything -- skin shears at 20,000 against bone's 115,000 -- so a
+            # better edge buys nothing there, and scaling it anyway flattened
+            # the weapon triangle: a spear's narrow bite is not at the cap, so
+            # lifting it pushed a spear over the threshold where an axe
+            # belongs, and §69's "the edge is for the man with no armour"
+            # stopped being true. Against bone it is the whole question.
+            edge_worth = keen if yield_str >= KEEN_MATTERS_ABOVE else 1.0
+            resist /= edge_worth
 
             if remaining < resist * 0.35:
                 if depth == 0:
@@ -485,7 +539,8 @@ class Body:
             self._die("%s destroyed" % part.name)
 
         if penetration > 3000 and depth >= 2 and not part.defn.has("INTERNAL"):
-            self._maybe_hit_organ(part, kind, remaining, contact, rng, clauses)
+            self._maybe_hit_organ(part, kind, remaining, contact, rng, clauses,
+                                  edge)
 
         self._check_state()
         return clauses
@@ -498,6 +553,7 @@ class Body:
         contact: int,
         rng: RNG,
         clauses: List[str],
+        edge: Optional[Any] = None,
     ) -> None:
         """A deep wound to a torso can reach the organs behind it."""
         if force <= 0:
@@ -510,7 +566,8 @@ class Body:
             return
         organ = rng.choice(organs)
         before = organ.damage_fraction()
-        self.apply_damage(organ.id, kind, force * 0.7, contact, 0, rng)
+        self.apply_damage(organ.id, kind, force * 0.7, contact, 0, rng,
+                          edge=edge)
         if organ.damage_fraction() > before + 0.01:
             clauses.append(
                 "and the %s is %s" % (organ.name, wound_severity(
