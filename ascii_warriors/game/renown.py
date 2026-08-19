@@ -205,12 +205,21 @@ def retire(game) -> Any:
     site = game.current_site()
     if site is not None:
         hero.site_id = site.id
+    # Whatever they are still carrying settles with them.
+    from . import ledger as ledger_mod
+
+    ledger_mod.settled(game, p)
     where = _where(game)
-    event = history_mod.record(
-        game.world, game.time.year, "hero_rose",
-        "%s the %s settled %s after %d notable %s." % (
+    # What the tavern will be repeating for years, so it has to read like
+    # something a person would say. "after 0 notable kills" is not.
+    if hero.kills:
+        text = "%s the %s settled %s after %d notable %s." % (
             p.name, title(game), where, len(hero.kills),
-            "kill" if len(hero.kills) == 1 else "kills"),
+            "kill" if len(hero.kills) == 1 else "kills")
+    else:
+        text = "%s the %s settled %s." % (p.name, title(game), where)
+    event = history_mod.record(
+        game.world, game.time.year, "hero_rose", text,
         [hero.id], [site.id] if site is not None else [],
     )
     game.game_over = True

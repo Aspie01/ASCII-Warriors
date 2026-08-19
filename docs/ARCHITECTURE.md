@@ -5878,7 +5878,171 @@ the test fail, and this session has now found four guards that could not fail
 because it reads like cover. The invalidation stays; a comment where the test
 was says what is unguarded and why.
 
-## 122. Style
+## 122. The world outlives the character (v3.62)
+
+Three places in this codebase promised the same thing, and none of them could
+keep it.
+
+`renown.retire`'s docstring: *"somebody the next game can hear about, meet in
+a tavern, or read about in the legends screen."* The README: *"Retire from the
+pause menu and your adventurer settles where they stand, alive, in this
+world's legends -- where the next adventurer, or a fortress in the same world,
+can read about them."* The dialog the player actually sees on retiring: *"They
+are in this world's legends now: another adventurer may hear of them, and a
+fortress may read about them."*
+
+There was no next adventurer in the same world. Every world was generated
+fresh from a seed at the start of a game -- "New adventure" and "New fortress"
+both went straight to `WorldGenScene` -- and lived only inside that game's save
+file. Nothing in the menu opened a world anybody had played in. Retiring
+autosaved and returned to the title screen, and the title screen had no idea
+that world existed.
+
+So `residents.RETIRED_WORTH = 25` -- *"an adventurer somebody retired here
+outranks anybody the world invented"* -- had never once been added to a score
+in a game a player could reach. The code was written, correct, tested at the
+unit level, and unreachable in principle: to score a retired figure you must be
+building a site in a world where somebody retired, and there was no way to be
+in one.
+
+### 122.1. What was measured
+
+A retired adventurer, in the world they retired in, one function call away
+from the town they settled in:
+
+| | |
+|---|---|
+| retired figure's notability | 26, first of 13 residents of Highhelm |
+| a world, gzipped | 149 KiB |
+| the world's share of an adventure save | 74% |
+| doors from a played world into a new character | 0 |
+
+The world was already in every save on disk. It was three quarters of the
+file. There was just no way to open it.
+
+### 122.2. Worlds are files
+
+`.awd` beside `.aws` and `.awf`, in the same save directory, written by the
+same atomic tmp-and-replace. `World.uid` is the stem -- the world's own name,
+`_2` on collision, claimed once by `ensure_uid` and serialised with the rest of
+it, so every later save by any character who plays here lands on the same file.
+
+The writeback is one funnel per mode: `save_game` and `save_fortress` both
+call `save_world` after writing their own file. Retiring autosaves; dying
+autosaves; both therefore leave the world on disk as that character left it.
+The character's file goes first, so a failed world write costs the world's
+last few hours and never the story.
+
+**Adoption.** `load_game` and `load_fortress` call `adopt_world`, which writes
+the save's own world to the list *only if no file for it exists*. That is what
+makes a save from before this section still playable-in: every save carries a
+whole world, and opening one puts it on the list. The never-overwrite half
+matters more than it looks -- a world file is the world as the last character
+*left* it, and loading an older save of somebody who used to live there is not
+a reason to roll everybody else back.
+
+**Divergence, stated honestly.** A save stays self-contained: it keeps its own
+copy of the world, and loading it gives you that copy, not the file. So if A
+saves at turn 100, B plays and retires, and you then load A, A's world does not
+have B in it. The rule is that the *file* is the shared world and a *save* is a
+snapshot of one character's, and the game never silently rebases one onto the
+other. Dwarf Fortress avoids the question by allowing one at a time; this
+allows both and says which is which.
+
+### 122.3. The door
+
+`WorldGenScene` gained one entry -- *"Play in a world you already have"* --
+below "Generate world", so the smoke script's three downs still land on
+"Generate world". It opens `WorldMenu`, which lists the worlds and, under the
+list, what the last character left in the one under the cursor:
+
+```
+WORLD                  YEAR   SITES   LIVING  WHO IS THERE
+The Vaults of the Gold 121    142     387     Kadol Steelfist settled here
+
+The Vaults of the Gold, year 121 -- 142 sites, 387 living
+  Kadol Steelfist settled here and is still alive.
+  Anvilmoon stands where you left it.
+```
+
+`WorldGenScene` carries the mode, so the same door serves both halves of the
+promise: choose a world and either the next adventurer is rolled in it or the
+next fortress embarks in it. The seed for that character comes from
+`continue_seed` -- the world's seed, its event count and its figure count --
+so a world in a given state always rolls the same next character, and a world
+somebody has lived in is never in the same state as one nobody has.
+
+The title screen's Legends entry browses world files now rather than saves,
+through the same `WorldMenu` with `mode="legends"`; `LegendsScene` takes an
+explicit world for it. That left `SaveMenu`'s `mode` parameter with one
+possible value, so it came out.
+
+### 122.4. The epitaph was lying too
+
+`FortEndScene` says *"%s stands on the world map now, exactly as you left
+it."* It was recorded by `_become_adventurer` -- the `a` key. Press enter for
+the menu instead and `record_fall` never ran: the corridors, the dead, the
+artifacts and the founding went with it. Recording moved to `on_enter`, where
+it happens whichever key you press next, and the world is written there too.
+
+### 122.5. Does it work
+
+The whole loop, end to end, as a test class that runs it once in `setUpClass`:
+retire Kadol Testfist at a settlement of their own race, save, load the world
+back off the disk, roll a different character in it, and walk into that town.
+
+Kadol is standing there. Same `hf_id`, same name, ranked first of the site's
+residents, and the tavern will tell you about them: *"They say Kadol Steelfist
+the wanderer settled at Highhelm."* A fortress embarked in that world finds
+them too.
+
+Three things the loop exposed on the way:
+
+- **What you retire holding went nowhere.** `ledger.on_death` puts a dead
+  adventurer's artifacts back on the map and `ledger.gave_up` gives a sold one
+  the town it was sold in, but retirement did neither: the crown kept its
+  holder and lost its place, which is the one combination the histories cannot
+  point at and `artifacts.populate` cannot put on a map. The next character
+  would have met the person and never seen it. `ledger.settled` gives it the
+  site they stopped in, and `populate` already hands an artifact to whoever
+  holds it if that figure is standing there -- so the crown is in the hands of
+  the adventurer you used to be.
+- The retirement event read *"settled at Highhelm after 0 notable kills"* for
+  an adventurer who had killed nothing. It is the line the tavern repeats for
+  years, so it has to read like something a person would say.
+- The legends page said *"Noted as: player, retired."* A page written by the
+  world should not have a word in it for the person holding the keyboard.
+  `player` is filtered and `retired` reads as a sentence.
+
+### 122.6. What the re-break pass found
+
+Fourteen of the fifteen new guards failed when their fix was removed. The two
+that did not were both worth the trouble of checking:
+
+**A real bug.** `test_opening_an_old_save_does_not_roll_the_world_back`
+passed with `adopt_world`'s never-overwrite guard deleted -- because
+`save_game` serialised the world *before* `save_world` stamped its uid, so
+every first save carried `uid = ""`, and adopting it claimed a *second*
+filename rather than overwriting the first. The test passed for the wrong
+reason and the shipping behaviour was wrong: save a fresh world, reopen it
+once, and one world became two. `ensure_uid` is now called before the payload
+is built, and the test asserts the world count as well as the contents.
+
+**Two paths covering each other.** The world menu names the retired adventurer
+twice -- in the list line from `describe_world` and in the detail panel -- and
+breaking either one left the name on the screen from the other. The test now
+asserts both sentences separately.
+
+### 122.7. What it costs
+
+`save_world` is 250 ms on a small world, so an adventurer's save is now about
+1.7x what it was and a fortress's about 1.5x. Every save in this game is a
+deliberate keystroke -- there is no periodic autosave in either mode -- so it
+is 250 ms on ctrl-S, on the pause menu, and on the two moments a character
+stops. That is the price of the world being somewhere other than inside one
+character's file, and it is worth it.
+
+## 123. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

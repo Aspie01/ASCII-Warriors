@@ -8850,3 +8850,296 @@ class TestJewelleryInTheWild(unittest.TestCase):
             self.assertGreater(Item(piece, "gold").value,
                                Item("rough_gem", "ruby").value,
                                "%s is worth less than the stone" % piece)
+
+
+class TestTheWorldOutlivesTheCharacter(unittest.TestCase):
+    """Retire an adventurer, and the next one walks into a world with them in it.
+
+    Three places promised this and none of them could deliver: every world was
+    generated fresh from a seed at the start of a game and lived only inside
+    that game's save file, so there was no way to enter a world anybody had
+    played in. `residents.RETIRED_WORTH` -- "an adventurer somebody retired
+    here outranks anybody the world invented" -- had never once been added to
+    a score in a game a player could reach.
+
+    The whole loop is run once here, and the tests read the result.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        from ascii_warriors.game import artifacts as artifact_mod
+        from ascii_warriors.game import renown as renown_mod
+        from ascii_warriors.game import save as save_mod
+
+        cls._tmp = tempfile.mkdtemp()
+        cls._old = os.environ.get("ASCII_WARRIORS_SAVE_DIR")
+        os.environ["ASCII_WARRIORS_SAVE_DIR"] = cls._tmp
+
+        rng = RNG("outlives")
+        world = generate_world(rng.sub("w"), size="pocket", history_years=60)
+        # Somebody of the town's own race, so the town has a slot they fit.
+        cls.site = next(s for s in world.sites
+                        if s.is_settlement and getattr(s, "race", ""))
+        first = Game.new_game(
+            world, {"race": cls.site.race, "profession": "warrior"}, rng)
+        first.player.name = "Kadol Testfist"
+        first.enter_world_tile(cls.site.wx, cls.site.wy)
+        # ...carrying something the world has a name for.
+        cls.art_id = world.artifacts[0].id
+        keepsake = artifact_mod.make(world.artifacts[0], rng)
+        first.player.inventory.add(keepsake)
+        first.player_took(keepsake)
+        renown_mod.retire(first)
+        cls.hero_id = first.player.hf_id
+        cls.save_path = save_mod.save_game(first, first.player.name)
+        cls.metas = save_mod.list_worlds()
+
+        # ...and the next character, in the world off the disk.
+        cls.world = save_mod.load_world(cls.metas[0]["path"])
+        rng2 = RNG(save_mod.continue_seed(cls.world))
+        cls.second = Game.new_game(
+            cls.world, {"race": "human", "profession": "hunter"}, rng2)
+        cls.second.enter_world_tile(cls.site.wx, cls.site.wy)
+
+    @classmethod
+    def tearDownClass(cls):
+        if cls._old is None:
+            os.environ.pop("ASCII_WARRIORS_SAVE_DIR", None)
+        else:
+            os.environ["ASCII_WARRIORS_SAVE_DIR"] = cls._old
+
+    # -- the world is a file ------------------------------------------------ #
+
+    def test_saving_a_character_writes_the_world_to_a_file_of_its_own(self):
+        from ascii_warriors.game import save as save_mod
+
+        self.assertEqual(len(self.metas), 1)
+        self.assertTrue(save_mod.world_path_for(self.metas[0]["uid"]).exists())
+
+    def test_the_world_file_holds_the_adventurer_who_retired(self):
+        fig = self.world.figures.get(self.hero_id)
+        self.assertIsNotNone(fig)
+        self.assertIn("retired", fig.flags)
+        self.assertIsNone(fig.died)
+        self.assertEqual(fig.site_id, self.site.id)
+
+    def test_the_world_list_says_who_is_waiting_in_it(self):
+        from ascii_warriors.game import save as save_mod
+
+        self.assertIn("Kadol Testfist", self.metas[0].get("retired") or [])
+        self.assertIn("Kadol Testfist", save_mod.describe_world(self.metas[0]))
+
+    # -- and the next character finds them ---------------------------------- #
+
+    def test_the_next_adventurer_meets_the_one_you_retired(self):
+        """The whole point: they are standing in the town, by name."""
+        here = [c for c in self.second.creatures.values()
+                if c.hf_id == self.hero_id]
+        self.assertEqual(len(here), 1)
+        self.assertEqual(here[0].name, "Kadol Testfist")
+
+    def test_a_retired_adventurer_outranks_anybody_the_world_invented(self):
+        """What `RETIRED_WORTH` is for, guarded for the first time."""
+        from ascii_warriors.world import residents as res_mod
+
+        ranked = res_mod.residents(self.world, self.site)
+        self.assertGreater(len(ranked), 1)
+        self.assertEqual(ranked[0].id, self.hero_id)
+        hero = self.world.figures[self.hero_id]
+        others = max(res_mod.notability(self.world, f) for f in ranked[1:])
+        self.assertGreater(res_mod.notability(self.world, hero), others)
+
+    def test_what_you_retired_holding_is_in_their_hands_when_you_return(self):
+        """Retirement is not a death and not a sale, so the crown stays with
+        them -- but it has to be somewhere, or the next character meets the
+        person and never sees it."""
+        art = next(a for a in self.world.artifacts if a.id == self.art_id)
+        self.assertEqual(art.holder_hf, self.hero_id)
+        self.assertEqual(art.site_id, self.site.id)
+        self.assertFalse(art.lost)
+        them = next(c for c in self.second.creatures.values()
+                    if c.hf_id == self.hero_id)
+        held = [getattr(i, "artifact_id", None) for i in them.inventory.items]
+        self.assertIn(self.art_id, held)
+
+    def test_the_next_adventurer_can_hear_about_them(self):
+        from ascii_warriors.game import conversation as conv
+
+        said = conv.rumor_lines(self.second, hf_id=self.hero_id, n=3)
+        self.assertTrue(said)
+        self.assertTrue(any("Kadol Testfist" in ln for ln in said))
+
+    def test_a_fortress_can_embark_in_a_world_somebody_retired_in(self):
+        """The other half of the promise: "or a fortress in the same world"."""
+        from ascii_warriors.fortress.fortress import Fortress
+
+        spot = next((x, y) for y in range(self.world.height)
+                    for x in range(self.world.width)
+                    if self.world.tile(x, y).site_id is None
+                    and not self.world.tile(x, y).is_ocean)
+        fort = Fortress.embark(self.world, spot[0], spot[1], RNG("emb"))
+        fig = fort.world.figures.get(self.hero_id)
+        self.assertIsNotNone(fig)
+        self.assertIn("retired", fig.flags)
+
+    # -- what the world says about them ------------------------------------- #
+
+    def test_the_legends_page_is_written_in_the_world_s_voice(self):
+        from ascii_warriors.world import legends as legends_mod
+
+        text = "\n".join(
+            f.text for f in legends_mod.figure_lines(self.world, self.hero_id))
+        self.assertIn("An adventurer who settled here.", text)
+        self.assertNotIn("player", text)
+
+    def test_settling_with_nothing_to_show_still_reads_like_a_sentence(self):
+        hero = self.world.figures[self.hero_id]
+        said = [e.text for e in self.world.events if self.hero_id in e.figures
+                and e.kind == "hero_rose"]
+        self.assertTrue(said)
+        self.assertFalse(hero.kills)
+        self.assertNotIn("0 notable", said[-1])
+        self.assertIn(self.site.name, said[-1])
+
+
+class TestWorldFiles(unittest.TestCase):
+    """The bookkeeping under it: one file per world, and never the wrong one."""
+
+    def setUp(self):
+        self._tmp = tempfile.mkdtemp()
+        self._old = os.environ.get("ASCII_WARRIORS_SAVE_DIR")
+        os.environ["ASCII_WARRIORS_SAVE_DIR"] = self._tmp
+        self.rng = RNG("worldfiles")
+        self.world = generate_world(self.rng.sub("w"), size="pocket",
+                                    history_years=10)
+
+    def tearDown(self):
+        if self._old is None:
+            os.environ.pop("ASCII_WARRIORS_SAVE_DIR", None)
+        else:
+            os.environ["ASCII_WARRIORS_SAVE_DIR"] = self._old
+
+    def test_a_world_keeps_one_file_however_many_characters_play_in_it(self):
+        from ascii_warriors.game import save as save_mod
+
+        first = Game.new_game(
+            self.world, {"race": "human", "profession": "warrior"}, self.rng)
+        first.player.name = "One"
+        save_mod.save_game(first, first.player.name)
+        uid = self.world.uid
+        second = Game.new_game(
+            self.world, {"race": "human", "profession": "hunter"}, self.rng)
+        second.player.name = "Two"
+        save_mod.save_game(second, second.player.name)
+        self.assertEqual(self.world.uid, uid)
+        self.assertEqual(len(save_mod.list_worlds()), 1)
+
+    def test_two_worlds_of_the_same_name_do_not_share_a_file(self):
+        from ascii_warriors.game import save as save_mod
+
+        other = generate_world(RNG("other").sub("w"), size="pocket",
+                               history_years=10)
+        other.name = self.world.name
+        save_mod.save_world(self.world)
+        save_mod.save_world(other)
+        self.assertNotEqual(self.world.uid, other.uid)
+        self.assertEqual(len(save_mod.list_worlds()), 2)
+
+    def test_opening_a_save_adopts_a_world_that_has_no_file(self):
+        """Every save carries a world; a save made before world files is
+        the only copy of its own."""
+        from ascii_warriors.game import save as save_mod
+
+        game = Game.new_game(
+            self.world, {"race": "human", "profession": "warrior"}, self.rng)
+        path = save_mod.save_game(game, "Orphan")
+        save_mod.delete_save(save_mod.world_path_for(self.world.uid))
+        self.assertEqual(save_mod.list_worlds(), [])
+        save_mod.load_game(path)
+        self.assertEqual(len(save_mod.list_worlds()), 1)
+
+    def test_opening_an_old_save_does_not_roll_the_world_back(self):
+        """The world file is the world as the last character *left* it."""
+        from ascii_warriors.game import save as save_mod
+        from ascii_warriors.world import history as history_mod
+
+        game = Game.new_game(
+            self.world, {"race": "human", "profession": "warrior"}, self.rng)
+        old_path = save_mod.save_game(game, "Early")
+        history_mod.record(self.world, self.world.year, "hero_rose",
+                           "Somebody else did something.", [], [])
+        save_mod.save_world(self.world)
+        moved_on = len(self.world.events)
+        save_mod.load_game(old_path)
+        self.assertEqual(len(save_mod.list_worlds()), 1)
+        back = save_mod.load_world(save_mod.world_path_for(self.world.uid))
+        self.assertEqual(len(back.events), moved_on)
+
+    def test_a_fortress_that_falls_is_in_the_world_file(self):
+        from ascii_warriors.fortress import sim as sim_mod
+        from ascii_warriors.fortress.fortress import Fortress
+        from ascii_warriors.game import save as save_mod
+
+        spot = next((x, y) for y in range(self.world.height)
+                    for x in range(self.world.width)
+                    if self.world.tile(x, y).site_id is None
+                    and not self.world.tile(x, y).is_ocean)
+        fort = Fortress.embark(self.world, spot[0], spot[1], RNG("fell"))
+        fort.lost = True
+        fort.loss_reason = "abandoned"
+        sim_mod.record_fall(fort, abandoned=True)
+        save_mod.save_world(fort.world)
+        back = save_mod.load_world(save_mod.list_worlds()[0]["path"])
+        self.assertIsNotNone(back.preserved_map(spot[0], spot[1]))
+        self.assertIn(fort.name, save_mod.list_worlds()[0].get("built") or [])
+
+    def test_a_world_survives_its_own_file(self):
+        from ascii_warriors.game import save as save_mod
+
+        path = save_mod.save_world(self.world)
+        back = save_mod.load_world(path)
+        self.assertEqual(back.to_dict(), self.world.to_dict())
+
+    def test_a_header_is_read_without_the_world_behind_it(self):
+        """The title screen lists three kinds of file and a world is a
+        megabyte of JSON, so a listing reads the front of each and stops."""
+        import gzip
+        import json
+
+        from ascii_warriors.game import save as save_mod
+
+        path = save_mod.save_world(self.world)
+        with gzip.open(str(path), "rt", encoding="utf-8") as fh:
+            head = fh.read(save_mod.HEADER_CHARS)
+            self.assertTrue(fh.read(1), "the file is shorter than one header")
+        self.assertIsNotNone(save_mod._header_of(head))
+        with gzip.open(str(path), "rt", encoding="utf-8") as fh:
+            whole = json.load(fh)
+        meta = save_mod.read_meta(path)
+        self.assertEqual(meta["name"], whole["meta"]["name"])
+        self.assertEqual(meta["retired"], whole["meta"]["retired"])
+        self.assertEqual(meta["saved_at"], whole["saved_at"])
+
+    def test_a_listing_does_not_read_the_whole_world(self):
+        """Proved by taking the tail away: a listing never reaches it."""
+        from ascii_warriors.game import save as save_mod
+
+        path = save_mod.save_world(self.world)
+        data = path.read_bytes()
+        path.write_bytes(data[:len(data) // 2])
+        meta = save_mod.read_meta(path)
+        self.assertIsNotNone(meta)
+        self.assertEqual(meta["name"], self.world.name)
+
+    def test_a_header_that_is_not_at_the_front_is_still_read(self):
+        import gzip
+        import json
+
+        from ascii_warriors.game import save as save_mod
+
+        path = save_mod.save_dir() / ("odd" + save_mod.WORLD_SUFFIX)
+        with gzip.open(str(path), "wt", encoding="utf-8") as fh:
+            json.dump({"world": {"junk": "x" * (save_mod.HEADER_CHARS + 64)},
+                       "version": 1, "saved_at": 7,
+                       "meta": {"name": "Late"}}, fh)
+        self.assertEqual(save_mod.read_meta(path)["name"], "Late")

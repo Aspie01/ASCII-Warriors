@@ -898,6 +898,22 @@ Coin is worth carrying. Merchants, smiths, priests and tavern keepers will trade
 with you; tavern keepers will also rent you a bed for the night, which is the
 only place you can be sure of sleeping safely. People in taverns will travel
 with you for a fee -- press 'p' to see your party.
+
+THE WORLD OUTLIVES YOU
+
+The world is saved in a file of its own, and every save writes it back the way
+you left it. Retire from the pause menu and your adventurer stays in it alive,
+settled where they stood. A fortress that ends becomes a real site on the map,
+whether you abandoned it or lost it.
+
+So start a new adventure or a new fortress and, instead of generating a world,
+choose one you already have. The list tells you what is waiting in each: who
+settled there and is still alive, and what you built and left standing. Travel
+to the town your last adventurer retired in and they are in it, by name, and
+the tavern will tell you what they did.
+
+The Legends entry on the title screen reads any of those worlds without playing
+in it.
 """
 
 SURVIVAL_TEXT = """\

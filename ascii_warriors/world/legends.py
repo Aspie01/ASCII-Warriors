@@ -47,8 +47,15 @@ def figure_lines(world, hf_id: int) -> List[Frag]:
         site = world.site(fig.site_id)
         if site is not None:
             out.append(_line("Associated with %s." % site.name))
-    if fig.flags:
-        out.append(_line("Noted as: %s." % ", ".join(sorted(fig.flags)), _ACCENT))
+    # "player" is bookkeeping, not reputation: a page written by the world
+    # should not have a word in it for the person holding the keyboard. And
+    # "retired" is a real thing to know about somebody -- an adventurer who
+    # stopped -- which reads as a sentence rather than as a tag.
+    if "retired" in fig.flags and fig.died is None:
+        out.append(_line("An adventurer who settled here.", _ACCENT))
+    shown = sorted(f for f in fig.flags if f not in ("player", "retired"))
+    if shown:
+        out.append(_line("Noted as: %s." % ", ".join(shown), _ACCENT))
     if fig.stats:
         out.append(_line("Prowess %d, cunning %d." % (
             fig.stats.get("prowess", 0), fig.stats.get("cunning", 0)), _DIM))

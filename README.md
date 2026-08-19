@@ -90,6 +90,13 @@ it rather than founding somewhere new: seven more dwarves walk into the
 corridors the last seven dug, past their bodies, and the forge lights up again.
 The legends record that somebody went back.
 
+And you can come back to any of it later, because **the world is a file of its
+own** and it outlives the characters who played in it. Every save writes the
+world back as that character left it. Start a new adventure or a new fortress
+and, instead of generating a world, choose one you already have: the list shows
+you what is waiting in each — who settled there and is still alive, and what
+you built and left standing.
+
 Losing is fun.
 
 ```
@@ -576,8 +583,11 @@ a megabeast, a bandit chief, a necromancer — and it is recorded with your name
 on it and your renown rises; finished work counts too. Renown is visible in
 play: guards and lords change their tone, people pay a name better than a
 stranger, and past a point they greet you by name. Retire from the pause menu
-and your adventurer settles where they stand, alive, in this world's legends —
-where the next adventurer, or a fortress in the same world, can read about them.
+and your adventurer settles where they stand, alive, in this world's legends.
+Then start a new adventure, choose that world instead of making one, and travel
+to the town they settled in: they are standing in it, by name, the tavern
+tells you what they did, and whatever they retired holding is still in their
+hands. A fortress embarked in the same world knows them too.
 
 **Conversation and quests.** Ask about this place, its ruler, its troubles, the
 beasts in the region, or for directions, and you get real answers from the
@@ -611,6 +621,14 @@ four times in five. Sweep the field after a fight, or forge more.
 fortress is diffed across a save and a load by the test suite, so held breath,
 who is asleep and where the fluid clock had got to all come back the way they
 went in — and anything added later that does not survive breaks the build.
+
+**A world that outlives the character.** The world is a file of its own, not
+something buried inside one save, and every save writes it back as that
+character left it. Retire an adventurer, embark a fortress, let it fall — then
+start again and pick that world off the list instead of generating one. The
+adventurer you put down is a townsperson with a name; the fortress you lost is
+a ruin you can walk into; the history both of them made is what the next
+character hears in the tavern.
 
 **A siege with wings.** In the fortress too: a roc or a demon comes at you
 straight, over the moat and the wall and the chasm you dug, while the goblins
@@ -865,7 +883,11 @@ ascii_warriors/
 
 Saves are gzipped JSON in `%APPDATA%\ASCIIWarriors\saves` on Windows and
 `~/.local/share/ASCIIWarriors/saves` on Linux. Set `ASCII_WARRIORS_SAVE_DIR` to
-put them somewhere else.
+put them somewhere else. Adventurers are `.aws`, fortresses are `.awf`, and
+worlds are `.awd` — a world file is written when the world is made and again
+by every save in it, so it holds the world as the last character left it. A
+save still carries its own copy, so deleting a world never breaks the games
+played in it; opening one of those saves puts its world back on the list.
 
 ## Notes on the terminal
 

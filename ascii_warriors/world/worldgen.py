@@ -140,6 +140,10 @@ class World:
         self.seed = seed
         self.width = width
         self.height = height
+        #: The stem of the world's file on disk, stamped the first time it is
+        #: written. A world outlives the characters who play in it, so it needs
+        #: a handle that is not one of their names.
+        self.uid = ""
         self.tiles: List[List[WorldTile]] = [
             [WorldTile() for _ in range(width)] for _ in range(height)
         ]
@@ -290,6 +294,7 @@ class World:
 
         return {
             "name": self.name,
+            "uid": self.uid,
             "seed": self.seed,
             "width": self.width,
             "height": self.height,
@@ -319,6 +324,7 @@ class World:
         from .history import Artifact, HistoricalEvent, HistoricalFigure
 
         w = cls(str(d["name"]), int(d["seed"]), int(d["width"]), int(d["height"]))
+        w.uid = str(d.get("uid", ""))
         w.year = int(d.get("year", 125))
         w.history_years = int(d.get("history_years", 0))
         w.tiles = [

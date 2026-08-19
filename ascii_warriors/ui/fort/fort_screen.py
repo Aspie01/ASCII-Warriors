@@ -349,6 +349,25 @@ class FortEndScene(Scene):
         super().__init__(app)
         self.fort = fort
 
+    def on_enter(self) -> None:
+        """Put the fortress into the world, and the world onto disk.
+
+        This screen says the place stands on the world map now, and it has to
+        be true whichever key you press next. It used to be recorded only if
+        you chose to walk in as an adventurer: press enter for the menu
+        instead and the corridors, the dead and the artifacts went with it.
+        """
+        from ...fortress import sim as sim_mod
+        from ...game import save as save_mod
+
+        fort = self.fort
+        if not fort.recorded:
+            sim_mod.record_fall(fort, abandoned=fort.loss_reason == "abandoned")
+        try:
+            save_mod.save_world(fort.world)
+        except OSError:  # pragma: no cover - disk failure
+            pass
+
     def draw(self, scr: Screen) -> None:
         """The epitaph."""
         fort = self.fort
@@ -400,10 +419,7 @@ class FortEndScene(Scene):
 
     def _become_adventurer(self) -> None:
         """Roll a character in this world, who can go and find the ruins."""
-        from ...fortress import sim as sim_mod
         from ..charcreate import CharCreateScene
 
         fort = self.fort
-        if not fort.recorded:
-            sim_mod.record_fall(fort, abandoned=fort.loss_reason == "abandoned")
         self.app.reset_to(CharCreateScene(self.app, fort.world, fort.rng))

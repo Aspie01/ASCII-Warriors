@@ -6,6 +6,7 @@ import os
 import tempfile
 import unittest
 
+from ascii_warriors.engine import keys
 from ascii_warriors.engine.rng import RNG
 from ascii_warriors.engine.terminal import HeadlessTerminal, QuitSignal
 from ascii_warriors.game.state import Game
@@ -269,6 +270,114 @@ class TestFullRun(unittest.TestCase):
             text = fh.read()
         self.assertIn("Civilizations", text)
         self.assertNotIn("{noun", text)
+
+
+class TestTheDoorBackIntoAWorld(UITestBase):
+    """The screens that make a world outlive the character who played there."""
+
+    def _saved_world(self):
+        from ascii_warriors.game import save as save_mod
+
+        return save_mod.save_world(self.game.world)
+
+    def test_the_world_list_is_empty_until_there_is_a_world(self):
+        from ascii_warriors.ui.worldgen_screen import WorldGenScene
+
+        scene = WorldGenScene(self.app)
+        self.app.push(scene)
+        entry = next(i for i in scene.menu.items if i.value == "old")
+        self.assertFalse(entry.enabled)
+
+    def test_a_saved_world_can_be_played_again(self):
+        from ascii_warriors.ui.worldgen_screen import WorldGenScene
+
+        self._saved_world()
+        scene = WorldGenScene(self.app)
+        self.app.push(scene)
+        entry = next(i for i in scene.menu.items if i.value == "old")
+        self.assertTrue(entry.enabled)
+
+    def test_the_world_list_names_the_world_and_who_is_in_it(self):
+        from ascii_warriors.game import renown as renown_mod
+        from ascii_warriors.ui.worldgen_screen import WorldMenu
+
+        self.game.player.name = "Sigun Farwalker"
+        renown_mod.retire(self.game)
+        self._saved_world()
+        text = self.render(WorldMenu(self.app))
+        self.assertIn(self.game.world.name[:20], text)
+        # Both halves of the screen say it: the list line, and the panel under
+        # it that says what the last character left behind here.
+        self.assertIn("Sigun Farwalker settled here", text)
+        self.assertIn("Sigun Farwalker settled here and is still alive", text)
+
+    def test_the_column_headings_line_up_with_their_columns(self):
+        """A menu row is pushed right by its "a) " hotkey; the heading above
+        it has to be too, or every heading names the column to its left."""
+        from ascii_warriors.ui.worldgen_screen import WorldMenu
+
+        self._saved_world()
+        lines = self.render(WorldMenu(self.app)).splitlines()
+        name = self.game.world.name[:28]
+        head = next(ln for ln in lines if "WHO IS THERE" in ln)
+        row = next(ln for ln in lines if name in ln)
+        self.assertEqual(head.index("WORLD"), row.index(name))
+
+    def test_choosing_a_world_rolls_a_character_in_it(self):
+        from ascii_warriors.ui.charcreate import CharCreateScene
+        from ascii_warriors.ui.worldgen_screen import WorldMenu
+
+        self._saved_world()
+        scene = WorldMenu(self.app)
+        self.app.push(scene)
+        scene.handle(keys.ENTER)
+        top = self.app.current
+        self.assertIsInstance(top, CharCreateScene)
+        self.assertEqual(top.world.name, self.game.world.name)
+        self.assertIsNot(top.world, self.game.world)
+
+    def test_choosing_a_world_to_embark_in_goes_to_the_embark_screen(self):
+        from ascii_warriors.ui.fort.embark import EmbarkScene
+        from ascii_warriors.ui.worldgen_screen import WorldMenu
+
+        self._saved_world()
+        scene = WorldMenu(self.app, mode="fortress")
+        self.app.push(scene)
+        scene.handle(keys.ENTER)
+        self.assertIsInstance(self.app.current, EmbarkScene)
+
+    def test_legends_can_be_read_without_a_game(self):
+        from ascii_warriors.ui.legends_screen import LegendsScene
+        from ascii_warriors.ui.worldgen_screen import WorldMenu
+
+        self._saved_world()
+        scene = WorldMenu(self.app, mode="legends")
+        self.app.push(scene)
+        scene.handle(keys.ENTER)
+        top = self.app.current
+        self.assertIsInstance(top, LegendsScene)
+        self.app.game = None
+        self.app.draw()
+        self.assertIn(self.game.world.name[:20], self.term.last_text())
+
+    def test_the_end_of_a_fortress_puts_it_on_the_map_whichever_key_you_press(self):
+        """The epitaph says the place stands on the world map now."""
+        from ascii_warriors.fortress.fortress import Fortress
+        from ascii_warriors.game import save as save_mod
+        from ascii_warriors.ui.fort.fort_screen import FortEndScene
+
+        world = self.game.world
+        spot = next((x, y) for y in range(world.height)
+                    for x in range(world.width)
+                    if world.tile(x, y).site_id is None
+                    and not world.tile(x, y).is_ocean)
+        fort = Fortress.embark(world, spot[0], spot[1], RNG("endscene"))
+        fort.lost = True
+        fort.loss_reason = "abandoned"
+        self.app.push(FortEndScene(self.app, fort))
+        self.assertTrue(fort.recorded)
+        back = save_mod.load_world(save_mod.list_worlds()[0]["path"])
+        self.assertIsNotNone(back.preserved_map(spot[0], spot[1]))
 
 
 if __name__ == "__main__":  # pragma: no cover

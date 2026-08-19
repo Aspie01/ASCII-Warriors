@@ -100,6 +100,33 @@ def gave_up(game, item, *, by=None, to=None) -> bool:
     return True
 
 
+def settled(game, creature) -> int:
+    """What a retiring adventurer keeps, they keep where they stopped.
+
+    Retirement is neither a death nor a sale, so the artifact stays in the
+    same hands -- but those hands are somewhere now. A record with a holder
+    and no place is one the histories cannot point at and `artifacts.populate`
+    cannot put on a map, so the next character walking into that town would
+    meet the person and never see the crown. Giving it the site is what puts
+    it back in their hands, because `populate` hands an artifact to whoever
+    holds it if that figure is standing there -- and the figure standing
+    there is the adventurer you used to be.
+    """
+    site = game.current_site()
+    if site is None:
+        return 0
+    kept = 0
+    for item in creature.inventory.items:
+        art = artifact_of(game.world, item)
+        if art is None:
+            continue
+        art.holder_hf = creature.hf_id
+        art.site_id = site.id
+        art.lost = False
+        kept += 1
+    return kept
+
+
 def on_death(game, creature) -> int:
     """Whatever this one was carrying is on the floor now.
 

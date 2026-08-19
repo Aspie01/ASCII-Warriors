@@ -49,6 +49,12 @@ def header(title: str) -> MenuItem:
 _HOTKEY_POOL = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
 
+#: How far a `ListMenu` row is pushed right by its hotkey prefix ("a) ").
+#: A screen drawing column headings above a menu has to start them here, or
+#: every heading sits three characters left of the column it names.
+HOTKEY_INDENT = 3
+
+
 class ListMenu:
     """A scrolling, hotkey-driven selection list."""
 

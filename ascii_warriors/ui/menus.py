@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from ..engine import colors, keys
 from ..engine.screen import Screen
-from ..engine.widgets import ListMenu, MenuItem, key_hint
+from ..engine.widgets import HOTKEY_INDENT, ListMenu, MenuItem, key_hint
 from ..game import save as save_mod
 from .app import Scene
 
@@ -36,7 +36,7 @@ class MainMenu(Scene):
             MenuItem("New fortress", "fortress", hotkey="f",
                      desc="Seven dwarves, a wagon, and a mountain"),
             MenuItem("New adventure", "new", hotkey="n",
-                     desc="Generate a world and set out into it alone"),
+                     desc="Set out alone, in a new world or one you have"),
             MenuItem("Continue fortress", "loadfort", hotkey="r",
                      desc="Return to a fortress you left standing",
                      enabled=bool(save_mod.list_fortresses())),
@@ -44,8 +44,8 @@ class MainMenu(Scene):
                      desc="Load a saved adventure",
                      enabled=bool(save_mod.list_saves())),
             MenuItem("Legends", "legends", hotkey="l",
-                     desc="Browse a saved world's history",
-                     enabled=bool(save_mod.list_saves())),
+                     desc="Browse the history of a world you have made",
+                     enabled=bool(save_mod.list_worlds())),
             MenuItem("Help", "help", hotkey="?", desc="Controls and concepts"),
             MenuItem("Quit", "quit", hotkey="q", desc="Leave the mountainhome"),
         ]
@@ -95,9 +95,11 @@ class MainMenu(Scene):
         elif choice == "loadfort":
             self.app.push(FortressSaveMenu(self.app))
         elif choice == "load":
-            self.app.push(SaveMenu(self.app, mode="load"))
+            self.app.push(SaveMenu(self.app))
         elif choice == "legends":
-            self.app.push(SaveMenu(self.app, mode="legends"))
+            from .worldgen_screen import WorldMenu
+
+            self.app.push(WorldMenu(self.app, mode="legends"))
         elif choice == "help":
             from .help_screen import HelpScene
 
@@ -109,9 +111,8 @@ class MainMenu(Scene):
 class SaveMenu(Scene):
     """Browse, load and delete saved games."""
 
-    def __init__(self, app, mode: str = "load") -> None:
+    def __init__(self, app) -> None:
         super().__init__(app)
-        self.mode = mode
         self.saves = []
         self.menu = ListMenu([], per_page=14)
         self.error = ""
@@ -131,10 +132,9 @@ class SaveMenu(Scene):
 
     def draw(self, scr: Screen) -> None:
         """Draw the save list."""
-        title = "Load a saved adventure" if self.mode == "load" else \
-            "Browse a world's legends"
-        scr.frame(2, 1, scr.width - 4, scr.height - 3, title=title)
-        scr.text(4, 3, "%-20s %-10s %-14s %-6s %s" % (
+        scr.frame(2, 1, scr.width - 4, scr.height - 3,
+                  title="Load a saved adventure")
+        scr.text(4 + HOTKEY_INDENT, 3, "%-20s %-10s %-14s %-6s %s" % (
             "NAME", "RACE", "DATE", "STATE", "SAVED"), colors.UI["accent"])
         self.menu.draw(scr, 4, 5, scr.width - 8, scr.height - 10, show_desc=False)
         if self.error:
@@ -166,14 +166,9 @@ class SaveMenu(Scene):
             self.error = "Could not load that save: %s" % exc
             return
         self.app.game = game
-        if self.mode == "legends":
-            from .legends_screen import LegendsScene
+        from .play_screen import PlayScene
 
-            self.app.replace(LegendsScene(self.app))
-        else:
-            from .play_screen import PlayScene
-
-            self.app.reset_to(PlayScene(self.app))
+        self.app.reset_to(PlayScene(self.app))
 
 
 class FortressSaveMenu(Scene):
@@ -203,7 +198,7 @@ class FortressSaveMenu(Scene):
         """Draw the fortress list."""
         scr.frame(2, 1, scr.width - 4, scr.height - 3,
                   title="Return to a fortress")
-        scr.text(4, 3, "%-22s %-16s %-8s %-8s %s" % (
+        scr.text(4 + HOTKEY_INDENT, 3, "%-22s %-16s %-8s %-8s %s" % (
             "FORTRESS", "DATE", "DWARVES", "WEALTH", "SAVED"),
             colors.UI["accent"])
         self.menu.draw(scr, 4, 5, scr.width - 8, scr.height - 10,
@@ -324,10 +319,14 @@ class GameMenu(Scene):
         save_mod.autosave(game)
         self.app.message(
             "Retired",
-            "%s the %s settles down.\n\n"
-            "They are in this world's legends now: another adventurer may "
-            "hear of them, and a fortress may read about them."
-            % (game.player.name, renown_mod.title(game)))
+            "%s the %s settles down %s.\n\n"
+            "%s is saved with them in it. Start a new adventure or a new "
+            "fortress, choose that world instead of making one, and they "
+            "will be there -- living where they stopped, in the legends, "
+            "and named by the people who know them."
+            % (game.player.name, renown_mod.title(game),
+               "at %s" % where.name if where is not None else "where they stand",
+               game.world.name))
         self.app.game = None
         self.app.reset_to(MainMenu(self.app))
 
@@ -364,6 +363,8 @@ class DeathScene(Scene):
             ), colors.UI["dim"])
         scr.text_center(y + 11, "Their name is now written in the legends of %s."
                         % game.world.name, colors.UI["accent2"])
+        scr.text_center(y + 13, "That world is saved. The next one can go and "
+                        "read about them.", colors.UI["dim"])
         scr.text_center(scr.height - 3, "Press any key", colors.UI["dim"])
 
     def handle(self, key: str) -> None:

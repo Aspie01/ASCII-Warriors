@@ -19,8 +19,11 @@ TABS = ["Overview", "Figures", "Sites", "Civilizations", "Artifacts",
 class LegendsScene(Scene):
     """Browse everything the world remembers."""
 
-    def __init__(self, app) -> None:
+    def __init__(self, app, world=None) -> None:
         super().__init__(app)
+        #: A world read straight off disk, when the legends are being browsed
+        #: from the title screen and there is no game to read them from.
+        self._world = world
         self.tabs = Tabs(TABS)
         self.menu = ListMenu([], per_page=20)
         self.offset = 0
@@ -30,6 +33,8 @@ class LegendsScene(Scene):
     @property
     def world(self):
         """The world being browsed."""
+        if self._world is not None:
+            return self._world
         return self.app.game.world if self.app.game else None
 
     def on_enter(self) -> None:

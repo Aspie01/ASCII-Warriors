@@ -1,4 +1,4 @@
-"""World generation and character creation screens."""
+"""Choosing the world you are about to play in: generate one, or reopen one."""
 
 from __future__ import annotations
 
@@ -6,7 +6,9 @@ from __future__ import annotations
 from ..engine import colors, keys
 from ..engine.rng import RNG
 from ..engine.screen import Screen
-from ..engine.widgets import ListMenu, MenuItem, key_hint, prompt_string
+from ..engine.widgets import (
+    HOTKEY_INDENT, ListMenu, MenuItem, key_hint, prompt_string,
+)
 from ..world.worldgen import WORLD_SIZES, generate_world
 from .app import Scene
 
@@ -30,18 +32,22 @@ class WorldGenScene(Scene):
         self.generating = False
 
     def on_enter(self) -> None:
+        from ..game import save as save_mod
+
         items = [
             MenuItem("World size", "size", hotkey="s"),
             MenuItem("Years of history", "history", hotkey="h"),
             MenuItem("Seed", "seed", hotkey="e"),
             MenuItem("Generate world", "go", hotkey="g"),
+            MenuItem("Play in a world you already have", "old", hotkey="o",
+                     enabled=bool(save_mod.list_worlds())),
             MenuItem("Back", "back", hotkey="q"),
         ]
         self.menu = ListMenu(items, per_page=8, auto_hotkeys=False)
 
     def draw(self, scr: Screen) -> None:
         """Draw the parameter form or the generation progress."""
-        scr.frame(2, 1, scr.width - 4, scr.height - 3, title="Create a world")
+        scr.frame(2, 1, scr.width - 4, scr.height - 3, title="Choose a world")
         if self.generating:
             self._draw_progress(scr)
             return
@@ -122,6 +128,8 @@ class WorldGenScene(Scene):
             i = HISTORY_OPTIONS.index(self.history) \
                 if self.history in HISTORY_OPTIONS else 2
             self.history = HISTORY_OPTIONS[(i + 1) % len(HISTORY_OPTIONS)]
+        elif choice == "old":
+            self.app.push(WorldMenu(self.app, mode=self.mode))
         elif choice == "go":
             self._generate()
 
@@ -144,12 +152,149 @@ class WorldGenScene(Scene):
         world = generate_world(
             rng, size=self.size, history_years=self.history, progress=progress,
         )
+        from ..game import save as save_mod
+
+        # Written now rather than at the first save, because a world exists as
+        # soon as it is made: quit before the first turn and it is still there
+        # to come back to.
+        try:
+            save_mod.save_world(world)
+        except OSError:  # pragma: no cover - disk failure
+            pass
         self.app.rng = rng
-        if self.mode == "fortress":
-            from .fort.embark import EmbarkScene
+        enter_world(self.app, world, rng, self.mode)
 
-            self.app.replace(EmbarkScene(self.app, world, rng))
+
+#: What each mode does with a world, for the world list's own wording.
+MODE_VERBS = {
+    "adventure": ("set out in", "set out"),
+    "fortress": ("embark in", "embark"),
+    "legends": ("read about", "read"),
+}
+
+
+def enter_world(app, world, rng, mode: str) -> None:
+    """Hand a chosen world to whichever mode asked for it.
+
+    The one place a world becomes a game, so a world that came off disk goes
+    the same way as one that was made a moment ago.
+    """
+    if mode == "legends":
+        from .legends_screen import LegendsScene
+
+        app.replace(LegendsScene(app, world))
+        return
+    if mode == "fortress":
+        from .fort.embark import EmbarkScene
+
+        app.replace(EmbarkScene(app, world, rng))
+        return
+    from .charcreate import CharCreateScene
+
+    app.replace(CharCreateScene(app, world, rng))
+
+
+class WorldMenu(Scene):
+    """The worlds on disk, and who was left in them.
+
+    A world outlives the characters who play in it. This is the door back in:
+    pick one and the next adventurer is rolled there, or the next fortress
+    embarks there, in the world as the last character left it.
+    """
+
+    def __init__(self, app, mode: str = "adventure") -> None:
+        super().__init__(app)
+        self.mode = mode
+        self.worlds = []
+        self.menu = ListMenu([], per_page=12)
+        self.error = ""
+
+    def on_enter(self) -> None:
+        self.refresh()
+
+    def refresh(self) -> None:
+        """Re-read the save directory."""
+        from ..game import save as save_mod
+
+        self.worlds = save_mod.list_worlds()
+        items = [
+            MenuItem(save_mod.describe_world(m), m, hotkey=None)
+            for m in self.worlds
+        ]
+        if not items:
+            items = [MenuItem("(no worlds yet)", None, enabled=False)]
+        self.menu.set_items(items)
+
+    def draw(self, scr: Screen) -> None:
+        """Draw the world list and what is waiting in the selected one."""
+        what, verb = MODE_VERBS.get(self.mode, MODE_VERBS["adventure"])
+        scr.frame(2, 1, scr.width - 4, scr.height - 3,
+                  title="Choose a world to %s" % what)
+        scr.text(4 + HOTKEY_INDENT, 3, "%-28s %-6s %-7s %-7s %s" % (
+            "WORLD", "YEAR", "SITES", "LIVING", "WHO IS THERE"),
+            colors.UI["accent"])
+        rows = min(12, max(3, scr.height - 16))
+        self.menu.draw(scr, 4, 5, scr.width - 8, rows, show_desc=False)
+        self._draw_detail(scr, 5 + rows + 1)
+        if self.error:
+            scr.text(4, scr.height - 5, self.error, colors.UI["danger"])
+        key_hint(scr, 4, scr.height - 3, [
+            (keys.ENTER, verb), ("d", "delete"), (keys.ESC, "back"),
+        ])
+
+    def _draw_detail(self, scr: Screen, y: int) -> None:
+        """What the last character left in the world under the cursor."""
+        meta = self.menu.selected_value
+        if not meta:
             return
-        from .charcreate import CharCreateScene
+        scr.text(4, y, "%s, year %s -- %s sites, %s living" % (
+            meta.get("name", "?"), meta.get("year", "?"),
+            meta.get("sites", "?"), meta.get("figures", "?")),
+            colors.UI["accent2"])
+        y += 1
+        for name in (meta.get("retired") or [])[:4]:
+            if y >= scr.height - 6:
+                return
+            scr.text(6, y, "%s settled here and is still alive." % name,
+                     colors.UI["fg"])
+            y += 1
+        for name in (meta.get("built") or [])[:4]:
+            if y >= scr.height - 6:
+                return
+            scr.text(6, y, "%s stands where you left it." % name,
+                     colors.UI["fg"])
+            y += 1
+        if not (meta.get("retired") or meta.get("built")):
+            scr.text(6, y, "Nobody has left anything here yet.",
+                     colors.UI["dim"])
 
-        self.app.replace(CharCreateScene(self.app, world, rng))
+    def handle(self, key: str) -> None:
+        """Open a world, delete one, or go back."""
+        from ..game import save as save_mod
+
+        if key == "d" and self.menu.selected_value:
+            meta = self.menu.selected_value
+            if self.app.confirm(
+                    "Delete the world of %s? Everything in it goes with it."
+                    % meta.get("name", "?")):
+                save_mod.delete_save(meta["path"])
+                self.refresh()
+            return
+        result = self.menu.handle(key)
+        if result == "cancel":
+            self.done = True
+            return
+        if result != "select":
+            return
+        meta = self.menu.selected_value
+        if not meta:
+            return
+        try:
+            world = save_mod.load_world(meta["path"])
+        except Exception as exc:  # pragma: no cover - corrupt world file
+            self.error = "Could not open that world: %s" % exc
+            return
+        rng = RNG(save_mod.continue_seed(world))
+        if self.mode != "legends":
+            self.app.rng = rng
+        enter_world(self.app, world, rng, self.mode)
