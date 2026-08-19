@@ -40,6 +40,20 @@ SEED_RESERVE = 6
 #: surrounded by drink.
 FOOD_RESERVE_DAYS = 8
 
+#: Levels of dry rock that have to lie between the ground and the water table.
+#: Four, because the fortress needs somewhere to put its stairway, its
+#: workshops and its bedrooms before the water starts, and because a stairway
+#: that meets the water on its first step down cannot be continued from
+#: anywhere: the one cell you could stand in to cut the next step is at the
+#: bottom of the flooded shaft.
+AQUIFER_CLEARANCE = 4
+
+#: How many wet cells make an aquifer rather than a damp patch. A z-level is
+#: 4800 cells and the caverns eat most of any one of them -- a quarter of a
+#: layer is about as much solid rock as there ever is -- so this is a floor
+#: counted in cells rather than a share of the level.
+AQUIFER_CELLS = 200
+
 #: Item kinds that count as the fortress's larder.
 FOOD_KINDS = ("meat", "cooked_meat", "prepared_meal", "bread", "cheese",
               "fish_food", "plump_helmet", "berries", "cave_wheat")
@@ -228,9 +242,11 @@ class Fortress:
     def _say_what_the_ground_is(self) -> None:
         """Tell the player where the farmland is, because it is not obvious.
 
-        The surface of a fortress map is ramps, trees and undergrowth, and
-        almost none of it is nine flat tiles of open ground. The soil is
-        underneath it, a level or two down, and finding that out by failing
+        Half the surface of an embark is level enough to build on now, but
+        nine tenths of that has a tree standing in it -- measured, 2010 of
+        2182 three-by-three patches on one map -- so the open ground you can
+        put a farm plot on today is a handful of clearings. The soil is also
+        underneath you, a level or two down, and finding that out by failing
         to place a farm plot is a worse way to learn it.
         """
         tid = tile_data.soil_tile(self.local.soil)
@@ -256,36 +272,65 @@ class Fortress:
         if not rng.chance(0.25 + tile.rainfall * 0.45):
             return
         lm = self.local
-        # Pick a layer that is actually mostly rock. Choosing by depth below
-        # the surface puts the aquifer in open air on a map with a valley in
-        # the middle of it.
-        best_z, best = None, 0
+        # Pick a layer that is actually rock, and rock with ground over it.
+        # Depth below the surface as a single number for the whole map puts
+        # the aquifer in open air wherever there is a valley in the middle of
+        # one, which is why it used to be chosen by absolute z; asked per
+        # column it is safe again.
+        best_z = None
         top = max(lm.surface) if lm.surface else 0
-        # Above the warm stone: wet rock over the magma sea is not wet for
-        # long, and an aquifer inside the sea is not an aquifer at all.
-        for z in range(self.magma_floor + 2, min(top, lm.zmax)):
+
+        def soaks(x: int, y: int, z: int) -> bool:
+            """Whether this cell of the layer holds water.
+
+            Rock, and rock with enough dry rock over it. An aquifer wets a
+            whole z-level and there is no pump in this game to beat one, so
+            the level it takes is a level the fortress can never dig through:
+            met deep that is the bottom of the fortress, met on the first step
+            down out of the wagon it is the end of it. The shaft fills to the
+            brim, the only cell anybody could stand in to cut the next step is
+            under seven units of water, and every room below is filed away as
+            unreachable for ever. Measured over ten embarks: four had an
+            aquifer, on two of them it lay within one level of the wagon, and
+            those two painted sixty-two cells for digging, dug none of them,
+            and stood seven dwarves idle for a year while the driver reported
+            the fortress fine.
+
+            Asked per column rather than per layer, so the water table stops
+            where the ground dips towards it instead of the whole map losing
+            its aquifer to one gully.
+            """
+            t = tile_data.get(lm.tile(x, y, z))
+            return (t.has("DIGGABLE") and t.has("WALL")
+                    and lm.surface_z(x, y) - z >= AQUIFER_CLEARANCE)
+
+        # The shallowest layer that soaks most of the map, searched downward
+        # from the ground. Scoring layers and taking the best one sounds the
+        # same and is not: a shallow layer only qualifies under the high
+        # ground, so it soaks fewer columns than a deep one and loses on
+        # count, and the aquifer sinks to the floor of the diggable rock where
+        # nobody ever meets it. Above the warm stone either way -- wet rock
+        # over the magma sea is not wet for long, and an aquifer inside the
+        # sea is not an aquifer at all.
+        for z in range(min(top, lm.zmax) - 1, self.magma_floor + 1, -1):
             count = 0
             for y in range(0, lm.height, 2):
                 for x in range(0, lm.width, 2):
-                    t = tile_data.get(lm.tile(x, y, z))
-                    if t.has("DIGGABLE") and t.has("WALL"):
+                    if soaks(x, y, z):
                         count += 1
-            # Shallower layers are more interesting: an aquifer you only meet
-            # at the bottom of the map is an aquifer you never meet.
-            score = count * (1.0 + 0.15 * (z - lm.zmin))
-            if score > best:
-                best_z, best = z, score
+            # The sample takes one cell in four.
+            if count * 4 >= AQUIFER_CELLS:
+                best_z = z
+                break
         if best_z is None:
             return
         z = best_z
         wet = set()
         for y in range(lm.height):
             for x in range(lm.width):
-                tid = lm.tile(x, y, z)
-                if tile_data.get(tid).has("DIGGABLE") \
-                        and tile_data.get(tid).has("WALL"):
+                if soaks(x, y, z):
                     wet.add((x, y, z))
-        if len(wet) < 200:
+        if len(wet) < AQUIFER_CELLS:
             return
         self.aquifer = wet
         self.log.info("The rock here is damp. There is water in it somewhere.")
@@ -1228,14 +1273,23 @@ class Fortress:
 
         art_mod.engrave(self, dwarf, job.cell)
 
-    def _finish_chop(self, dwarf, job: Job) -> None:
-        cell = job.cell
+    def fell_tree(self, cell: Cell) -> None:
+        """Take a tree down and leave the log where it fell.
+
+        The one place a tree stops being a tree. A felled trunk leaves grass
+        behind, which is soil, which will take a farm -- so on a wooded embark
+        the ground you can build on is the ground you have cleared, and
+        anything that wants a level site has to be able to ask for this.
+        """
         self.dig_out(cell, "grass")
         above = (cell[0], cell[1], cell[2] + 1)
         if self.local.in_bounds(*above) and self.local.tile(*above) == "tree":
             self.dig_out(above, "air")
         self.drop_item(Item("log", self.rng.choice(["oak", "pine", "willow"])),
                        *cell)
+
+    def _finish_chop(self, dwarf, job: Job) -> None:
+        self.fell_tree(job.cell)
 
     def _finish_fish(self, dwarf, job: Job) -> None:
         """A dwarf comes back from the water, with or without anything."""

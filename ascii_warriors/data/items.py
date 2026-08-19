@@ -419,7 +419,7 @@ _add(ItemDef("cloth", "cloth", "cloth", "misc", "'", 200, 10, ("ORGANIC",),
 _add(ItemDef("ore", "ore", "ore", "misc", "*", 3000, 6, ("METAL",), stack=True,
              description="Rock with metal in it. Worthless until smelted."))
 _add(ItemDef("sand", "bag of sand", "bags of sand", "misc", "\u00b7", 1200, 2,
-             ("SOIL",), stack=True,
+             ("SAND",), stack=True,
              description="Scooped off the desert. A glass furnace turns it "
                          "into things a fortress with no wood and no metal "
                          "can still sell."))

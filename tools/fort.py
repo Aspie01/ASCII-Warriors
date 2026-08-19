@@ -22,11 +22,11 @@ import collections
 import os
 import sys
 import tempfile
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from ascii_warriors.data.calendar import TICKS_PER_DAY
 from ascii_warriors.engine.rng import RNG
-from ascii_warriors.fortress import sim
+from ascii_warriors.fortress import buildings, sim
 from ascii_warriors.fortress.buildings import Building
 from ascii_warriors.fortress.fortress import Fortress
 from ascii_warriors.ui.fort.embark import suggest_site
@@ -46,16 +46,100 @@ ROOM_H = 7
 WOOD_WANTED = 60
 PLANTS_WANTED = 20
 
+#: How far from open water the stairway starts, and how deep the rock under
+#: it has to go.
+DRY_MARGIN = 4
+DEEP_ENOUGH = 4
+
+#: How far from the wagon the fortress may be sunk. Everything the seven
+#: brought with them is lying beside the wagon, so the stairway goes near it.
+SITE_RANGE = 30
+
+
+def _dry_ground(fort, x, y):
+    """Somewhere near the wagon to sink a stairway that will not fill up.
+
+    The wagon stops on the flattest open ground near the middle of the map,
+    and beside a lake that is the shore. Sinking the stairway there puts a
+    hole below the waterline one tile from the water: the shaft fills to the
+    brim, the only cell anybody could stand in to cut the next step is under
+    seven units of water, and every room below is filed away as unreachable
+    for ever. Measured on this driver's own embark -- sixty-two cells painted
+    for digging, none dug, seven dwarves idle for a year, and a FORT OK on the
+    way out because the wood kept coming in from the surface.
+
+    A player picks somewhere dry. So does this: level ground away from open
+    water, with rock under it worth digging into.
+    """
+    lm = fort.local
+    for r in range(0, SITE_RANGE):
+        for dy in range(-r, r + 1):
+            for dx in range(-r, r + 1):
+                if max(abs(dx), abs(dy)) != r:
+                    continue
+                sx, sy = x + dx, y + dy
+                sz = lm.surface_z(sx, sy)
+                if not lm.in_bounds(sx, sy, sz):
+                    continue
+                if not lm.walkable(sx, sy, sz) or not lm.is_outside(sx, sy, sz):
+                    continue
+                if _water_near(fort, sx, sy, sz):
+                    continue
+                if _rock_below(fort, sx, sy, sz) < DEEP_ENOUGH:
+                    continue
+                return (sx, sy, sz)
+    return None
+
+
+def _water_near(fort, x, y, z) -> bool:
+    """Open water within `DRY_MARGIN`, at this level or above it.
+
+    Above it, because water runs downhill into the hole and not up out of it.
+    """
+    lm = fort.local
+    for dy in range(-DRY_MARGIN, DRY_MARGIN + 1):
+        for dx in range(-DRY_MARGIN, DRY_MARGIN + 1):
+            cell = (x + dx, y + dy)
+            if not lm.in_bounds(cell[0], cell[1], z):
+                continue
+            wz = lm.surface_z(*cell)
+            if wz >= z and tile_data.get(lm.tile(cell[0], cell[1],
+                                                 wz)).has("WATER"):
+                return True
+    return False
+
+
+def _rock_below(fort, x, y, z) -> int:
+    """How many levels of diggable rock lie straight under a cell."""
+    lm = fort.local
+    deep = 0
+    for zz in range(z - 1, lm.zmin - 1, -1):
+        t = tile_data.get(lm.tile(x, y, zz))
+        if not (t.has("DIGGABLE") and t.has("WALL")):
+            break
+        deep += 1
+    return deep
+
+
+def _home(fort):
+    """Where this fortress is.
+
+    The stairway head, or the wagon if there is nowhere better. Asked in one
+    place, so the workshops go up where the stairway went down.
+    """
+    wagon = fort.wagon if getattr(fort, "wagon", None) else fort._wagon_site()
+    return _dry_ground(fort, wagon[0], wagon[1]) or wagon
+
 
 def _dig_out_the_fortress(fort) -> Dict[str, int]:
-    """Designate a stairway down and a floor of rooms under the wagon.
+    """Designate a stairway down and a floor of rooms under the fortress.
 
     Painted as designations rather than carved with `dig_out`, because the
     point is to watch dwarves do it: a job that nobody claims is exactly the
     kind of thing this driver exists to catch.
     """
     lm = fort.local
-    x, y, z = fort.wagon if getattr(fort, "wagon", None) else fort._wagon_site()
+    x, y, z = _home(fort)
     counts = collections.Counter()
     for dz in range(0, 4):
         if lm.in_bounds(x, y, z - dz) and fort.designations.set(
@@ -95,54 +179,113 @@ def _dig_out_the_fortress(fort) -> Dict[str, int]:
     return dict(counts)
 
 
-def _clear_spot(fort, x, y, z, w, h, taken, *, soil=False):
-    """The nearest patch of open ground big enough, searching outward."""
+def _clear_spot(fort, x, y, w, h, taken, *, soil=False):
+    """The nearest site big enough to take a building, searching outward.
+
+    On the *ground*, not on the wagon's z. An embark is hilly, so a patch of
+    level ground at exactly the wagon's height often does not exist; the
+    search ran on one z-plane, found nothing, and `_put_up_the_workshops`
+    skipped the building without a word. Measured on the driver's own embark:
+    two farm plots quietly not built, nothing grown all year, and seven
+    dwarves starved on day sixteen with the run reporting FORT OK because it
+    stopped on day seven.
+
+    A tree standing on the site does not disqualify it. Nine tenths of the
+    level ground on a wooded embark has a trunk somewhere in it -- measured,
+    2010 of 2182 three-by-three patches on one map -- and clearing them is
+    what a player does before building. The caller fells what it finds.
+
+    Returns ``(x, y, z)``, because which floor it found matters.
+    """
     lm = fort.local
-    for r in range(1, 22):
+    # The whole map, nearest first. A workshop is not much use forty tiles
+    # from the stairway, but "there is nowhere on this map to put a farm" is
+    # worth knowing and "there is nowhere within thirty tiles" is not: the
+    # report carries how far it had to go.
+    for r in range(1, max(lm.width, lm.height)):
         for dy in range(-r, r + 1):
             for dx in range(-r, r + 1):
                 if max(abs(dx), abs(dy)) != r:
                     continue
                 sx, sy = x + dx, y + dy
-                cells = [(sx + a, sy + b, z)
+                # Level with the ground under the corner, whatever height
+                # that is.
+                sz = lm.surface_z(sx, sy)
+                if not lm.in_bounds(sx, sy, sz):
+                    continue
+                cells = [(sx + a, sy + b, sz)
                          for a in range(w) for b in range(h)]
                 if any(c in taken for c in cells):
                     continue
-                if not all(lm.walkable(*c) and lm.is_outside(*c)
-                           for c in cells):
+                if not all(lm.in_bounds(*c) and lm.is_outside(*c)
+                           and lm.surface_z(c[0], c[1]) == sz for c in cells):
                     continue
-                if soil and not all(
-                        tile_data.get(lm.tile(*c)).has("SOIL") for c in cells):
+                tiles = [tile_data.get(lm.tile(*c)) for c in cells]
+                if any(t.has("WATER") for t in tiles):
                     continue
-                return (sx, sy)
+                # A felled trunk leaves grass, so a tree is both walkable
+                # ground and soil once it is down.
+                if not all(t.walk or t.has("TREE") for t in tiles):
+                    continue
+                if soil and not all(t.has("SOIL") or t.has("TREE")
+                                    for t in tiles):
+                    continue
+                return (sx, sy, sz)
     return None
 
 
-def _put_up_the_workshops(fort) -> List[str]:
-    """A still, a farm, a carpenter and beds, on the surface beside the wagon.
+def _put_up_the_workshops(fort) -> Tuple[List[str], List[str], int, int]:
+    """A still, two farms, a carpenter and beds, out by the stairway.
 
     Built rather than queued as construction jobs: this driver is about what
     the fortress does with its workshops over a year, and a first season spent
-    watching nobody haul a boulder is a different test.
+    watching nobody haul a boulder is a different test. The trees on each site
+    come down the same way -- instantly, and for free. That is the same cheat
+    as the building, and it buys the driver the same thing: a fortress that is
+    already playing on the morning of day one.
+
+    The last word on whether a building fits belongs to `can_place`, the rule
+    the player builds by. A site this function likes and the game refuses is
+    reported as a miss rather than built anyway; the driver is not allowed its
+    own idea of buildable ground.
     """
-    x, y, z = fort._wagon_site()
+    x, y, _z = _home(fort)
     taken = set()
     for b in fort.buildings:
         taken.update(b.cells())
     put: List[str] = []
-    plan = [("farm", 3, 3), ("farm", 3, 3), ("still", 3, 3),
-            ("carpenter", 3, 3)] + [("bed", 1, 1)] * 7
-    for kind, w, h in plan:
-        spot = _clear_spot(fort, x, y, z, w, h, taken,
-                           soil=kind in ("farm",))
+    missed: List[str] = []
+    felled = 0
+    furthest = 0
+    plan = ["farm", "farm", "still", "carpenter"] + ["bed"] * 7
+    for kind in plan:
+        k = buildings.KINDS[kind]
+        spot = _clear_spot(fort, x, y, k.width, k.height, taken,
+                           soil=kind in buildings.SOIL_KINDS)
         if spot is None:
+            # Recorded rather than shrugged off. A driver that cannot put up
+            # the one building that feeds everybody has not tested the
+            # fortress, it has tested starvation.
+            missed.append("%s: nowhere on the map" % kind)
             continue
-        b = Building(kind, spot[0], spot[1], z)
+        sx, sy, sz = spot
+        furthest = max(furthest, max(abs(sx - x), abs(sy - y)))
+        for cell in [(sx + a, sy + b, sz)
+                     for a in range(k.width) for b in range(k.height)]:
+            if tile_data.get(fort.local.tile(*cell)).has("TREE"):
+                fort.fell_tree(cell)
+                felled += 1
+        ok, why = buildings.can_place(fort.local, kind, sx, sy, sz,
+                                      fort.buildings)
+        if not ok:
+            missed.append("%s: %s" % (kind, why))
+            continue
+        b = Building(kind, sx, sy, sz)
         b.built = True
         fort.buildings.append(b)
         taken.update(b.cells())
         put.append(kind)
-    return put
+    return put, missed, felled, furthest
 
 
 def _queue_the_orders(fort) -> List[str]:
@@ -231,7 +374,7 @@ def play(seed: str, days: int, *, size: str = "small", history: int = 60,
 
     dug = _dig_out_the_fortress(fort)
     painted = dict(collections.Counter(fort.designations.cells.values()))
-    built = _put_up_the_workshops(fort)
+    built, unbuilt, felled, furthest = _put_up_the_workshops(fort)
     orders = _queue_the_orders(fort)
     water = sum(1 for z in range(lm.zmin, lm.zmax + 1)
                 for y in range(lm.height) for x in range(lm.width)
@@ -240,7 +383,8 @@ def play(seed: str, days: int, *, size: str = "small", history: int = 60,
 
     out: Dict[str, Any] = {
         "seed": seed, "at": (wx, wy), "designated": dug, "painted": painted,
-        "built": built,
+        "built": built, "unbuilt": unbuilt, "felled": felled,
+        "furthest_build": furthest,
         "orders": orders, "water_cells": water, "aquifer": len(fort.aquifer),
         "started_with": start, "days": 0, "low_food": None, "low_drink": None,
     }
@@ -304,10 +448,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     out = play(args.seed, args.days, size=args.size, history=args.history,
                report=report)
     if not args.quiet:
-        for key in ("at", "painted", "done", "left", "built", "orders",
-                    "water_cells", "aquifer", "started_with", "alive", "idle",
-                    "deaths", "food", "drink", "wealth", "beds", "days",
-                    "searches"):
+        for key in ("at", "painted", "done", "left", "built", "unbuilt",
+                    "felled", "furthest_build", "orders", "water_cells",
+                    "aquifer",
+                    "started_with", "alive", "idle", "deaths", "food", "drink",
+                    "wealth", "beds", "days", "searches"):
             print("  %-13s %s" % (key, out[key]))
 
     # What this driver can honestly assert is about the *job board*: a
@@ -317,6 +462,20 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     # done does not.
     problems = []
     done = out["done"]
+    if out["unbuilt"]:
+        # A building the driver could not put up is a building the player
+        # could not put up either: the site search asks the game's own
+        # `can_place`. Silence here is how two farm plots went missing and
+        # nobody noticed until the fortress starved.
+        problems.append("could not put up: %s" % "; ".join(out["unbuilt"]))
+    if done.get("dig", 0) == 0 and out["painted"].get("dig", 0) > 10:
+        # Everything underground hangs off this. A fortress that cannot cut
+        # its stairway files every room below as unreachable and then stands
+        # about for a year, and the only thing that showed on the surface was
+        # that the wood kept coming in.
+        problems.append("%d cells painted for digging, none dug, %d of %d "
+                        "idle" % (out["painted"]["dig"], out["idle"],
+                                  out["alive"]))
     if sum(done.values()) == 0:
         problems.append("not one designated cell was worked in %d days"
                         % out["days"])

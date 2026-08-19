@@ -113,9 +113,10 @@ SOIL
 
 Nothing grows on rock. Every map has a sheet of soil a level or two under the
 surface -- loam in the green places, sand in the desert, mud in a swamp, and
-on a glacier nothing at all. The outdoors is ramps, trees and undergrowth and
-will rarely take a plot; dig a room out of the soil instead, and the floor the
-miners leave behind them is what you farm.
+on a glacier nothing at all. There is level ground outside, but nearly all of
+it is under trees: clear a stand and you can put a plot on the grass. Or dig a
+room out of the soil instead, and the floor the miners leave behind them is
+what you farm.
 
 Below the soil there is only stone. If you want to farm down there, flood the
 chamber -- a channel from the river, or an aquifer you were going to have to

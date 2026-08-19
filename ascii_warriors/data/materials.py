@@ -258,8 +258,11 @@ for _gid, _gname, _gcol, _gval in (
 # swaps an unknown material for iron rather than complain.
 _add(_m("dirt", "dirt", "earthen", "soil", 1300, colors.SOIL,
         1000, 1000, 200, 200, 0, 1, ("SOIL",), 12000))
+# SAND as well as SOIL: a bag of sand is sand, and "SOIL" is a flag on dirt
+# and mud too, so the bag's material was a roll of three and one seed in three
+# produced a muddy bag of sand.
 _add(_m("sand", "sand", "sand", "soil", 1600, colors.SAND,
-        1000, 1000, 200, 200, 0, 1, ("SOIL",), 13000))
+        1000, 1000, 200, 200, 0, 1, ("SOIL", "SAND"), 13000))
 _add(_m("mud", "mud", "muddy", "soil", 1700, colors.Color(96, 76, 56),
         1000, 1000, 200, 200, 0, 1, ("SOIL",), 12000))
 

@@ -12,6 +12,7 @@ from ascii_warriors.engine.pathfind import bfs_reachable
 from ascii_warriors.engine.rng import RNG
 from ascii_warriors.game.state import Game
 from ascii_warriors.world import legends, tiles
+from ascii_warriors.world import localmap as localmap_mod
 from ascii_warriors.world.localmap import LocalMap, generate_local
 from ascii_warriors.world.worldgen import World, generate_world, summarize, world_hash
 
@@ -396,6 +397,43 @@ class TestLocalMap(unittest.TestCase):
                                   site=site)
         x, y, z = lm.central_open(RNG("q"))
         self.assertTrue(lm.walkable(x, y, z))
+
+    def test_the_finest_terrain_octave_stays_under_nyquist(self):
+        """A wave shorter than two tiles cannot be drawn on a tile grid.
+
+        `fbm` doubles the frequency each octave, so the finest one runs at
+        ``DETAIL_FREQ * 2 ** (DETAIL_OCTAVES - 1)`` cycles per tile. This was
+        0.12 over four octaves -- 0.96, a full rise and fall inside one stride
+        -- and what landed on the map was not that wave but the aliasing of
+        it: ground that changed height every other tile. Held to a quarter
+        cycle, a slope takes four tiles to climb a level.
+        """
+        finest = localmap_mod.DETAIL_FREQ * 2 ** (localmap_mod.DETAIL_OCTAVES - 1)
+        self.assertLessEqual(finest, 0.25, "terrain detail past Nyquist")
+
+    def test_an_embark_has_level_ground_on_it(self):
+        """Somewhere to stand a workshop, without digging first.
+
+        Every workshop in the game is three by three and will not straddle a
+        step. With the detail noise aliasing, one three-by-three patch in nine
+        was level on a fortress map and almost all of those had a tree in
+        them: 21 places on a whole 80x60 embark would take a workshop and two
+        of those were soil, so a fortress could put up one farm plot and
+        starve. Measured here: 11% of patches before, 48% after.
+        """
+        land = [(x, y) for (x, y) in self.world.land_tiles()
+                if self.world.tile(x, y).site_id is None]
+        wx, wy = land[len(land) // 2]
+        lm, _pop = generate_local(self.world, wx, wy, RNG("flat"))
+        sz = [[lm.surface_z(x, y) for y in range(lm.height)]
+              for x in range(lm.width)]
+        windows = (lm.width - 2) * (lm.height - 2)
+        level = sum(1 for x in range(lm.width - 2)
+                    for y in range(lm.height - 2)
+                    if len({sz[x + a][y + b] for a in range(3)
+                            for b in range(3)}) == 1)
+        self.assertGreater(level * 100 // windows, 30,
+                           "%d of %d 3x3 patches are level" % (level, windows))
 
     def test_round_trip(self):
         wx, wy = self.world.land_tiles()[0]

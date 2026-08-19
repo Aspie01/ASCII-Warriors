@@ -26,6 +26,25 @@ Z_ABOVE = 4
 #: valleys deeper, and a fortress embarks at the bottom of a new canyon.
 SURFACE_DROP = 8
 
+#: Detail noise for the local surface, in cycles per tile.
+#:
+#: A tile is a stride wide and a z-level is a step high, so the finest octave
+#: of terrain has to be slower than the grid it is drawn on: sample a wave
+#: shorter than two tiles and what lands on the map is not that wave but the
+#: aliasing of it. This ran at 0.12 over four octaves -- a finest octave of
+#: 0.96 cycles per tile, a full rise and fall inside a single stride, past
+#: Nyquist and into noise. It showed: ``ramp_up`` was the commonest surface
+#: tile on four of five measured embarks, beating grass; 90% of three-by-three
+#: patches were not level; and of 4524 places to stand a workshop on one
+#: measured map, 21 were flat enough and 2 of those were soil, so a fortress
+#: could build one farm and starve.
+#:
+#: Held to a finest octave of a quarter cycle per tile -- a slope takes four
+#: tiles to climb a level -- the same relief comes out as plateaus with hills
+#: between them, which is what a hillside looks like.
+DETAIL_FREQ = 0.045
+DETAIL_OCTAVES = 3
+
 
 class LocalMap:
     """A three-dimensional grid of terrain tiles."""
@@ -445,7 +464,8 @@ def _build_heightmap(
             top = corners[(0, 0)] * (1 - fx) + corners[(1, 0)] * fx
             bot = corners[(0, 1)] * (1 - fx) + corners[(1, 1)] * fx
             e = top * (1 - fy) + bot * fy
-            detail = noise.fbm(x * 0.12, y * 0.12, 4) * 0.5 + 0.5
+            detail = noise.fbm(x * DETAIL_FREQ, y * DETAIL_FREQ,
+                               DETAIL_OCTAVES) * 0.5 + 0.5
             local = ((e - base) * 40.0) * flatten + (detail - 0.5) * relief * 1.8
             floor_z = max(zmin + 2, -SURFACE_DROP)
             heights[y * w + x] = max(floor_z, min(zmax - 2, int(round(local))))

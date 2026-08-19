@@ -63,9 +63,10 @@ fortnight of both, and no more. A farm plot of plump helmets feeds six dwarves;
 a second plot gives the still enough surplus to brew. Get that loop running
 before the wagon empties, because a fortress without drink is a short one.
 
-Nothing grows on rock, and the outdoors is ramps, trees and undergrowth. The
-farmland is the sheet of soil a level or two under the surface, so the first
-thing a fortress does is dig for it.
+Nothing grows on rock, and the level ground outside is nearly all under trees.
+Fell a stand and the grass will take a plot; or dig for the sheet of soil a
+level or two under the surface, which is the farmland a fortress can always
+count on.
 
 Then migrants arrive and eat it all. Then goblins arrive, and you find out
 whether your militia trained. Then somebody is seized by a strange mood and

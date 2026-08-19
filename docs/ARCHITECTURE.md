@@ -4066,7 +4066,11 @@ ramps and channels are unchanged — nobody farms a staircase.
 **Why the surface is not the answer.** The outdoors is 41% `ramp_up` and
 another 27% trees and shrubs; nine flat tiles of grass in a row is rare enough
 that the map above offered one of them. That is not a bug to fix, it is the
-shape of the game: the fortress digs a room in the soil a level down and farms
+shape of the game — *wrong on the first half, and §127 says why: the ramps
+were the terrain noise aliasing, and once it was slowed down to something a
+tile grid can draw, `ramp_up` fell from 36% of the surface to 16% and grass
+became the commonest tile on the map. The trees are real, and the rest of this
+paragraph stands*: the fortress digs a room in the soil a level down and farms
 there, which is where a Dwarf Fortress player puts the farm anyway, and it is
 safer from whatever is outside. The founding log says so in as many words, and
 so does the build menu when it refuses a plot.
@@ -6683,7 +6687,265 @@ only fails with both reverted -- and it is worth having anyway, because what
 it asserts is the thing the player cares about: walking the cursor down every
 row of the equipment screen does not end the game.
 
-## 127. Style
+## 127. Ground you can build on (v3.67)
+
+A fortress played properly for a year, rather than for the seven days
+`tools/fort` stops at:
+
+```
+day 16: everybody died -- starved, thirsted and forgotten
+```
+
+The driver's own report for the same embark, one line, exit code zero:
+
+```
+FORT OK: fort, 7 days, 7 alive of 7
+built ['still', 'carpenter', 'bed', 'bed', 'bed', 'bed', 'bed', 'bed', 'bed']
+```
+
+Nine buildings out of a plan of eleven. The two missing were the farms, and
+nothing said so: `_put_up_the_workshops` could not find anywhere to put them
+and moved on to the next entry with a bare `continue`. Nobody grew anything
+all year and the run stopped nine days before it mattered.
+
+### 127.1. What the ground was made of
+
+`_clear_spot` searched one z-plane — the wagon's — for a level three-by-three.
+The reason it kept finding nothing is the terrain itself:
+
+| measured over one 80x60 embark | before | after |
+| --- | ---: | ---: |
+| commonest surface tile | `ramp_up` (1743) | `grass` (2021) |
+| `ramp_up` columns | 1743 | 787 |
+| neighbouring columns at different heights | 31% | 14% |
+| level three-by-three patches | 449 of 4524 | 2182 of 4524 |
+| patches that would take a workshop today | 21 | 60 |
+| ...and that would take a farm plot | 2 | 10 |
+
+Two flat squares on an entire map, overlapping, so one farm. The cause is one
+line of `_build_heightmap`:
+
+```python
+detail = noise.fbm(x * 0.12, y * 0.12, 4) * 0.5 + 0.5
+```
+
+`fbm` doubles the frequency each octave, so four octaves from 0.12 put the
+finest one at **0.96 cycles per tile**: a full rise and fall inside a single
+stride, against a Nyquist limit of 0.5 for a grid you sample once per tile.
+What landed on the map was not that wave, it was the aliasing of it — and
+after `int(round(...))` the aliasing is a one-tile step. The ground was
+sandpaper, not landscape.
+
+```python
+DETAIL_FREQ = 0.045
+DETAIL_OCTAVES = 3
+```
+
+Finest octave 0.18 cycles per tile: a slope takes four tiles to climb a level,
+which is what a hillside does. The large-scale relief is untouched — the same
+embark still spans the same seven z-levels — so what changed is that the
+levels come in plateaus instead of spatter. The test is arithmetic, and it is
+the rule rather than the number: `DETAIL_FREQ * 2 ** (DETAIL_OCTAVES - 1)` may
+not exceed a quarter cycle per tile.
+
+Nine tenths of the level ground is still under trees (2010 of 2182 patches),
+which is what a forest is, and clearing it is the player's job.
+
+### 127.2. The aquifer under the topsoil
+
+The driver's own embark still dug nothing at all: sixty-two cells painted,
+none dug, seven dwarves idle for a year, and the wood kept coming in from the
+surface so the run reported OK. Digging the stairway one step at a time and
+watching the water:
+
+```
+dig (40, 30, -8)  tile=grass      aquifer=False   shaft dry
+dig (40, 30, -9)  tile=soil_wall  aquifer=True    shaft: z=-9 water 7
+```
+
+The aquifer was the *first* layer under the grass. `_lay_aquifer` scored
+candidate layers with a bonus for being shallow — "an aquifer you only meet at
+the bottom of the map is an aquifer you never meet" — and on a low-lying
+embark the shallowest mostly-rock layer is the one directly under the topsoil.
+
+That is not an obstacle, it is a wall. An aquifer wets a whole z-level, there
+is no pump in this game, and the one cell anybody could stand in to cut the
+next step down is at the bottom of the flooded shaft. `_prune` files every
+designation below it as unreachable and retries them for ever.
+
+Measured over ten embarks: four had an aquifer, and on two of those it lay
+within one level of the wagon. So the layer is chosen per column now:
+
+```python
+def soaks(x, y, z):
+    t = tile_data.get(lm.tile(x, y, z))
+    return (t.has("DIGGABLE") and t.has("WALL")
+            and lm.surface_z(x, y) - z >= AQUIFER_CLEARANCE)
+```
+
+Per column rather than per layer, so the water table stops where the ground
+dips towards it instead of the whole map losing its aquifer to one gully.
+
+And the layer is taken rather than scored — the shallowest one that soaks
+`AQUIFER_CELLS` cells, searched downward from the ground:
+
+```python
+for z in range(min(top, lm.zmax) - 1, self.magma_floor + 1, -1):
+    if count * 4 >= AQUIFER_CELLS:
+        best_z = z
+        break
+```
+
+Scoring layers and taking the best sounds like the same thing and is not.
+With clearance in the test, a shallow layer only qualifies under the high
+ground, so it soaks fewer columns than a deep one and loses on count: keeping
+the old `count * (1 + 0.15 * (z - zmin))` sank every aquifer to the floor of
+the diggable rock at z=-10, one level above the warm stone, where nobody would
+ever meet it. "The shallowest layer that is really an aquifer" is the rule the
+comment always claimed and the arithmetic never quite said.
+
+Over the same ten embarks the count is unchanged at three in ten, and the
+depths moved from -10, -10, -9 to -8, -9, -8. The shallowest wet cell on any
+of them is four levels under its own patch of ground, which is the guarantee
+that makes the difference: a fortress always has somewhere dry to start.
+
+### 127.3. And a stairway sunk in a lake
+
+That fixed two embarks and not the third, which had no aquifer at all and
+still flooded. `_wagon_site` picks the flattest, most open ground near the
+middle of the map — and beside a lake, that is the shore. The wagon stopped
+one tile from open water and the driver sank its stairway where the wagon
+stood.
+
+The wagon is not wrong to stop there; migrants and caravans arrive at it. The
+driver was wrong to dig there, so it looks for somewhere dry first:
+
+```python
+def _home(fort):
+    wagon = fort.wagon if getattr(fort, "wagon", None) else fort._wagon_site()
+    return _dry_ground(fort, wagon[0], wagon[1]) or wagon
+```
+
+Level ground within `SITE_RANGE` of the wagon, no open water within
+`DRY_MARGIN` **at or above** that level — water runs downhill into the hole and
+not up out of it — and `DEEP_ENOUGH` levels of diggable rock underneath it.
+The workshops go up around the same spot, because a fortress is one place.
+
+### 127.4. What the driver says now
+
+Three things it did not say before:
+
+- **The buildings it could not put up.** `_put_up_the_workshops` returns
+  `(built, missed, felled, furthest)`, and a non-empty `missed` fails the run.
+  The search covers the whole map rather than thirty tiles, because "there is
+  nowhere on this map to put a farm" is worth knowing and "nowhere within
+  thirty tiles" is not; how far it had to walk is in the report instead.
+- **The last word on a site belongs to the game.** The driver pre-filters, and
+  then asks `buildings.can_place` — the same call the build menu makes. A site
+  the driver likes and the game refuses is reported as a miss rather than
+  built anyway. The driver is not allowed its own idea of buildable ground.
+- **Nothing dug.** Sixty-two cells painted for digging, none dug, and every
+  dwarf idle is now a `FORT PROBLEM` and a non-zero exit. That is the invariant
+  that would have caught all of this on the day it appeared.
+
+Trees on the chosen site come down first, through `Fortress.fell_tree` — the
+one place a tree stops being a tree, split out of `_finish_chop` so the driver
+clears ground exactly the way a dwarf does. A felled trunk leaves grass, which
+is soil, which will take a farm.
+
+Across eight seeds, before and after, seven days each:
+
+| | before | after |
+| --- | --- | --- |
+| embarks that built all eleven buildings | 3 of 8 | 8 of 8 |
+| embarks that dug every cell they painted | 6 of 8 | 8 of 8 |
+| embarks that dug nothing at all | 1 of 8 | 0 of 8 |
+
+### 127.5. What a terrain change costs the tests
+
+Ten tests went red, and the ones that mattered were the ones whose fixtures
+had been telling themselves stories. Reverting the terrain alone told them
+apart: eight passed again with the old heightmap, so those were fixtures built
+on the shape of one map; two survived the revert, and both were the aquifer.
+
+- **A "walled-off" cell you can walk to.** `_walled_off` looked for diggable
+  rock with somewhere to stand beside it and called that unreachable. Five of
+  the twelve it handed back were reachable — the caverns now join the surface
+  across the whole map, and the component a dwarf stands in is 22828 cells. It
+  asks the fill now.
+- **Twenty dig jobs nobody could claim.** `_wall` took the first *n* diggable
+  cells in map order. Most of a map's diggable cells are buried inside other
+  diggable cells with no way in, so a test about which job a dwarf picks off a
+  crowded board was handed a board of impossible work.
+- **A workshop across a wall from the wagon.** `_open_spot` asked
+  `can_place`, which answers whether the tiles will take a building and not
+  whether anybody can get at it. The smelter and the furnace ran; the forge
+  went up in a pocket of open floor eighteen tiles away and nobody ever
+  arrived. Both helpers ask the fill now, and the fill they draw is refunded
+  to `fort.reach_fills` so a fixture cannot bill the game for its own
+  scaffolding.
+- **A cow standing on grass.** Two animal tests meant "there is no grass on a
+  mountain" and relied on the cow being somewhere bare. There is more grass
+  than there was — 2021 columns against 1453, because the ramps that used to
+  cover the ground are gone — so the cow grazed instead of eating the store,
+  and instead of starving. They put it on bare ground now.
+- **A bag of sand made of mud.** Not terrain at all: `sand` was the only item
+  in the game whose material came from the `SOIL` flag, so `rng.choice` picked
+  between dirt, sand and mud and the test's seed had been choosing sand. Sand
+  carries a `SAND` flag of its own now. The first attempt let a definition
+  name its material outright instead, which read better and was wrong:
+  `ItemDef.materials` is a tuple of flags everywhere else that touches it, and
+  giving the field a second meaning broke `test_every_recipe_can_still_be_made`
+  three files away.
+- **Two thresholds that disagreed.** The flier test measured "arrived" at
+  eight tiles and "never arrived" at two; one embark's roc now lands between
+  them, closing to four and manoeuvring there without ever standing still. It
+  reads the same constant for both. Its hover count is the longest run rather
+  than the total, because the defect it guards against was eighty steps in one
+  cell and the two steps it now sees at the map edge are a hard tile.
+- **A retreat further than the search can see.** `RETREAT_SEARCH` is 8000
+  nodes and the deepest cell a dwarf can walk to is a hundred and fifteen
+  steps away through the caverns: a route out exists and costs 20000 nodes to
+  find. A besieger routs at the gate, so the test puts its invader in the
+  fortress under it rather than at the bottom of the cave system — and the
+  limit is named below rather than paid for.
+
+### 127.6. Measured and left
+
+- **A farm forty tiles from the stairway.** One seed has almost no surface
+  soil near its fortress, and the whole-map search dutifully found the nearest
+  patch 41 tiles away. The player's answer is the one the founding log already
+  gives — dig a room in the soil sheet and farm underground — and the driver
+  cannot do that until it can build after digging rather than before.
+- **A dwarf starved to death beside forty units of food and six hundred of
+  ale.** Same seed, both before and after this milestone, and it is the next
+  thing worth chasing: it is not about ground at all.
+- **There is no way past an aquifer.** Meeting one is the bottom of your
+  fortress, permanently — no pumps, no casting obsidian, no double-slit. That
+  is now a floor four levels down instead of a wall at the top, which is the
+  difference between an obstacle and an ending, but it is still not the
+  obstacle it should be.
+- **One farm plot barely feeds seven dwarves.** Sixty days on one plot: food
+  hovering between 20 and 70, drink falling steadily from 438 to 30. Two plots
+  is the difference between a fortress and a slow death, which makes the farm
+  the most important building in the game and the one the driver could not
+  place.
+- **A routed invader more than 8000 nodes of walking from a map edge stops
+  where it is** and waits for `FLEE_TICKS` to clear it. That was unreachable
+  before the caverns joined up; it is reachable now, and the honest fix is
+  probably to retreat along the route the army arrived by rather than to
+  search for the sea.
+- **A dwarf can refuse work the fill says it can reach.** `path_to` tries the
+  six nearest standing spots and gives up; the fill says yes if *any* spot is
+  reachable. `test_nobody_refuses_work_the_map_says_they_can_reach` pins the
+  two together for a goal you stand on and not for one you stand beside.
+- **The world map's own noise is past Nyquist too** — `3.4 / max(w, h)` over
+  six octaves puts its finest at about 1.1 cycles per world tile. A world tile
+  is a region rather than a surface you walk on, so the aliasing shows up as
+  speckled biomes rather than as ground you cannot build on, and every world
+  ever generated would change. Measured, named, not touched.
+
+## 128. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).
