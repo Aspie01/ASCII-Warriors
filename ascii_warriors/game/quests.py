@@ -7,6 +7,10 @@ from typing import Any, Dict, List, Mapping, Optional
 from ..data import creatures as creature_data
 from ..engine.rng import RNG
 
+#: How far a bounty will send you. The complaint is that they are taking
+#: *our* livestock, so the answer is somewhere you could walk to and back.
+BOUNTY_RANGE = 4
+
 #: Every kind of quest `generate_quest` can produce. It listed a "deliver"
 #: that had no builder, no progress path and no completion: the word appeared
 #: nowhere else in the project.
@@ -28,6 +32,13 @@ class Quest:
         self.description = description
         self.giver_hf: Optional[int] = None
         self.giver_name = ""
+        #: Where the job was taken. A quest recorded who set it and never
+        #: where they were standing, so "return to Ustuth to claim your
+        #: reward" named a person with no address: walk out of the town and
+        #: the log could not tell you which town it had been.
+        self.giver_site_name = ""
+        self.giver_wx = -1
+        self.giver_wy = -1
         self.target_hf: Optional[int] = None
         self.target_def = ""
         self.site_id: Optional[int] = None
@@ -63,7 +74,12 @@ class Quest:
         out.extend(self.description.split("\n"))
         out.append("")
         if self.giver_name:
-            out.append("Given by %s." % self.giver_name)
+            where = ""
+            if self.giver_wx >= 0:
+                where = " at %s (%d, %d)" % (
+                    self.giver_site_name or "a place you have been",
+                    self.giver_wx, self.giver_wy)
+            out.append("Given by %s%s." % (self.giver_name, where))
         if self.site_name:
             out.append("Location: %s at (%d, %d)." % (self.site_name, self.wx, self.wy))
         else:
@@ -79,6 +95,8 @@ class Quest:
             "id": self.id, "kind": self.kind, "title": self.title,
             "desc": self.description, "giver": self.giver_hf,
             "giver_name": self.giver_name, "target": self.target_hf,
+            "giver_site": self.giver_site_name,
+            "giver_wx": self.giver_wx, "giver_wy": self.giver_wy,
             "target_def": self.target_def, "site": self.site_id,
             "site_name": self.site_name, "artifact": self.artifact_id,
             "wx": self.wx, "wy": self.wy, "reward": self.reward,
@@ -93,6 +111,9 @@ class Quest:
         Quest._next_id = max(Quest._next_id, q.id + 1)
         q.giver_hf = d.get("giver")
         q.giver_name = str(d.get("giver_name", ""))
+        q.giver_site_name = str(d.get("giver_site", ""))
+        q.giver_wx = int(d.get("giver_wx", -1))
+        q.giver_wy = int(d.get("giver_wy", -1))
         q.target_hf = d.get("target")
         q.target_def = str(d.get("target_def", ""))
         q.site_id = d.get("site")
@@ -291,6 +312,9 @@ def generate_quest(rng: RNG, game, giver) -> Optional[Quest]:
             continue
         q.giver_name = giver.display_name()
         q.giver_hf = giver.hf_id
+        home = game.current_site()
+        q.giver_site_name = home.name if home is not None else ""
+        q.giver_wx, q.giver_wy = game.player.wx, game.player.wy
         # People pay a name what a name is worth. A wanderer nobody has heard
         # of is offered the same work for rather less.
         from . import renown as renown_mod
@@ -410,21 +434,64 @@ def _quest_bounty(rng: RNG, game, giver) -> Optional[Quest]:
     options = creature_data.spawnable(here.biome, max_tier=3,
                                       flags_any=("SAVAGE", "EVIL"))
     options = [c for c in options if not c.intelligent or c.has("EVIL")]
+    # Nothing that lives underground. The complaint is that they are taking
+    # livestock out of a field, and a bounty on something the wildlife roll
+    # only ever puts in a cavern sends you to a meadow to look for it.
+    options = [c for c in options if not c.has("SUBTERRANEAN")]
     if not options:
         return None
     defn = rng.choice(options)
     count = rng.randint(3, 7)
+    # Somewhere they actually live. Every other kind of work names a place;
+    # this one pinned the town you were standing in and left the destination
+    # blank, so the log read "Location: (59, 20)" for the square under your
+    # feet and the map marker pointed at the person who sent you.
+    spot = _hunting_ground(rng, game, defn)
+    if spot is None:
+        return None
+    (hx, hy), where = spot
     q = Quest(
         "bounty",
         "Hunt %d %s" % (count, defn.plural),
-        "%s have been taking our livestock and worse. Bring me proof of %d of "
-        "them." % (defn.plural.capitalize(), count),
+        "%s have been taking our livestock and worse, out of %s to the %s. "
+        "Bring me proof of %d of them."
+        % (defn.plural.capitalize(), where,
+           _bearing(game.player.wx, game.player.wy, hx, hy), count),
     )
     q.target_def = defn.id
     q.goal = count
-    q.wx, q.wy = game.player.wx, game.player.wy
+    q.wx, q.wy = hx, hy
+    q.site_name = where
     q.reward = 20 * count + rng.randint(15, 80)
     return q
+
+
+def _hunting_ground(rng: RNG, game, defn):
+    """A wild square near the player where this creature lives.
+
+    Returns ``((wx, wy), name)`` or None. Near, because a bounty is local
+    work: the complaint is that they are taking *our* livestock.
+    """
+    world = game.world
+    px, py = game.player.wx, game.player.wy
+    found = []
+    for wy in range(max(0, py - BOUNTY_RANGE), min(world.height, py + BOUNTY_RANGE + 1)):
+        for wx in range(max(0, px - BOUNTY_RANGE), min(world.width, px + BOUNTY_RANGE + 1)):
+            tile = world.tile(wx, wy)
+            if tile.is_ocean or tile.site_id is not None:
+                continue
+            if (wx, wy) == (px, py):
+                continue
+            if not creature_data.spawnable(tile.biome, max_tier=5):
+                continue
+            if defn not in creature_data.spawnable(tile.biome, max_tier=5):
+                continue
+            found.append((wx, wy))
+    if not found:
+        return None
+    wx, wy = rng.choice(found)
+    region = world.region_at(wx, wy)
+    return ((wx, wy), region.name if region is not None else "the wilds")
 
 
 def _quest_explore(rng: RNG, game, giver) -> Optional[Quest]:

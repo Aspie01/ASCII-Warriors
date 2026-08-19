@@ -3193,6 +3193,71 @@ class TestPlayingTheAdventure(GameFixture):
                            "the driver never moved the clock")
         self.assertLessEqual(out["turns"], 120)
 
+    def test_an_action_that_did_not_happen_does_not_claim_the_turn(self):
+        """It spent 3971 of 4000 turns pressing "drink" with nothing to
+        drink and reported the run as fine."""
+        from tools import play
+
+        why = collections.Counter()
+        p = self.game.player
+        for it in list(p.inventory.items):
+            if it.is_drink:
+                p.inventory.items.remove(it)
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                self.game.local.set_tile(p.x + dx, p.y + dy, p.z, "floor")
+        p.needs.thirst = play.THIRSTY + 5000
+        p.needs.drowsy = 0
+        cost = play._look_after(self.game, why)
+        self.assertIsNone(cost, "a failed drink was billed as a turn")
+        self.assertEqual(why["nothing to drink"], 1)
+
+    def test_the_driver_can_hit_an_animal(self):
+        """`_adjacent_foe` asked `faction == "hostile"` since v3.51, and a
+        wolf's faction is "wild": a wolf could chew through an adventurer who
+        never swung back."""
+        from ascii_warriors.game.entity import make_creature
+        from tools import play
+
+        p = self.game.player
+        wolf = make_creature(self.game.rng, "wolf", faction="wild")
+        wolf.x, wolf.y, wolf.z = p.x + 1, p.y, p.z
+        self.game.add_creature(wolf)
+        self.assertTrue(wolf.is_hostile_to(p))
+        self.assertEqual(play._adjacent_foe(self.game), (1, 0))
+
+    def test_the_driver_gets_out_of_the_water(self):
+        """It stood in a river trading blows with a goblin and drowned."""
+        from tools import play
+
+        why = collections.Counter()
+        game, p = self.game, self.game.player
+        game.local.set_tile(p.x, p.y, p.z, "deep_water")
+        game.local.set_tile(p.x + 1, p.y, p.z, "floor")
+        cost = play._get_out_of_the_water(game, why)
+        self.assertIsNotNone(cost, "it stayed under")
+        self.assertEqual(why["struck out for the bank"], 1)
+        # And it is the first thing `_look_after` asks, above thirst: an
+        # adventurer with its head under water has a more pressing problem.
+        why.clear()
+        game.local.set_tile(p.x, p.y, p.z, "deep_water")   # back in the river
+        game.local.set_tile(p.x + 1, p.y, p.z, "floor")
+        p.needs.thirst = play.THIRSTY + 5000
+        self.assertIsNotNone(play._look_after(game, why))
+        self.assertEqual(why["struck out for the bank"], 1)
+
+    def test_the_driver_takes_work_and_says_what_it_did(self):
+        """The whole point of the errand: it walks into a town, finds
+        somebody who wants something done, and takes it on."""
+        from tools import play
+
+        out = play.play("errandharness", 400, size="pocket", history=20,
+                        report=lambda *a: None)
+        self.assertIn("quests_taken", out)
+        self.assertIn("world_tiles", out)
+        self.assertEqual(out["nowhere"], [],
+                         "it was given work with no destination")
+
 
 class TestTheWild(GameFixture):
     """BENIGN, AMBUSHER and VERMIN, finally read by something."""
@@ -9315,3 +9380,195 @@ class TestTheTavernHasAFloor(unittest.TestCase):
             getattr(x, "text", str(x)) for ln in said
             for x in (ln if isinstance(ln, list) else [ln]))
         self.assertTrue(text.strip(), "nobody in the tavern did anything")
+
+
+class TestTheErrand(unittest.TestCase):
+    """The loop the README spends most of its words on, walked end to end.
+
+    `tools/play` looked after a body -- drink, eat, sleep, hit what is next
+    to it -- and nothing else, for a dozen versions. Travel, a town, somebody
+    to talk to, work to take, a place the work points at, the thing waiting
+    there and the walk back to be paid had never been driven by anything, and
+    six defects were sitting in it.
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.mkdtemp()
+        self._old = os.environ.get("ASCII_WARRIORS_SAVE_DIR")
+        os.environ["ASCII_WARRIORS_SAVE_DIR"] = self._tmp
+        self.rng = RNG("errand")
+        self.world = generate_world(self.rng.sub("w"), size="pocket",
+                                    history_years=30)
+        self.game = Game.new_game(
+            self.world, {"race": "human", "profession": "warrior"}, self.rng)
+
+    def tearDown(self):
+        if self._old is None:
+            os.environ.pop("ASCII_WARRIORS_SAVE_DIR", None)
+        else:
+            os.environ["ASCII_WARRIORS_SAVE_DIR"] = self._old
+
+    def _in_a_town(self):
+        """Stand the player in a settlement and return it."""
+        town = next(s for s in self.world.sites if s.is_settlement)
+        self.game.enter_world_tile(town.wx, town.wy)
+        return town
+
+    def _employer(self):
+        return next(c for c in self.game.creatures.values()
+                    if c.ai and c.ai.role in ("lord", "tavern_keeper", "guard",
+                                              "priest", "merchant"))
+
+    # -- every job names a place -------------------------------------------- #
+
+    def test_every_kind_of_work_says_where_to_go(self):
+        """A bounty pinned the square you were standing on and named no
+        destination at all -- 21 of 21 measured."""
+        from ascii_warriors.game import quests as quest_mod
+
+        self._in_a_town()
+        giver = self._employer()
+        kinds = set()
+        for _ in range(40):
+            self.game.quests = quest_mod.QuestLog()
+            q = quest_mod.generate_quest(self.game.rng, self.game, giver)
+            if q is None:
+                continue
+            kinds.add(q.kind)
+            self.assertTrue(q.site_name, "%s sends you nowhere" % q.kind)
+            self.assertNotEqual(
+                (q.wx, q.wy), (self.game.player.wx, self.game.player.wy),
+                "%s pins the square you are standing on" % q.kind)
+        self.assertGreaterEqual(len(kinds), 3)
+
+    def test_a_job_remembers_where_it_was_taken(self):
+        from ascii_warriors.game import quests as quest_mod
+
+        town = self._in_a_town()
+        giver = self._employer()
+        q = None
+        for _ in range(30):
+            self.game.quests = quest_mod.QuestLog()
+            q = quest_mod.generate_quest(self.game.rng, self.game, giver)
+            if q is not None:
+                break
+        self.assertIsNotNone(q)
+        self.assertEqual((q.giver_wx, q.giver_wy), (town.wx, town.wy))
+        self.assertEqual(q.giver_site_name, town.name)
+        text = "\n".join(q.detail_lines())
+        self.assertIn(town.name, text)
+        back = quest_mod.Quest.from_dict(
+            json.loads(json.dumps(q.to_dict())))
+        self.assertEqual((back.giver_wx, back.giver_wy), (q.giver_wx, q.giver_wy))
+        self.assertEqual(back.giver_site_name, q.giver_site_name)
+
+    # -- and the thing is there when you get there --------------------------- #
+
+    def _bounty(self):
+        from ascii_warriors.game import quests as quest_mod
+
+        self._in_a_town()
+        giver = self._employer()
+        for _ in range(60):
+            q = quest_mod._quest_bounty(self.game.rng, self.game, giver)
+            if q is not None:
+                return q
+        self.fail("no bounty could be built at all")
+
+    def test_what_a_bounty_sends_you_after_is_where_it_sends_you(self):
+        """Measured before this: present on seven arrivals in forty-two."""
+        from ascii_warriors.game import quests as quest_mod
+
+        q = self._bounty()
+        self.game.quests = quest_mod.QuestLog()
+        self.game.quests.accept(q)
+        self.game.enter_world_tile(q.wx, q.wy)
+        here = [c for c in self.game.creatures.values()
+                if c.def_id == q.target_def and not c.body.dead]
+        self.assertTrue(here, "sent to hunt %s where there are none"
+                        % q.target_def)
+
+    def test_there_are_enough_of_them_to_finish_the_job(self):
+        """A group is one to three and a bounty asks for three to seven, so
+        one roll leaves you standing in an empty field with two kills."""
+        from ascii_warriors.game import quests as quest_mod
+
+        checked = 0
+        for _ in range(6):
+            q = self._bounty()
+            self.game.quests = quest_mod.QuestLog()
+            self.game.quests.accept(q)
+            self.game.enter_world_tile(q.wx, q.wy)
+            here = [c for c in self.game.creatures.values()
+                    if c.def_id == q.target_def and not c.body.dead]
+            self.assertGreaterEqual(
+                len(here), q.goal,
+                "sent for %d %s and found %d" % (q.goal, q.target_def,
+                                                 len(here)))
+            checked += 1
+            self._in_a_town()
+        self.assertEqual(checked, 6)
+
+    def test_they_are_there_on_a_map_you_have_already_walked_across(self):
+        """The map cache restores the wildlife that was there before you were
+        sent after anything."""
+        from ascii_warriors.game import quests as quest_mod
+
+        q = self._bounty()
+        self.game.enter_world_tile(q.wx, q.wy)      # cache it, with no job
+        self._in_a_town()
+        self.game.quests = quest_mod.QuestLog()
+        self.game.quests.accept(q)
+        self.game.enter_world_tile(q.wx, q.wy)      # and come back with one
+        here = [c for c in self.game.creatures.values()
+                if c.def_id == q.target_def and not c.body.dead]
+        self.assertGreaterEqual(len(here), q.goal)
+
+    def test_a_bounty_never_sends_you_to_a_field_for_a_cave_dweller(self):
+        from ascii_warriors.data import creatures as creature_data
+
+        self._in_a_town()
+        giver = self._employer()
+        from ascii_warriors.game import quests as quest_mod
+
+        for _ in range(60):
+            q = quest_mod._quest_bounty(self.game.rng, self.game, giver)
+            if q is None:
+                continue
+            self.assertFalse(
+                creature_data.get(q.target_def).has("SUBTERRANEAN"),
+                "sent above ground after %s" % q.target_def)
+
+    # -- and the body you take it with --------------------------------------- #
+
+    def test_an_adventurer_sets_out_able_to_bind_a_wound(self):
+        """Bleeding is what kills an adventurer, and the kit had rope and
+        torches in it and nothing to bind anything with."""
+        from ascii_warriors.game import medical
+
+        p = self.game.player
+        self.assertTrue(p.inventory.by_def("bandage"))
+        ok, why = medical.can_treat(p, "bandage")
+        self.assertTrue(ok, why)
+        ok, why = medical.can_treat(p, "splint")
+        self.assertTrue(ok, why)
+
+    def test_what_you_are_carrying_counts_as_something_to_drink(self):
+        """The fallback reached exactly one item id, so an adventurer with
+        four skins of ale was told there was nothing to drink."""
+        from ascii_warriors.game import actions
+
+        game = self.game
+        p = game.player
+        for it in list(p.inventory.items):
+            if it.def_id == "water_drink":
+                p.inventory.items.remove(it)
+        # Somewhere with no water in reach.
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                game.local.set_tile(p.x + dx, p.y + dy, p.z, "floor")
+        self.assertFalse(actions.water_source_near(game))
+        self.assertTrue([i for i in p.inventory.items if i.is_drink])
+        p.needs.thirst = 20000
+        self.assertGreater(actions.drink(game), 0, "it refused the ale")
+        self.assertLess(p.needs.thirst, 20000)

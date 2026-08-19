@@ -592,7 +592,10 @@ hands. A fortress embarked in the same world knows them too.
 **Conversation and quests.** Ask about this place, its ruler, its troubles, the
 beasts in the region, or for directions, and you get real answers from the
 generated history. Ask for work and you get a quest that points at a real
-megabeast in a real lair, or a real artifact in a real ruin. Go there and it
+megabeast in a real lair, a real artifact in a real ruin, or a real hunting
+ground where the things eating the livestock actually are — and the log
+remembers who set it and which town they were in, so you can find your way
+back to be paid. Go there and it
 is waiting: a megabeast lairs somewhere in particular, the quest names that
 place and no other, and killing it puts a date on the figure the legends have
 been writing about for a century. So is the artifact — on the floor of the
@@ -861,10 +864,16 @@ through every screen and prints the final frame. It needs no tty, which is how
 CI runs it on Windows and Linux.
 
 `tools/play.py` is the other kind of test: it plays an adventurer sensibly for
-thousands of turns — drink, eat, sleep, fight what is next to you, otherwise
-wander — and then judges the run. Needs that never moved, a death by thirst
-beside water, or a stop without a death are reported as problems. Most of what
-is wrong with a simulation is only visible after a few thousand turns of it.
+thousands of turns and then judges the run. It looks after itself — get out of
+the water, bind what is bleeding, drink, eat, sleep, hit what is next to you —
+and then it runs errands: walk to a town, find somebody who wants something
+done, take it on, travel to where it points, do it, and carry it back to be
+paid. What it judges is whether the loop is honest. Work with no destination,
+walking to where the job is and finding the job somewhere else, a job reported
+and never paid, drowning with dry land one step away, a death by thirst beside
+water, needs that never moved: all of those are reported as problems and exit
+non-zero. Most of what is wrong with a simulation is only visible after a few
+thousand turns of it.
 
 `tools/fort.py` does the same for the other half: it designates a stairway and
 a floor of rooms, marks the trees and the shrubs, puts up a still and a farm,

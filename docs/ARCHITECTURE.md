@@ -6234,7 +6234,149 @@ a test which *picks* what it measures has been rewritten to *build* it, and
 the rule is worth stating plainly: a test that hunts through generated data
 for a subject is a test with a seed in it, whatever it looks like.
 
-## 124. Style
+## 124. Running errands (v3.64)
+
+`tools/fort` plays a fortress for a year and judges the wreckage; four defects
+came out of it in §119. `tools/play` was supposed to be its opposite number
+and, since v3.51, it drank when thirsty, ate when hungry, slept when tired,
+hit what was next to it and otherwise wandered in a circle. That found three
+defects and then measured nothing for a dozen versions, because looking after
+a body is not playing this game.
+
+The README spends most of its adventure half on one loop: travel, a town,
+somebody to talk to, work to take, a place the work points at, the thing
+waiting there, the walk back to be paid. **Nothing had ever walked it.** The
+unit tests check the pieces; no test and no driver had ever put them in a row.
+
+So the driver runs errands now, and six defects were sitting in the loop.
+
+### 124.1. Before it could play, it had to survive
+
+Three of the six are in the driver itself, and each had been quietly ruining
+every run since v3.51.
+
+**An action that did not happen claimed the turn.** `_look_after` returned
+`actions.drink(game)` whatever it came back as, and a failed drink costs
+nothing. Measured on the first errand run: **3971 of 4000 turns pressing
+"drink" with nothing to drink**, and 3940 of 4000 on sleep in the next one --
+`sleep` returns free when there are enemies nearby, which there usually are.
+The invariants never noticed, because needs pinned at the ceiling have
+certainly moved.
+
+**It could not hit an animal.** `_adjacent_foe` asked `c.faction ==
+"hostile"`. A wolf's faction is `"wild"`; the question everything else in the
+game asks is `is_hostile_to`. So a wolf could chew through an adventurer who
+never once swung back, and the run reported `fought: 0` under a log full of
+bites.
+
+**It swam.** `_walk_toward` used `local.path_neighbours`, which is what a
+creature can *get through* and includes the river. The driver walked into one
+with a full pack on, kept fighting a goblin from chest-deep water, and drowned
+-- and reported `dead=True drowned` with nothing in the log about water,
+because it printed the cause and not the last six lines. It walks round now,
+climbs out if it is ever in, and prints what was said before the end.
+
+### 124.2. A bounty sent you nowhere
+
+Every kind of work in the game names a destination -- *"It lies at Goldwheel,
+a tomb"*, *"Word must reach Frozencoal, a hamlet to the north"* -- except one.
+Measured over 127 quest givers in four worlds:
+
+| kind | offered | no destination | pinned on the town you are standing in |
+|---|---|---|---|
+| clear_site | 31 | 0 | 0 |
+| slay_beast | 28 | 0 | 0 |
+| explore | 26 | 0 | 0 |
+| retrieve_artifact | 21 | 0 | 0 |
+| **bounty** | **21** | **21** | **21** |
+
+`_quest_bounty` set `q.wx, q.wy = game.player.wx, game.player.wy` and never
+set `site_name`, so the log read `Location: (59, 20)` for the square under
+your feet and the map marker pointed at the person who had just sent you out.
+`_hunting_ground` picks a wild square within four tiles where that creature
+lives and names its region, so the job reads *"out of The Wandering Dunes to
+the north-east"* and points there.
+
+### 124.3. And it did not remember where you took it
+
+`_ready` says *"Return to Ustuth to claim your reward"* and `Quest` recorded
+`giver_hf` and `giver_name` and **nowhere they were standing**. Walk out of
+the town and the quest log could not tell you which town it had been. Quests
+carry `giver_site_name`, `giver_wx` and `giver_wy` now, and the log says
+*"Given by Ustuth Roughclasp at Roaring Lock (18, 28)."*
+
+### 124.4. What it sent you for was not there
+
+The sharpest one, and the driver found it by standing in the right place for
+**11,956 turns** hunting something that was not in it.
+
+`spawnable(biome)` says which species *can* live somewhere; the wildlife roll
+then draws a handful of groups out of twenty candidates. So a bounty for giant
+rats in the desert named a species that was genuinely at home there and was
+present on arrival **seven times in forty-two**.
+
+`artifacts.populate` and `sitegen._add_lair_beast` already hold this line for
+the other two kinds of quest -- what a quest names is there when you arrive.
+`Game._spawn_the_hunted` holds it for the third, and holds it twice over:
+
+- **On arrival**, including on a map you have already crossed. The local map
+  cache restores the wildlife that was there *before* you were sent after
+  anything, so walking back to a meadow you had passed through was the one
+  case guaranteed to fail.
+- **In numbers you can finish the job with.** A group is one to three and a
+  bounty asks for three to seven, so arriving, killing the pair that were
+  there and standing in an empty field was the rest of the errand. It places
+  groups until the remaining goal is on the map.
+
+Placement moved into `Game._place_group` so the thing a bounty sends you after
+is placed exactly the way everything else that lives there is placed.
+
+Bounties also stopped naming cave dwellers. `giant_bat` carries
+`SUBTERRANEAN`, the wildlife roll only ever puts it in a cavern, and the
+complaint the quest text makes is that they are taking livestock out of a
+field.
+
+### 124.5. Two things about the body
+
+Both found the same way, by a driver that had to survive to measure anything.
+
+**Nothing to bind a wound with.** `starting_kit` gives a waterskin, water, a
+backpack, meat, bread, ale, two torches, rope and coin. No bandage. Bleeding
+is what kills an adventurer -- four seeds, four deaths, thirteen turns in a
+row reporting *"bleeding, and nothing to bind it with"* -- and since §123
+every person in the world carries one. Three bandages and a splint now.
+
+**A skin of ale is not a drink.** `actions.drink(game)` with nothing chosen
+looks for water underfoot, then falls back to the pack -- and the fallback
+reached exactly one item id, `water_drink`. An adventurer carrying four ales,
+a wine and a mead was told *"There is nothing to drink here"*, while
+`Needs.drink` takes any drink there is and the loot tables hand out five kinds.
+
+### 124.6. What the driver asserts, and what it does not
+
+The invariants judge correctness, not competence, because an alarm that
+always fires is not an alarm:
+
+- work with no destination,
+- **arriving where the job is and the job not being there**,
+- a job met, carried back, reported, and never paid,
+- drowning with dry land one step away,
+- dying of thirst beside water,
+- needs that never moved, and nobody in the world having any work.
+
+The second one is the guard on §124.4 and it fires: with `_spawn_the_hunted`
+removed, seed `e4` reports *"1 times it walked to where the job was and the
+job was not there"* and exits non-zero.
+
+What it does **not** assert is that it finished the job, and that is worth
+writing down rather than implying. The driver takes work, travels to it, and
+then has to catch wildlife that wanders and flees across an eighty-by-sixty
+map; over twelve thousand turns it fights thirty-one times and finishes
+nothing. That is a bot that hunts badly, not a game that cannot be played, and
+pretending otherwise with a failing invariant would make the driver useless as
+a check. Making it hunt is the next thing to do to it.
+
+## 125. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

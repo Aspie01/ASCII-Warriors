@@ -532,8 +532,15 @@ def drink(game, item: Optional[Item] = None) -> int:
         if water:
             item = water[0]
         else:
-            game.log.warn("There is nothing to drink here.")
-            return FREE
+            # Anything else in the pack, before giving up. The fallback
+            # reached exactly one item id, so an adventurer carrying four
+            # skins of dwarven ale and no water was told there was nothing
+            # to drink -- while `Needs.drink` takes any drink there is and
+            # the loot tables hand out wine, rum, beer and mead.
+            item = next((i for i in p.inventory.items if i.is_drink), None)
+            if item is None:
+                game.log.warn("There is nothing to drink here.")
+                return FREE
     if not item.is_drink:
         game.log.warn("You cannot drink that.")
         return FREE

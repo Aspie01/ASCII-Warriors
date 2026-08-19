@@ -656,6 +656,13 @@ def starting_kit(rng: RNG, race: str, profession: str) -> List[Item]:
     torch.charges = 2400
     kit.append(torch)
     kit.append(Item("rope", "pig_tail_cloth"))
+    # Something to bind a wound with. Bleeding is what kills an adventurer --
+    # a driver playing four seeds died of it four times, thirteen turns in a
+    # row reporting "nothing to bind it with" -- and the kit had rope and
+    # torches and no bandage in it. Everybody else in the world carries one.
+    for _ in range(3):
+        kit.append(Item("bandage", "pig_tail_cloth"))
+    kit.append(Item("splint", "oak"))
     kit.append(Item("coin", "silver", count=rng.randint(20, 80)))
     if profession in ("archer", "hunter"):
         kit.append(Item("arrow", metal, count=rng.randint(15, 30)))

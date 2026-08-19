@@ -50,6 +50,11 @@ WILDLIFE_MAX = 9
 #: emptier than a meadow and not be empty.
 CAVE_SHARE = 1.0 / 3.0
 
+#: How many groups of a hunted species one arrival will put on the map before
+#: giving up. A bound rather than a target: a group is one to three and a
+#: bounty asks for three to seven, so this is usually two or three passes.
+HUNT_TRIES = 8
+
 
 class Game:
     """Everything about one playthrough."""
@@ -202,6 +207,12 @@ class Game:
                 self.creatures[c.id] = c
             self._restore_layers(cached.get("layers") or {})
             self.ruins = ruins_mod.left_standing(cached.get("buildings"))
+            # A map you have already been to is restored rather than rolled,
+            # so the wildlife on it is the wildlife that was there before you
+            # were sent after anything. Take the bounty, walk back to the
+            # meadow you crossed on the way in, and the quarry the job named
+            # is the one species that cannot be there.
+            self._spawn_the_hunted(self.world.tile(wx, wy))
         else:
             lm_rng = self.rng.sub("local-%d-%d" % (wx, wy))
             self.local, population = generate_local(
@@ -430,6 +441,47 @@ class Game:
         deep = int(total * CAVE_SHARE + 0.5)
         self._spawn_wild(tile, total - deep, underground=False)
         self._spawn_wild(tile, deep, underground=True)
+        self._spawn_the_hunted(tile)
+
+    def _spawn_the_hunted(self, tile) -> int:
+        """Put a bounty's quarry where the bounty says it is.
+
+        A bounty names a place because that is where they are -- *"they have
+        been taking our livestock, out of the Wandering Dunes"*. Then the
+        wildlife roll drew a handful of species out of the twenty that could
+        live there, and the quarry was among them **seven arrivals in
+        forty-two**. A driver playing the errand spent 11,956 turns standing
+        in the right place hunting something that was not in it.
+
+        `artifacts.populate` and `sitegen._add_lair_beast` already hold this
+        line for the other two kinds of quest: what a quest names is there
+        when you arrive.
+        """
+        if self.local is None:
+            return 0
+        jobs = [
+            q for q in self.quests.active
+            if q.kind == "bounty" and q.target_def and q.progress < q.goal
+            and (q.wx, q.wy) == (self.local.wx, self.local.wy)
+        ]
+        made = 0
+        for q in sorted(jobs, key=lambda j: j.target_def):
+            if creature_data.CREATURES.get(q.target_def) is None:
+                continue
+            # Enough of them to finish the job. One group is one to three, and
+            # a bounty asks for three to seven, so arriving to find a pair,
+            # killing both and standing in an empty field is the rest of the
+            # errand: the driver did exactly that for 2935 turns.
+            want = q.goal - q.progress
+            for _ in range(HUNT_TRIES):
+                here = sum(1 for c in self.creatures.values()
+                           if c.def_id == q.target_def and not c.body.dead)
+                if here >= want:
+                    break
+                if not self._place_group(q.target_def, underground=False):
+                    break
+                made += 1
+        return made
 
     def _spawn_wild(self, tile, count: int, *, underground: bool) -> None:
         """Put *count* groups of the right kind of wildlife on this map."""
@@ -458,47 +510,55 @@ class Game:
             return
         weights = {c.id: float(c.frequency) for c in options}
         for _ in range(count):
-            cid = self.rng.weighted(weights)
-            defn = creature_data.get(cid)
-            lo, hi = defn.group
-            group = self.rng.randint(lo, hi)
-            if underground:
-                # A cave dweller put on the surface is a cave dweller in a
-                # field: the whole point of the flag is the dark it lives in.
-                spot = self.local.random_cave(self.rng)
-                if spot is None:
-                    return
-            elif defn.has("AQUATIC"):
-                # A fish placed by `random_open` lands on the bank, where
-                # `is_passable` will not let it move and it flaps for ever.
-                spot = self.local.random_water(self.rng)
-                if spot is None:
-                    continue
-            else:
-                spot = self.local.random_open(self.rng)
-            ox, oy, oz = spot
-            leader_id: Optional[int] = None
-            for i in range(group):
-                c = make_creature(self.rng, cid, faction=(
-                    "hostile" if defn.has("EVIL") else "wild"
-                ))
-                x = max(0, min(self.local.width - 1, ox + self.rng.randint(-2, 2)))
-                y = max(0, min(self.local.height - 1, oy + self.rng.randint(-2, 2)))
-                # Underground the group keeps the level it was placed on;
-                # `surface_z` would walk every one of them up into the sun.
-                z = oz if underground or defn.has("AQUATIC") \
-                    else self.local.surface_z(x, y)
-                if not self.is_passable(x, y, z, c):
-                    x, y, z = ox, oy, oz
-                c.x, c.y, c.z = x, y, z
-                c.wx, c.wy = self.local.wx, self.local.wy
-                c.ai = AIState("wander")
-                c.ai.home = (x, y, z)
-                if i == 0:
-                    leader_id = c.id
-                elif defn.has("PACK"):
-                    c.ai.leader_id = leader_id
-                self.add_creature(c)
+            if not self._place_group(self.rng.weighted(weights),
+                                     underground=underground):
+                return
+
+    def _place_group(self, cid: str, *, underground: bool) -> bool:
+        """Put one group of a species on the map. False if there was no room.
+
+        Split out of `_spawn_wild` so the thing a bounty sends you after can
+        be placed the same way as everything else that lives here.
+        """
+        defn = creature_data.get(cid)
+        lo, hi = defn.group
+        group = self.rng.randint(lo, hi)
+        if underground:
+            # A cave dweller put on the surface is a cave dweller in a field:
+            # the whole point of the flag is the dark it lives in.
+            spot = self.local.random_cave(self.rng)
+        elif defn.has("AQUATIC"):
+            # A fish placed by `random_open` lands on the bank, where
+            # `is_passable` will not let it move and it flaps for ever.
+            spot = self.local.random_water(self.rng)
+        else:
+            spot = self.local.random_open(self.rng)
+        if spot is None:
+            return False
+        ox, oy, oz = spot
+        leader_id: Optional[int] = None
+        for i in range(group):
+            c = make_creature(self.rng, cid, faction=(
+                "hostile" if defn.has("EVIL") else "wild"
+            ))
+            x = max(0, min(self.local.width - 1, ox + self.rng.randint(-2, 2)))
+            y = max(0, min(self.local.height - 1, oy + self.rng.randint(-2, 2)))
+            # Underground the group keeps the level it was placed on;
+            # `surface_z` would walk every one of them up into the sun.
+            z = oz if underground or defn.has("AQUATIC") \
+                else self.local.surface_z(x, y)
+            if not self.is_passable(x, y, z, c):
+                x, y, z = ox, oy, oz
+            c.x, c.y, c.z = x, y, z
+            c.wx, c.wy = self.local.wx, self.local.wy
+            c.ai = AIState("wander")
+            c.ai.home = (x, y, z)
+            if i == 0:
+                leader_id = c.id
+            elif defn.has("PACK"):
+                c.ai.leader_id = leader_id
+            self.add_creature(c)
+        return True
 
     # -- creature bookkeeping ---------------------------------------------- #
 
