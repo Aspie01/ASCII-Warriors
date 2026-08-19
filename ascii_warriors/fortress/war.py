@@ -180,8 +180,7 @@ def launch(fort, siege: Siege) -> List:
     civ = fort.world.civ(siege.civ_id) if siege.civ_id is not None else None
     race = civ.race if civ is not None else "goblin"
     tier = _tier(fort, civ)
-    side = fort.rng.choice(["north", "south", "east", "west"])
-    entry = fort.local.edge_entry(fort.rng, side)
+    entry = fort.edge_arrival()
 
     out = []
     for i in range(siege.strength):

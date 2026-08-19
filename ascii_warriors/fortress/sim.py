@@ -1507,8 +1507,7 @@ def spawn_beast(fort, beast):
     """Put one named megabeast on the edge of the map."""
     if not beast.creature_id:
         return None
-    side = fort.rng.choice(["north", "south", "east", "west"])
-    entry = fort.local.edge_entry(fort.rng, side)
+    entry = fort.edge_arrival()
     foe = make_creature(fort.rng, beast.creature_id, faction="hostile", level=4)
     foe.name = beast.name
     if beast.titles:
@@ -1941,8 +1940,7 @@ def migrants(fort, count: int) -> List:
     from .labors import PROFESSION_LABORS
 
     professions = list(PROFESSION_LABORS.keys())
-    side = fort.rng.choice(["north", "south", "east", "west"])
-    entry = fort.local.edge_entry(fort.rng, side)
+    entry = fort.edge_arrival()
     out = []
     for i in range(count):
         profession = fort.rng.choice(professions)
@@ -2061,8 +2059,7 @@ def _maybe_night_attack(fort) -> None:
 
 def _send_werebeast(fort) -> None:
     """One werewolf, at the full moon, going straight for the nearest dwarf."""
-    side = fort.rng.choice(["north", "south", "east", "west"])
-    entry = fort.local.edge_entry(fort.rng, side)
+    entry = fort.edge_arrival()
     beast = make_creature(fort.rng, "werewolf", faction="hostile", level=3)
     beast.x, beast.y, beast.z = fort._free_spot(entry, 0)
     beast.wx, beast.wy = fort.wx, fort.wy
@@ -2079,8 +2076,7 @@ def _send_necromancer(fort) -> None:
     """
     from ..world import history as history_mod
 
-    side = fort.rng.choice(["north", "south", "east", "west"])
-    entry = fort.local.edge_entry(fort.rng, side)
+    entry = fort.edge_arrival()
     boss = make_creature(fort.rng, "necromancer", faction="hostile", level=4)
     boss.x, boss.y, boss.z = fort._free_spot(entry, 0)
     boss.wx, boss.wy = fort.wx, fort.wy
@@ -2137,8 +2133,7 @@ def _maybe_thief(fort) -> None:
         return
     if not fort.rng.chance(THIEF_ODDS):
         return
-    side = fort.rng.choice(["north", "south", "east", "west"])
-    entry = fort.local.edge_entry(fort.rng, side)
+    entry = fort.edge_arrival()
     thief = make_creature(fort.rng, "kobold", faction="hostile", level=1)
     thief.x, thief.y, thief.z = fort._free_spot(entry, 0)
     thief.wx, thief.wy = fort.wx, fort.wy
@@ -2235,8 +2230,7 @@ def spawn_demons(fort, cell, wave: int = 1) -> List:
 
 def spawn_attack(fort, strength: int) -> List:
     """Put a raiding party on the edge of the map."""
-    side = fort.rng.choice(["north", "south", "east", "west"])
-    entry = fort.local.edge_entry(fort.rng, side)
+    entry = fort.edge_arrival()
     out = []
     for i in range(strength):
         race = "goblin" if i or strength > 3 else fort.rng.choice(

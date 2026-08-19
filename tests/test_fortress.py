@@ -6,6 +6,7 @@ import unittest
 
 from ascii_warriors.data import items as item_data
 from ascii_warriors.data.calendar import TICKS_PER_DAY
+from ascii_warriors.engine import geometry
 from ascii_warriors.engine.rng import RNG
 from ascii_warriors.fortress import buildings as building_mod
 from ascii_warriors.fortress import designations as designation_mod
@@ -3202,6 +3203,10 @@ TRANSIENT = {
     "carrying",
     # Per-turn stealth state, recomputed by whatever the creature does next.
     "noise",
+    # How much work this fortress has made the pathfinder do. `tools/fort`
+    # reads them and nothing in the game does; a reloaded fortress starts its
+    # own tally, the same way a restarted profiler does.
+    "reach_fills", "reach_cells",
 }
 
 
@@ -8319,6 +8324,12 @@ class TestDrawingTheMap(unittest.TestCase):
             fort.jobs.remove(job)
         fort.reach_fills = 0
         fort.reach_cells = 0
+        # And the map itself, not just the meter. Since v3.68 the founding
+        # draws one -- `_free_spot` asks whether the ground it is handing out
+        # connects to the wagon -- so a fixture that zeroed the counter and
+        # left the cache warm had its first question answered by a fill it
+        # did not count.
+        fort.invalidate_reach()
         return fort
 
     def _sealed(self, fort, n):
@@ -8721,3 +8732,203 @@ def _run_driver(out):
     finally:
         driver_fort.play = real
     return code, buf.getvalue()
+
+
+class TestNobodyArrivesWhereTheyCannotLeave(unittest.TestCase):
+    """Where the fortress puts the people who turn up.
+
+    Walkable was the only question either arrival funnel asked, and a riverbed
+    is walkable where it is shallow. Measured over eight embarks: one of them
+    founded a fortress with a dwarf standing on a two-cell ledge inside the
+    river, cut off from the wagon three tiles away by water too deep to wade.
+    It drank -- it was standing in a river -- and starved to death on day six
+    with forty units of food in the stockpile, while `find_consumable` handed
+    it the nearest meat every step of five days and `path_to` failed every
+    time.
+    """
+
+    def _island(self, fort, near):
+        """A walkable cell near a point with nothing walkable beside it."""
+        lm = fort.local
+        for radius in (2, 3, 4):
+            for dy in range(-radius, radius + 1):
+                for dx in range(-radius, radius + 1):
+                    if max(abs(dx), abs(dy)) != radius:
+                        continue
+                    cell = (near[0] + dx, near[1] + dy, near[2])
+                    if not lm.in_bounds(*cell) or not lm.walkable(*cell):
+                        continue
+                    if fort.creature_at(*cell) is not None:
+                        continue
+                    for ddx, ddy in geometry.DIRS8:
+                        for ddz in (-1, 0, 1):
+                            side = (cell[0] + ddx, cell[1] + ddy,
+                                    cell[2] + ddz)
+                            if lm.in_bounds(*side):
+                                lm.set_tile(*side, "rock_wall")
+                    for ddz in (-1, 1):
+                        over = (cell[0], cell[1], cell[2] + ddz)
+                        if lm.in_bounds(*over):
+                            lm.set_tile(*over, "rock_wall")
+                    fort._water_cache = None
+                    fort.invalidate_reach()
+                    return cell
+        return None
+
+    def test_nobody_is_put_on_an_island(self):
+        """`_free_spot` hands out ground you can walk off.
+
+        The seven, the migrants, the caravan, a siege and everything else
+        arriving in a group are placed by this one function, and it used to
+        take any walkable tile in range.
+        """
+        fort = embark("island")
+        wagon = fort._wagon_site()
+        island = self._island(fort, wagon)
+        self.assertIsNotNone(island, "nowhere to cut one off")
+        self.assertTrue(fort.local.walkable(*island))
+        self.assertEqual(len(fort.reach_from(island)), 1,
+                         "the island is not an island")
+        home = fort.reach_from(wagon)
+        spots = [fort._free_spot(wagon, i) for i in range(40)]
+        self.assertNotIn(island, spots)
+        for spot in spots:
+            self.assertIn(spot, home, "%s cannot walk to the wagon" % (spot,))
+
+    def test_the_seven_can_all_reach_the_wagon(self):
+        """The state the fortress is founded in, asserted directly."""
+        fort = embark("founding")
+        home = fort.reach_from(fort._wagon_site())
+        for c in fort.creatures.values():
+            self.assertIn((c.x, c.y, c.z), home,
+                          "%s is founded somewhere it cannot leave" % c.name)
+
+    def _cut_off_the_north(self, fort):
+        """Leave the north edge walkable and joined to nothing."""
+        lm = fort.local
+        for x in range(lm.width):
+            for z in range(lm.zmin, lm.zmax + 1):
+                lm.set_tile(x, 2, z, "rock_wall")
+            lm.set_tile(x, 1, lm.surface_z(x, 1), "grass")
+        fort._water_cache = None
+        fort.invalidate_reach()
+
+    def test_nobody_walks_in_on_the_wrong_side_of_the_river(self):
+        """`edge_arrival` picks an edge somebody could arrive from.
+
+        Measured on one embark: not one of the fifty-five walkable cells along
+        its north edge could reach the fortress, so a quarter of every migrant
+        wave, siege, caravan and thief that map would ever see arrived on the
+        far bank. Here the north edge is walled off outright.
+        """
+        fort = embark("farbank")
+        self._cut_off_the_north(fort)
+        home = fort.reach_from(fort._wagon_site())
+        north = set(fort.local.edge_cells("north"))
+        self.assertTrue(north, "no walkable north edge to arrive on")
+        self.assertFalse(north & home, "the north edge is not cut off")
+        for _ in range(40):
+            cell = fort.edge_arrival()
+            self.assertNotIn(cell, north)
+            self.assertIn(cell, home, "%s cannot reach the fortress" % (cell,))
+
+    def test_a_sealed_fortress_still_gets_visitors(self):
+        """With no way in at all they arrive anyway, on the map's edge.
+
+        A wall keeps a caravan out. It does not keep it at home, and an
+        arrival that never happens is a season with nothing in it.
+        """
+        fort = embark("sealed")
+        lm = fort.local
+        for y in range(lm.height):
+            for x in range(lm.width):
+                for z in range(lm.zmin, lm.zmax + 1):
+                    if 3 <= x < lm.width - 3 and 3 <= y < lm.height - 3:
+                        continue
+                    lm.set_tile(x, y, z, "rock_wall")
+        fort._water_cache = None
+        fort.invalidate_reach()
+        cell = fort.edge_arrival()
+        self.assertTrue(lm.in_bounds(*cell))
+
+    def test_a_dwarf_eats_the_food_it_can_walk_to(self):
+        """Not the nearest pile in a straight line.
+
+        Measured with twenty units of meat sealed two tiles away and twenty
+        more it could walk to: three hundred steps, and it ate neither.
+        `find_consumable` handed it the sealed pile every step, `path_to`
+        failed every step, and `_go_eat` gave up rather than asking for the
+        next one. Sleep degrades gracefully -- a dwarf that cannot get to its
+        bed lies down where it stands -- and eating did not.
+        """
+        from ascii_warriors.game.item import Item
+
+        fort = embark("larder")
+        d = fort.dwarves()[0]
+        for cell, pile in list(fort.items_on_ground.items()):
+            for item in list(pile):
+                if item.is_edible and not item.is_drink:
+                    fort.take_item(item)
+        near = self._island(fort, (d.x, d.y, d.z))
+        self.assertIsNotNone(near, "nowhere to seal a larder off")
+        home = fort.reach_from((d.x, d.y, d.z))
+        far = sorted(c for c in home if c[2] == d.z
+                     and geometry.chebyshev(d.x, d.y, c[0], c[1]) > 6)[0]
+        fort.drop_item(Item("meat", "meat", count=20), *near)
+        fort.drop_item(Item("meat", "meat", count=20), *far)
+        d.needs.hunger = dwarf_mod.HUNGER_URGENT + 100
+        self.assertEqual(fort.item_cell(fort.find_consumable(d, drink=False)),
+                         far)
+        for _ in range(300):
+            sim.step(fort)
+            if d.needs.hunger < dwarf_mod.HUNGER_URGENT:
+                break
+        else:
+            self.fail("three hundred steps and it never ate")
+        self.assertEqual(sum(i.count for i in fort.items_on_ground[near]), 20,
+                         "it got at the sealed pile somehow")
+
+    def test_nothing_is_offered_to_a_dwarf_that_cannot_reach_it(self):
+        """A larder on the far bank is not a larder.
+
+        Better nothing than a destination: `_go_eat` warns the player when it
+        comes back empty-handed, and walks silently at a wall when it does
+        not.
+        """
+        fort = embark("marooned", water=True)
+        d = fort.dwarves()[0]
+        # Everything is on offer while it can walk. Asserted first, because a
+        # test that ends in "None" is a test that passes on an embark with no
+        # water on it and no food in the wagon.
+        self.assertIsNotNone(fort.find_consumable(d, drink=False),
+                             "this embark has nothing to eat at all")
+        self.assertIsNotNone(fort.find_consumable(d, drink=True),
+                             "this embark has nothing to drink at all")
+        self.assertIsNotNone(fort.nearest_water(d),
+                             "this embark has no water on it at all")
+        island = self._island(fort, (d.x, d.y, d.z))
+        self.assertIsNotNone(island)
+        d.x, d.y, d.z = island
+        self.assertEqual(len(fort.reach_from(island)), 1)
+        self.assertIsNone(fort.find_consumable(d, drink=False))
+        self.assertIsNone(fort.find_consumable(d, drink=True))
+        self.assertIsNone(fort.nearest_water(d))
+
+    def test_everything_that_arrives_comes_through_one_door(self):
+        """Seven copies of the same two lines is how one of them got it wrong.
+
+        `sim` and `war` between them land migrants, caravans, sieges, raids,
+        thieves, werewolves, necromancers and megabeasts. None of them may ask
+        the map for an edge cell directly.
+        """
+        import inspect
+
+        from ascii_warriors.fortress import sim as sim_mod
+        from ascii_warriors.fortress import war as war_mod
+
+        for mod in (sim_mod, war_mod):
+            source = inspect.getsource(mod)
+            self.assertNotIn("edge_entry", source,
+                             "%s picks its own way onto the map"
+                             % mod.__name__)
+            self.assertIn("edge_arrival", source)

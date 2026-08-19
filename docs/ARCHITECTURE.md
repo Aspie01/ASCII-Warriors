@@ -6945,7 +6945,161 @@ on the shape of one map; two survived the revert, and both were the aquifer.
   speckled biomes rather than as ground you cannot build on, and every world
   ever generated would change. Measured, named, not touched.
 
-## 128. Style
+## 128. Nobody arrives where they cannot leave (v3.68)
+
+§127.6 left this: *a dwarf starved to death beside forty units of food and six
+hundred of ale, before and after, and it is the next thing worth chasing.*
+
+Onul Coalgate, day six, seed s3. Everything about it looked like a food
+problem and none of it was:
+
+```
+day 1  Onul Coalgate  at (38, 32, 2)  hunger 14400  thirst  8656
+day 3  Onul Coalgate  at (38, 32, 2)  hunger 43200  thirst   630
+day 5  Onul Coalgate  at (38, 32, 2)  hunger 72000  thirst   784
+day 6  DEAD: starved to death, at (38, 32, 2)
+```
+
+Thirst stays low the whole time. It was drinking, and eating nothing. The
+ground around it, tiles and water depth:
+
+```
+       soil_wall  soil_wall  soil_wall  water 5   soil_wall
+       soil_wall  soil_wall *shallow 2  water 5   soil_wall
+       soil_wall  soil_wall  soil_wall  water 5   soil_wall
+```
+
+A two-cell ledge of shallow water inside a river channel, walled in by soil at
+its own level and by five units of water on the other side. Its component was
+two cells. It drank because it was standing in a river, and it starved because
+the fortress was three tiles away across water it could not wade.
+
+It did not walk in. It was **founded** there: `Fortress.embark` places the
+seven with `_free_spot`, and `_free_spot` asked one question about a tile.
+
+```python
+if not self.local.walkable(*cell):
+    continue
+```
+
+Shallow water is walkable.
+
+### 128.1. The two doors everybody comes through
+
+`_free_spot` places the seven, every migrant wave, the caravan, a siege, a
+raid, a thief, a werewolf and every megabeast. It takes the cells in rings
+around a point and hands out the *offset*-th one that is walkable and empty.
+It now also has to be one the arrival could walk back off:
+
+```python
+within = self.reach_from(near) if self.local.walkable(*near) else None
+...
+if within is not None and cell not in within:
+    continue
+```
+
+Ahead of that is the other door, and it was seven copies of the same two
+lines:
+
+```python
+side = fort.rng.choice(["north", "south", "east", "west"])
+entry = fort.local.edge_entry(fort.rng, side)
+```
+
+Nothing in that asks whether the side it picked can reach the fortress.
+Measured over eight embarks, walkable edge cells that can:
+
+```
+fort   N 57/57  S 59/59  E 39/39  W 39/39
+s3     N 52/52  S 58/58  E 39/40  W 34/34
+s4     N 51/51  S 51/56  E 32/34  W 41/41
+s6     N  0/55  S 55/55  E 31/37  W 18/34
+s8     N 77/77  S 76/76  E 58/58  W 53/53
+```
+
+Not one of the fifty-five walkable cells along s6's north edge could reach the
+fortress: a river ran between. A quarter of everything that map would ever
+see — every migrant wave, every siege, every caravan, the autumn trade —
+arrived on the far bank. Migrants who starved where they stood; a siege that
+besieged nothing.
+
+`Fortress.edge_arrival` is the one door now, and the seven call sites are one
+line each. It draws the side, keeps the cells on it that can reach the wagon,
+and only if that side has none does it try the others. **The draw is unchanged
+wherever the map is whole**: `rng.choice` over the walkable cells of a side
+that all connect is the same choice it always made, so only the maps with a
+wrong side of the river move at all — which is why this milestone cost the
+tests nothing.
+
+If every edge is cut off, they arrive anyway, on the side they were heading
+for. A wall keeps a caravan out; it does not keep it at home.
+
+| eight embarks | before | after |
+| --- | ---: | ---: |
+| founders placed where they cannot reach the wagon | 1 | 0 |
+| arrivals (144 per map) that cannot reach the fortress | 71 | 0 |
+| ...of those, stranded in a pocket under 50 cells | 11 | 0 |
+| dwarves lost over seven days | 1 | 0 |
+
+### 128.2. And nothing offered that cannot be fetched
+
+Fixing the founding does not fix the rest of it. A dwarf sealed in by a
+cave-in, a bridge raised behind it, a river that rose — the fortress hands it
+food it cannot get to and it dies looking at the wall. Measured directly:
+twenty units of meat sealed two tiles from a hungry dwarf, twenty more it
+could walk to, three hundred steps.
+
+It ate neither.
+
+`find_consumable` promised "the nearest food or drink a dwarf could go and
+consume" and delivered the nearest in a straight line; `_go_eat` walked at it,
+failed to find a route, and asked the same question again next step, for ever.
+Both now ask `Fortress.can_reach`, which is the flood fill of §120 rather than
+a search — the question is asked of a *list*, and A* charges the size of the
+component to say no. The eight cells around the target count, the same way
+`at_or_beside` does: a barrel against a wall is drunk from the floor beside
+it, and water deep enough to swim in is never walkable at all.
+
+`nearest_water` had the same promise and the same hole, and now shares the
+same answer.
+
+The contrast worth keeping: sleep already degraded gracefully. A dwarf that
+cannot get to its bed lies down where it stands and takes a "slept on the
+floor" thought. Eating had no such floor, so it was the one that killed
+somebody.
+
+### 128.3. What the fill costs
+
+`tools/fort` reports it, which is the only reason this is a number and not a
+worry. Seven days, per seed:
+
+| seed | nodes and fills before | after | fills |
+| --- | ---: | ---: | ---: |
+| fort | 35,563 | 49,715 | 0 → 4 |
+| s3 | 205,824 | 195,098 | 55 → 12 |
+| s5 | 18,994 | 98,394 | 0 → 2 |
+| year1 | 463,369 | 492,540 | 9 → 11 |
+
+s5 is the worst case and it is one fortress-week: two fills of a
+39,608-cell component. s3 is *cheaper* than it was, because the dwarf that
+used to spend five days failing to path to a sealed larder is not there any
+more. The cache does the work — a fill is drawn once per component and thrown
+away when the map changes shape.
+
+### 128.4. Measured and left
+
+- **A dwarf stranded after it arrives still dies quietly.** The fortress says
+  "Your dwarves are starving!" without a name or a place, which is the
+  difference between noticing and not. Nothing digs a ramp to fetch them.
+- **A bed nobody can reach is still assigned.** `bed_for` claims the first
+  free one without asking, and the only reason it does not matter is that
+  `_go_sleep` gives up and sleeps on the floor.
+- **`_free_spot` will still put somebody in a river** if the river is
+  connected to where they came from. Standing in water is not fatal until it
+  deepens, and the drowning path already handles that, so this is named rather
+  than guessed at.
+
+## 129. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

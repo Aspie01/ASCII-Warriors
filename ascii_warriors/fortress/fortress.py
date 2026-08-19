@@ -372,6 +372,42 @@ class Fortress:
                 return best
         return self.local.central_open(self.rng)
 
+    #: The four ways onto a map, in the order everything has always drawn them.
+    SIDES = ("north", "south", "east", "west")
+
+    def edge_arrival(self) -> Cell:
+        """A cell on the edge of the map that can walk to the fortress.
+
+        Everything that arrives on foot comes through here: migrants, the
+        caravan, a siege, a raid, a thief, a werewolf, a megabeast. Seven
+        copies of the same two lines picked a side at random and any walkable
+        cell along it, and on one measured embark not one of the fifty-five
+        walkable cells on the north edge could reach the fortress -- a river
+        ran between. A quarter of everything that ever arrived on that map
+        arrived on the wrong side of it: migrants who starved where they
+        stood, sieges that besieged nothing, a thief that stole nothing.
+
+        The draw is unchanged wherever the map is whole. `rng.choice` over the
+        walkable cells of a side that all connect is the same choice it always
+        made, so only the maps with a wrong side of the river move.
+        """
+        lm = self.local
+        side = self.rng.choice(list(self.SIDES))
+        home = self.reach_from(self._wagon_site())
+        here = [c for c in lm.edge_cells(side) if c in home]
+        if here:
+            return self.rng.choice(here)
+        rest = [s for s in self.SIDES if s != side]
+        self.rng.shuffle(rest)
+        for other in rest:
+            here = [c for c in lm.edge_cells(other) if c in home]
+            if here:
+                return self.rng.choice(here)
+        # No way in at all: the fortress has sealed itself off, or it stands
+        # on an island. They still arrive -- a wall keeps a caravan out, it
+        # does not keep it at home -- on the side they were heading for.
+        return lm.edge_entry(self.rng, side)
+
     def _free_spot(self, near: Cell, offset: int) -> Cell:
         """A walkable cell close to a point, a different one per offset.
 
@@ -379,7 +415,18 @@ class Fortress:
         at every radius counts the middle over and over, so two callers with
         different offsets are handed the same tile and a wagonload of migrants
         arrives standing on top of each other.
+
+        And on the same side of the water. Walkable was the only question this
+        asked, and a riverbed two tiles from the wagon is walkable where it is
+        shallow: measured over eight embarks, one of them founded a fortress
+        with a dwarf standing on a two-cell ledge inside the river, cut off by
+        water too deep to wade. It drank -- it was standing in a river -- and
+        starved to death on day six with forty units of food in the
+        stockpile. `find_consumable` handed it the nearest meat every step of
+        those five days and `path_to` failed every time.
         """
+        within = (self.reach_from(near)
+                  if self.local.walkable(*near) else None)
         for radius in range(0, 14):
             for dy in range(-radius, radius + 1):
                 for dx in range(-radius, radius + 1):
@@ -387,6 +434,8 @@ class Fortress:
                         continue
                     cell = (near[0] + dx, near[1] + dy, near[2])
                     if not self.local.walkable(*cell):
+                        continue
+                    if within is not None and cell not in within:
                         continue
                     if self.creature_at(*cell) is not None:
                         continue
@@ -649,8 +698,33 @@ class Fortress:
                     total += item.count
         return total
 
+    def can_reach(self, dwarf, cell: Cell) -> bool:
+        """Whether a dwarf could walk to a cell, or to somewhere beside it.
+
+        The fill rather than a search, because the question is asked of a
+        list: "the nearest one" is only useful if the answer is one the dwarf
+        can get to, and A* charges the size of the component to say no. The
+        eight cells around it count, the same way `at_or_beside` does -- a
+        barrel against a wall is drunk from the floor next to it, and water
+        deep enough to swim in is never walkable at all.
+        """
+        within = self.reach_from((dwarf.x, dwarf.y, dwarf.z))
+        if cell in within:
+            return True
+        return any((cell[0] + dx, cell[1] + dy, cell[2]) in within
+                   for dx, dy in geometry.DIRS8)
+
     def find_consumable(self, dwarf, *, drink: bool) -> Optional[Item]:
-        """The nearest food or drink a dwarf could go and consume."""
+        """The nearest food or drink a dwarf could go and consume.
+
+        Could *go* to. It used to mean the nearest in a straight line, and a
+        dwarf that was handed something on the wrong side of a wall walked at
+        it, failed to find a route, and asked again next step -- for ever.
+        Measured: a dwarf with twenty units of meat sealed two tiles away and
+        twenty more it could walk to went three hundred steps without eating
+        either. That is what a fortress starving with a full larder looks
+        like from the inside.
+        """
         best: Optional[Item] = None
         best_d = 1 << 30
         # Never eat the last few mushrooms while there is a plot to plant them
@@ -674,8 +748,9 @@ class Fortress:
                     continue
                 d = (geometry.chebyshev(dwarf.x, dwarf.y, cell[0], cell[1])
                      + abs(dwarf.z - cell[2]) * 3)
-                if d < best_d:
-                    best, best_d = item, d
+                if d >= best_d or not self.can_reach(dwarf, cell):
+                    continue
+                best, best_d = item, d
         return best
 
     def consume(self, dwarf, item: Item, *, drink: bool) -> None:
@@ -823,14 +898,19 @@ class Fortress:
         self._reach_deep = None
 
     def nearest_water(self, dwarf) -> Optional[Cell]:
-        """The closest cell a dwarf could drink from."""
+        """The closest cell a dwarf could drink from.
+
+        Could drink from: the brook across the gorge is not water you can
+        drink, and a dwarf sent to it dies of thirst on the near bank.
+        """
         best: Optional[Cell] = None
         best_d = 1 << 30
         for cell in self.water_sources():
             d = (geometry.chebyshev(dwarf.x, dwarf.y, cell[0], cell[1])
                  + abs(dwarf.z - cell[2]) * 4)
-            if d < best_d:
-                best, best_d = cell, d
+            if d >= best_d or not self.can_reach(dwarf, cell):
+                continue
+            best, best_d = cell, d
         return best
 
     def bed_for(self, dwarf) -> Optional[Building]:

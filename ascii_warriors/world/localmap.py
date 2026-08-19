@@ -325,21 +325,31 @@ class LocalMap:
                     best, best_score = (x, y, z), score
         return best if best is not None else self.random_open(rng)
 
-    def edge_entry(self, rng: RNG, side: str) -> Tuple[int, int, int]:
-        """A walkable cell on one edge of the map, for arriving on foot."""
-        candidates: List[Tuple[int, int, int]] = []
+    def edge_cells(self, side: str) -> List[Tuple[int, int, int]]:
+        """Every walkable cell along one edge of the map, in map order.
+
+        Split out from :meth:`edge_entry` so a caller can ask which of them
+        are any use to it -- the fortress wants an edge somebody could walk
+        to it from -- without a second copy of the geometry.
+        """
+        out: List[Tuple[int, int, int]] = []
         if side in ("west", "east"):
             x = 1 if side == "west" else self.width - 2
             for y in range(1, self.height - 1):
                 z = self.surface_z(x, y)
                 if self.walkable(x, y, z):
-                    candidates.append((x, y, z))
+                    out.append((x, y, z))
         else:
             y = 1 if side == "north" else self.height - 2
             for x in range(1, self.width - 1):
                 z = self.surface_z(x, y)
                 if self.walkable(x, y, z):
-                    candidates.append((x, y, z))
+                    out.append((x, y, z))
+        return out
+
+    def edge_entry(self, rng: RNG, side: str) -> Tuple[int, int, int]:
+        """A walkable cell on one edge of the map, for arriving on foot."""
+        candidates = self.edge_cells(side)
         if candidates:
             return rng.choice(candidates)
         return self.random_open(rng)
