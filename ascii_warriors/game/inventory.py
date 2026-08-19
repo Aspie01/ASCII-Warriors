@@ -276,6 +276,26 @@ class Inventory:
                 best, best_score = it, score
         return best
 
+    def ranged_weapon(self) -> Optional[Item]:
+        """The best carried bow, crossbow or sling.
+
+        `best_weapon` skips ranged weapons deliberately: it answers *"what do
+        I swing"*. Two callers used it to ask *"do I have a bow"*, which it
+        can never answer yes to -- so every archer in the world was made
+        without ammunition and never drew the bow it was handed. Measured:
+        248 of 248 creatures given a ranged weapon stood there empty-handed.
+        """
+        best: Optional[Item] = None
+        best_score = -1.0
+        for it in self.items:
+            if not it.is_ranged or it.category != "weapon":
+                continue
+            wdef = it.defn.weapon
+            score = (wdef.shoot_force if wdef else 0) * it.quality_bonus()
+            if score > best_score:
+                best, best_score = it, score
+        return best
+
     def best_armor_set(self) -> List[Item]:
         """One good candidate per armour slot, for AI auto-equipping."""
         by_slot: Dict[str, Item] = {}
@@ -320,6 +340,16 @@ class Inventory:
             ok, msg = self.equip(w, "weapon")
             if ok:
                 msgs.append(msg)
+        # Somebody whose only weapon is a bow draws the bow. Anybody carrying
+        # something to swing keeps holding that: the AI shoots only with what
+        # is readied, and a spearman who nocked an arrow because one was in
+        # the pack would be a worse spearman.
+        if self.equipped.get("weapon") is None:
+            bow = self.ranged_weapon()
+            if bow is not None:
+                ok, msg = self.equip(bow, "weapon")
+                if ok:
+                    msgs.append(msg)
         for piece in self.best_armor_set():
             slot = self.slot_for(piece)
             if slot and self.equipped.get(slot) is not piece:

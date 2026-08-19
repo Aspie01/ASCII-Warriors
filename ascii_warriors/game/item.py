@@ -557,14 +557,12 @@ def make_item(
     return it
 
 
+#: What somebody might have about them, by kind. Weapons, armour and clothing
+#: used to be three more entries here and are not, because `entity` hands
+#: those out itself and has to: a coat and a cloak and a shirt go in three
+#: different layers and a random draw put three cloaks on one man. Two tables
+#: naming the same items is how they drift.
 _LOOT_TABLE: Dict[str, Sequence[str]] = {
-    "weapon": ("dagger", "short_sword", "sword", "axe", "mace", "spear",
-               "warhammer", "battle_axe", "long_sword", "scimitar", "flail",
-               "morningstar", "pick", "halberd"),
-    "armor": ("cap", "helm", "mail_shirt", "breastplate", "leather_armor",
-              "greaves", "gauntlets", "high_boots", "chain_leggings",
-              "shield", "buckler"),
-    "clothing": ("cloak", "robe", "tunic", "trousers", "shoes", "hood"),
     "food": ("meat", "bread", "cheese", "plump_helmet", "berries"),
     "drink": ("dwarven_ale", "wine", "rum", "beer", "mead"),
     "tool": ("rope", "torch", "waterskin", "backpack", "whetstone", "bandage",
@@ -579,12 +577,15 @@ _LOOT_TABLE: Dict[str, Sequence[str]] = {
 
 def random_loot(rng: RNG, tier: int, kinds: Sequence[str] = ()) -> List[Item]:
     """Roll a small pile of plausible loot for a creature or chest."""
-    kinds = tuple(kinds) or ("weapon", "armor", "food", "tool", "treasure")
+    kinds = tuple(kinds) or tuple(_LOOT_TABLE)
     out: List[Item] = []
     n = max(1, rng.gauss_int(1 + tier * 0.7, 1.0, 1, 5))
     for _ in range(n):
         kind = rng.choice(kinds)
-        table = _LOOT_TABLE.get(kind, _LOOT_TABLE["tool"])
+        # Indexed rather than `.get(kind, tools)`: quietly substituting tools
+        # for a category nobody declared is how a typo in somebody's kit ships
+        # as "everyone carries rope".
+        table = _LOOT_TABLE[kind]
         def_id = rng.choice(table)
         count = 1
         if def_id == "coin":

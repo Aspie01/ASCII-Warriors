@@ -77,12 +77,24 @@ def _building(
                 lm.set_tile(dx, dy, z + 1, "air")
 
 
+#: Rooms whose floor is a tile of its own rather than whatever was under it.
+#: The tavern is the one the rest of the game asks about: renting a bed for
+#: the night, the music somebody plays in the evening and the extra a crowd
+#: throws indoors all test `tile == "tavern"`, and nothing had ever laid one,
+#: so no tavern in any world had a floor and none of the three could happen.
+ROOM_FLOORS: Dict[str, str] = {"tavern": "tavern"}
+
+
 def _furnish(lm, rect: Rect, z: int, rng: RNG, kind: str) -> None:
     """Drop furniture inside a finished building."""
     inner = rect.inner(1)
     if inner.w <= 0 or inner.h <= 0:
         return
     cells = list(inner.cells())
+    floor = ROOM_FLOORS.get(kind)
+    if floor is not None:
+        for x, y in cells:
+            lm.set_tile(x, y, z, floor)
     rng.shuffle(cells)
     plan = {
         "house": ["bed", "table", "chair", "cabinet"],
@@ -280,11 +292,13 @@ def build_fortress(lm, world, site, rng: RNG) -> List[PopSpec]:
                         role="lord", hf_id=site.ruler_hf, level=4))
     for _ in range(min(3, len(spots))):
         p = spots.pop()
-        # Hammer or axe. The table has carried both dwarven soldiers since it
-        # was written and this line named one of them, so `axedwarf` -- six
-        # levels of axe where the other has six of hammer -- existed nowhere
-        # in any world.
-        kind = rng.choice(("hammerdwarf", "axedwarf")) \
+        # Hammer, axe or crossbow. The table has carried both dwarven melee
+        # soldiers since it was written and this line named one of them, so
+        # `axedwarf` -- six levels of axe where the other has six of hammer --
+        # existed nowhere in any world. The marksdwarf is the third, and the
+        # only creature anywhere trained to shoot the crossbow the item table
+        # has always had bolts for.
+        kind = rng.choice(("hammerdwarf", "axedwarf", "marksdwarf")) \
             if race == "dwarf" else "guard"
         pop.append(_pop(kind, p.x, p.y, z, faction=faction,
                         profession="guard", role="guard", level=3))

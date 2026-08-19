@@ -634,6 +634,9 @@ Perform badly and somebody will tell you to sit down.
 It is a skill, and an honest one: untrained, you are halting, and nothing will
 change that but doing it. A musical form asks for a particular instrument by
 name; playing it on the wrong one is worse, and on none at all is much worse.
+Every tavern keeps a few of the instruments its own people's music calls for,
+lying about the room. What is in the room counts, so it is worth looking at
+the floor before you start.
 
 Stand in a tavern and other people will perform at you. You can ask anybody to
 (talk to them), and hearing something good may teach you the form. The Art tab
@@ -893,6 +896,13 @@ and it is not waiting for you. Take a season getting there and you may hear
 that somebody else has already done it, in which case the job is off.
 
 Press T to travel. Moving between world tiles takes hours and makes you hungry.
+
+Everybody is carrying something, and it is on them when they fall. People
+fight with what they were trained in -- an elven archer has a bow and arrows
+for it, a marksdwarf a crossbow and bolts, an axedwarf an axe -- and beyond
+the weapon they are people: clothes, a coat, bread and cheese, something to
+drink, a rope, a torch, a bandage, coins. Archers shoot back, and the arrows
+they spend are on the ground afterwards.
 
 Coin is worth carrying. Merchants, smiths, priests and tavern keepers will trade
 with you; tavern keepers will also rent you a bed for the night, which is the

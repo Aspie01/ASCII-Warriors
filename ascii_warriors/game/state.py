@@ -218,8 +218,12 @@ class Game:
             # And the same for the artifacts the histories left here. After
             # `_populate`, because one of them may belong in somebody's hands.
             from . import artifacts as artifact_mod
+            from . import furnishings as furnish_mod
 
             artifact_mod.populate(self, site, lm_rng)
+            # And what the place keeps because of what it is: the tavern's
+            # instruments, which no tavern in any world had ever had.
+            furnish_mod.populate(self, site, lm_rng)
 
         self.player.wx, self.player.wy = wx, wy
         self.world.tile(wx, wy).explored = True
@@ -1085,7 +1089,18 @@ class Game:
         who = self.rng.choice(players)
         form = self.rng.choice(performance.repertoire(self.world, who))
         audience = [c for c in near if c is not who] + [p]
-        result = performance.perform(self, self.rng, who, form, audience)
+        # What is lying in the room counts: `instrument_for` looks at the
+        # performer's hands first and the floor second, and this call passed
+        # neither, so a tavern full of instruments scored the same as an
+        # empty one.
+        available = [
+            it for (x, y, z), pile in self.items_on_ground.items()
+            if z == who.z
+            and max(abs(x - who.x), abs(y - who.y)) <= TAVERN_HEARING
+            for it in pile
+        ]
+        result = performance.perform(self, self.rng, who, form, audience,
+                                     available=available)
         for line in performance.describe(result):
             self.log.good(line) if result.good else self.log.info(line)
 

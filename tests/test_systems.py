@@ -9143,3 +9143,175 @@ class TestWorldFiles(unittest.TestCase):
                        "version": 1, "saved_at": 7,
                        "meta": {"name": "Late"}}, fh)
         self.assertEqual(save_mod.read_meta(path)["name"], "Late")
+
+
+class TestTheArcherShoots(unittest.TestCase):
+    """The whole ranged path had never run for anybody but the player.
+
+    `ai.py` shoots when the wielded weapon is ranged and there is ammunition
+    readied. No creature in any world had ever had either, so
+    `combat.ranged_attack`, `ammo.spend` and `ammo.land` -- the arrows that
+    stick in the grass and the two in three that shatter -- were reachable
+    only by the player's own bow.
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.mkdtemp()
+        self._old = os.environ.get("ASCII_WARRIORS_SAVE_DIR")
+        os.environ["ASCII_WARRIORS_SAVE_DIR"] = self._tmp
+        rng = RNG("archery")
+        world = generate_world(rng.sub("w"), size="pocket", history_years=15)
+        self.game = Game.new_game(
+            world, {"race": "human", "profession": "warrior"}, rng)
+        self.rng = rng
+
+    def tearDown(self):
+        if self._old is None:
+            os.environ.pop("ASCII_WARRIORS_SAVE_DIR", None)
+        else:
+            os.environ["ASCII_WARRIORS_SAVE_DIR"] = self._old
+
+    def _lane(self, length=8):
+        """A clear line between the player and somebody at the far end."""
+        from ascii_warriors.game.entity import make_creature
+
+        game, p = self.game, self.game.player
+        for dx in range(0, length + 1):
+            game.local.set_tile(p.x + dx, p.y, p.z, "floor")
+        archer = make_creature(self.rng, "elf_archer", faction="hostile",
+                               level=3)
+        archer.x, archer.y, archer.z = p.x + length - 2, p.y, p.z
+        game.add_creature(archer)
+        return archer
+
+    def test_an_archer_across_the_room_shoots_at_you(self):
+        game = self.game
+        archer = self._lane()
+        started = archer.inventory.ammo().count
+        self.assertGreater(started, 0)
+        for _ in range(40):
+            if archer.body.dead or game.game_over:
+                break
+            game.player_acts(100)
+        left = archer.inventory.ammo().count if archer.inventory.ammo() else 0
+        self.assertLess(left, started, "the archer never loosed one")
+
+    def test_the_arrows_it_spent_are_on_the_floor_afterwards(self):
+        game = self.game
+        archer = self._lane()
+        for _ in range(40):
+            if archer.body.dead or game.game_over:
+                break
+            game.player_acts(100)
+        onground = [it for pile in game.items_on_ground.values() for it in pile
+                    if it.defn.has("AMMO")]
+        self.assertTrue(onground, "nothing it shot ever landed")
+
+
+class TestTheTavernHasAFloor(unittest.TestCase):
+    """The tile is declared, two features test for it, and nothing laid one.
+
+    `tiles.py` has had a `tavern` floor with its own glyph since it was
+    written. `_tavern_music` will not run unless the player is standing on
+    one and `_applaud` pays a crowd more when they are indoors on one, and
+    `sitegen._furnish` dropped tables and chairs into a tavern without ever
+    laying its floor -- so no tavern in any world had one, and neither
+    feature had ever happened.
+
+    With a floor there is somewhere to put the house instruments, which is
+    the other half: `performance.instrument_for` scores a bonus for the right
+    instrument in the room and its own docstring says a game with no
+    instruments in it performs identically to one with every instrument in
+    it. Adventure mode was the second kind.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        from ascii_warriors.game import furnishings
+
+        cls._tmp = tempfile.mkdtemp()
+        cls._old = os.environ.get("ASCII_WARRIORS_SAVE_DIR")
+        os.environ["ASCII_WARRIORS_SAVE_DIR"] = cls._tmp
+        rng = RNG("tavern")
+        cls.world = generate_world(rng.sub("w"), size="small", history_years=80)
+        cls.game = Game.new_game(
+            cls.world, {"race": "human", "profession": "bard"}, rng)
+        cls.rng = rng
+        cls.site = None
+        for s in cls.world.sites:
+            if not s.is_settlement:
+                continue
+            cls.game.enter_world_tile(s.wx, s.wy)
+            if furnishings._tavern_cells(cls.game.local):
+                cls.site = s
+                break
+        cls.cells = furnishings._tavern_cells(cls.game.local)
+
+    @classmethod
+    def tearDownClass(cls):
+        if cls._old is None:
+            os.environ.pop("ASCII_WARRIORS_SAVE_DIR", None)
+        else:
+            os.environ["ASCII_WARRIORS_SAVE_DIR"] = cls._old
+
+    def _room(self):
+        return [it for pile in self.game.items_on_ground.values() for it in pile]
+
+    def test_a_town_has_a_tavern_you_can_stand_in(self):
+        self.assertIsNotNone(self.site, "no settlement in the world has one")
+        self.assertGreaterEqual(len(self.cells), 4)
+        for cell in self.cells:
+            self.assertEqual(self.game.local.tile(*cell), "tavern")
+
+    def test_the_tile_is_the_one_the_rest_of_the_game_asks_about(self):
+        from ascii_warriors.world import sitegen, tiles as tile_data
+
+        self.assertEqual(sitegen.ROOM_FLOORS["tavern"], "tavern")
+        self.assertIn("tavern", tile_data.TILES)
+        self.assertTrue(tile_data.get("tavern").walk)
+
+    def test_the_house_keeps_something_to_play(self):
+        held = {it.defn.id for it in self._room() if it.defn.has("INSTRUMENT")}
+        self.assertTrue(held, "a tavern with nothing in it to play")
+
+    def test_what_is_in_the_room_is_worth_something_to_the_song(self):
+        from ascii_warriors.game import performance
+
+        folk = [c for c in self.game.creatures.values() if not c.is_player]
+        pairs = [(c, f) for c in folk
+                 for f in performance.repertoire(self.world, c)
+                 if f.kind == "music"]
+        if not pairs:
+            for c in folk[:4]:
+                performance.teach_civ(self.world, self.rng, c, None, n=2)
+            pairs = [(c, f) for c in folk
+                     for f in performance.repertoire(self.world, c)
+                     if f.kind == "music"]
+        self.assertTrue(pairs)
+        who, form = pairs[0]
+        bare = performance.score(self.world, who, form, available=[])
+        room = performance.score(self.world, who, form, available=self._room())
+        self.assertGreaterEqual(room - bare,
+                                -performance.NO_INSTRUMENT)
+
+    def test_somebody_plays_while_you_are_standing_in_it(self):
+        from ascii_warriors.game import performance
+
+        game = self.game
+        p = game.player
+        p.x, p.y, p.z = self.cells[0]
+        folk = [c for c in game.creatures.values()
+                if not c.is_player and not c.is_hostile_to(p)]
+        self.assertTrue(folk)
+        folk[0].x, folk[0].y, folk[0].z = self.cells[min(1, len(self.cells) - 1)]
+        for c in folk[:4]:
+            performance.teach_civ(self.world, self.rng, c, None, n=2)
+        game.update_fov()
+        game._tavern_wait = 1
+        before = len(game.log.recent(600))
+        game._tavern_music(10)
+        said = game.log.recent(600)[before:]
+        text = " ".join(
+            getattr(x, "text", str(x)) for ln in said
+            for x in (ln if isinstance(ln, list) else [ln]))
+        self.assertTrue(text.strip(), "nobody in the tavern did anything")

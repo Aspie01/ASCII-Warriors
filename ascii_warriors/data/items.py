@@ -234,7 +234,7 @@ _weapon("bow", "bow", "bow", 200, 45,
         ranged="arrow", shoot_force=800, glyph="}")
 _weapon("sling", "sling", "sling", 50, 10,
         (_bash(50, 200),), min_size=10000, mats=("LEATHER", "CLOTH"),
-        ranged="stone", shoot_force=500, glyph="}")
+        ranged="stone_ammo", shoot_force=500, glyph="}")
 
 _add(ItemDef("bolt", "bolt", "bolts", "ammo", "|", 20, 2, ("METAL", "WOOD", "BONE"),
              weapon=WeaponDef("crossbow", 0, 0, (_stab(5, 6000),)),
@@ -519,11 +519,17 @@ def armor_pieces() -> List[ItemDef]:
 
 
 def ammo_for(weapon_def: ItemDef) -> Optional[str]:
-    """The ammunition item id a ranged weapon needs."""
-    if weapon_def.weapon and weapon_def.weapon.ranged:
-        return weapon_def.weapon.ranged if weapon_def.weapon.ranged != "stone" \
-            else "stone_ammo"
-    return None
+    """The ammunition item id a ranged weapon needs.
+
+    The one place that answers this. It had none: `WeaponDef.ranged` said
+    `"stone"` for a sling and there is no item called that -- `get("stone")`
+    falls back to a boulder -- so three separate places carried the same
+    `!= "stone"` patch and this function, written to be the funnel, had never
+    been called by anything.
+    """
+    if weapon_def.weapon is None:
+        return None
+    return weapon_def.weapon.ranged
 
 
 def validate() -> List[str]:
@@ -536,10 +542,9 @@ def validate() -> List[str]:
             problems.append("%s: non-positive volume" % iid)
         if it.weapon and not it.weapon.attacks:
             problems.append("%s: weapon with no attacks" % iid)
-        if it.weapon and it.weapon.ranged:
-            ammo = it.weapon.ranged if it.weapon.ranged != "stone" else "stone_ammo"
-            if ammo not in ITEMS:
-                problems.append("%s: unknown ammo %s" % (iid, it.weapon.ranged))
+        ammo = ammo_for(it)
+        if ammo is not None and ammo not in ITEMS:
+            problems.append("%s: unknown ammo %s" % (iid, ammo))
         if not it.materials:
             problems.append("%s: no material classes" % iid)
     return problems

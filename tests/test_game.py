@@ -562,3 +562,161 @@ class TestMessageLog(unittest.TestCase):
 
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
+
+
+class TestWhatEverybodyIsCarrying(unittest.TestCase):
+    """Everybody in the world had a weapon, maybe a coat, and nothing else.
+
+    Measured before this class was written: 1440 people of 24 kinds carried
+    24 distinct item ids between them out of 117, none of them food, water,
+    clothing, light or rope -- while the player they met set out with all of
+    it. `item.random_loot` declares seven categories of thing to carry and its
+    one caller asked only ever for treasure, so six of them, about sixty item
+    definitions, had never been drawn from by anything.
+    """
+
+    @staticmethod
+    def _many(def_id, n=60, faction="town", seed=None):
+        rng = RNG(seed or ("carry-" + def_id))
+        return [make_creature(rng, def_id, faction=faction,
+                              level=rng.randint(0, 4)) for _ in range(n)]
+
+    # -- the archers -------------------------------------------------------- #
+
+    def test_everybody_given_a_bow_draws_it_and_has_something_to_shoot(self):
+        """0 of 248 did either. `best_weapon` skips ranged weapons on
+        purpose, and both the arming code and `auto_equip` asked it whether
+        there was a bow."""
+        from ascii_warriors.data import items as item_data
+
+        armed = 0
+        for def_id in ("elf", "elf_archer", "kobold", "marksdwarf"):
+            for c in self._many(def_id, n=40, faction="hostile"):
+                ranged = [i for i in c.inventory.items if i.is_ranged]
+                if not ranged:
+                    continue
+                armed += 1
+                held = c.inventory.weapon()
+                self.assertIsNotNone(held, "%s holds nothing" % def_id)
+                self.assertTrue(held.is_ranged)
+                ammo = c.inventory.ammo()
+                self.assertIsNotNone(ammo, "%s has no ammunition" % def_id)
+                self.assertEqual(ammo.def_id, item_data.ammo_for(held.defn))
+        self.assertGreater(armed, 40)
+
+    def test_an_elven_archer_carries_a_bow_and_a_marksdwarf_a_crossbow(self):
+        for def_id, weapon, shot in (("elf_archer", "bow", "arrow"),
+                                     ("marksdwarf", "crossbow", "bolt")):
+            for c in self._many(def_id, n=12):
+                self.assertEqual(c.inventory.weapon().def_id, weapon)
+                self.assertEqual(c.inventory.ammo().def_id, shot)
+
+    def test_one_place_says_what_a_ranged_weapon_eats(self):
+        """`ammo_for` was written as the funnel and never called: three other
+        places carried the same `!= "stone"` patch for a sling instead."""
+        from ascii_warriors.data import items as item_data
+
+        self.assertEqual(item_data.validate(), [])
+        for wid in ("bow", "crossbow", "sling"):
+            ammo = item_data.ammo_for(item_data.get(wid))
+            self.assertIn(ammo, item_data.ITEMS)
+            self.assertTrue(item_data.get(ammo).has("AMMO"))
+
+    # -- what they fight with ----------------------------------------------- #
+
+    def test_people_fight_with_what_the_table_says_they_trained_in(self):
+        """An `elf_archer` has bow 7 and used to draw from a list keyed on
+        its race, which handed it a spear two times in three."""
+        from ascii_warriors.data import creatures as creature_data
+        from ascii_warriors.game.entity import trained_weapons
+
+        self.assertEqual(trained_weapons(creature_data.get("elf_archer")),
+                         ["bow"])
+        self.assertEqual(trained_weapons(creature_data.get("marksdwarf")),
+                         ["crossbow"])
+        for c in self._many("axedwarf", n=20):
+            self.assertEqual(c.inventory.weapon().defn.weapon.skill, "axe")
+        for c in self._many("hammerdwarf", n=20):
+            self.assertEqual(c.inventory.weapon().defn.weapon.skill, "hammer")
+
+    def test_nobody_carries_a_weapon_they_cannot_lift(self):
+        """A gremlin is fifteen thousand and a battle axe wants twenty-seven
+        and a half, so it carried one around and fought with its hands."""
+        for def_id in ("gremlin", "kobold", "goblin", "dwarf", "giant"):
+            for c in self._many(def_id, n=20, faction="hostile"):
+                for it in c.inventory.items:
+                    if not it.is_weapon or it.defn.weapon is None:
+                        continue
+                    self.assertGreaterEqual(
+                        c.defn.size, it.defn.weapon.min_size,
+                        "%s carries a %s it cannot hold" % (def_id, it.def_id))
+                self.assertIsNotNone(c.inventory.weapon(),
+                                     "%s stands there empty-handed" % def_id)
+
+    def test_a_town_s_baker_is_not_issued_a_battle_axe(self):
+        """`_fights` reads the table: a peasant has no fighting skill at all
+        and used to draw a weapon off the same list as the guard."""
+        heavy = 0
+        for c in self._many("peasant", n=40) + self._many("merchant", n=40):
+            held = c.inventory.weapon()
+            if held is not None and held.defn.weapon is not None:
+                self.assertEqual(held.defn.weapon.skill, "dagger")
+                heavy += 1
+        self.assertGreater(heavy, 10)
+
+    # -- and what else is on them ------------------------------------------- #
+
+    def test_everybody_civilised_is_wearing_something(self):
+        for def_id in ("human", "dwarf", "elf", "goblin", "merchant",
+                       "peasant", "guard", "necromancer", "vampire"):
+            for c in self._many(def_id, n=10):
+                worn = {i.def_id for i in c.inventory.items}
+                self.assertTrue(
+                    worn & {"tunic", "trousers", "shoes"},
+                    "%s is standing there in nothing" % def_id)
+
+    def test_and_nothing_in_the_table_is_cut_for_a_giant(self):
+        """`CIVILIZED` is the line, the same one that decides who can have a
+        name. A cyclops in shoes is a worse world than a cyclops without."""
+        for def_id in ("giant", "cyclops", "ettin", "night_troll"):
+            for c in self._many(def_id, n=10, faction="hostile"):
+                worn = {i.def_id for i in c.inventory.items}
+                self.assertFalse(worn & {"tunic", "trousers", "shoes"},
+                                 "%s is wearing clothes" % def_id)
+
+    def test_a_merchant_carries_goods_and_a_traveller_carries_water(self):
+        goods = set()
+        for c in self._many("merchant", n=40):
+            goods.update(i.defn.category for i in c.inventory.items)
+        self.assertTrue(goods & {"gem", "coin"},
+                        "a merchant with nothing to sell")
+        carried = set()
+        for def_id in ("human", "guard", "merchant", "peasant", "bandit"):
+            for c in self._many(def_id, n=40):
+                carried.update(i.def_id for i in c.inventory.items)
+        for wanted in ("waterskin", "torch", "rope", "bandage"):
+            self.assertIn(wanted, carried, "nobody in the world has a %s"
+                          % wanted)
+        self.assertTrue(carried & {"meat", "bread", "cheese", "berries",
+                                   "plump_helmet"}, "nobody carries food")
+        self.assertTrue(carried & {"dwarven_ale", "wine", "rum", "beer",
+                                   "mead"}, "nobody carries a drink")
+
+    def test_asking_for_a_kind_of_loot_that_does_not_exist_is_an_error(self):
+        from ascii_warriors.game.item import random_loot
+
+        with self.assertRaises(KeyError):
+            random_loot(RNG("nonsense"), 2, ("provisions",))
+
+    def test_every_category_of_loot_is_drawn_by_somebody(self):
+        """Six of the seven had one caller between them, asking for treasure."""
+        from ascii_warriors.game.item import _LOOT_TABLE
+
+        drawn = set()
+        for def_id in ("merchant", "guard", "peasant", "bandit", "human"):
+            for c in self._many(def_id, n=40):
+                for it in c.inventory.items:
+                    for kind, table in _LOOT_TABLE.items():
+                        if it.def_id in table:
+                            drawn.add(kind)
+        self.assertEqual(sorted(drawn), sorted(_LOOT_TABLE))

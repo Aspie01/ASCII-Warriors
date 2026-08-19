@@ -6042,7 +6042,199 @@ is 250 ms on ctrl-S, on the pause menu, and on the two moments a character
 stops. That is the price of the world being somewhere other than inside one
 character's file, and it is worth it.
 
-## 123. Style
+## 123. What everybody is carrying (v3.63)
+
+Walk an adventurer into every site in a world and across a grid of the
+wilderness between them -- 109 world squares, 14 biomes, every settlement,
+tower, tomb, lair and ruin -- and count what you are ever shown. The item
+table declares 117 things. You see **34**.
+
+Not because the missing ones are exotic. You never see a tunic, a pair of
+trousers, shoes, a cloak, a hood, a robe. You never see bread, cheese,
+berries, wine, beer, mead. You never see a waterskin, a torch, a rope, a
+backpack, a bandage, a whetstone. You never see a breastplate, greaves,
+gauntlets, a great helm. You never see a long sword, a scimitar, a halberd,
+a pike, a maul, a crossbow. And you never, anywhere, see an arrow.
+
+### 123.1. Nobody had anything
+
+Made directly: 1440 people of 24 kinds carry **24 distinct item ids between
+them** -- a weapon, sometimes one piece of armour, sometimes a shield,
+sometimes coins, and for the big ones sometimes a gem. Meanwhile
+`item.starting_kit` sets the *player* out with a waterskin, three water, a
+backpack, meat, bread, ale, two torches, rope, coin, three pieces of clothing
+chosen for their profession, and arrows if they are an archer. The player
+walked out of character creation better equipped than every single person
+they would meet.
+
+`item.random_loot` declares seven categories to draw from -- weapon, armor,
+clothing, food, drink, tool, treasure, about a hundred item ids. It has one
+caller, and that caller asks for `("treasure",)`. Six of the seven had never
+been drawn from by anything.
+
+### 123.2. And the archers had nothing to shoot
+
+```
+creatures given a ranged weapon:  248
+what they are wielding:           {'(empty hands)': 248}
+what they have to shoot:          {'(no ammunition)': 248}
+```
+
+Two causes and one root. `Inventory.best_weapon` skips ranged weapons
+deliberately -- it answers *"what do I swing"* -- and two places used it to
+ask *"do I have a bow"*:
+
+- `make_creature` did `weapon = inventory.weapon() or inventory.best_weapon()`
+  and then `if weapon.is_ranged:` before handing out ammunition. Nothing was
+  equipped yet, so it fell to `best_weapon`, which cannot return a bow. The
+  ammunition line was unreachable code.
+- `auto_equip` wielded `best_weapon()` and nothing else, so an elf whose only
+  weapon was a bow ended up holding nothing at all.
+
+Downstream, `ai.py` shoots when *"the wielded weapon is ranged and there is
+ammunition readied"*. Neither had ever been true. `combat.ranged_attack`,
+`ammo.spend`, `ammo.land`, the arrows that stick in the grass and the two in
+three that shatter -- the whole of §80's spent-arrow system -- were reachable
+only by the player's own bow. `elf_archer`, a creature type with `bow` 7 in
+its skills, walked up and punched you.
+
+`Inventory.ranged_weapon` is the accessor that was missing. `auto_equip` draws
+it when there is nothing to swing -- and only then, because the AI shoots with
+what is readied and a spearman who nocked an arrow because one was in the pack
+is a worse spearman.
+
+### 123.3. One place says what a bow eats
+
+`items.ammo_for` was written to be the funnel and had **zero callers**. Three
+places open-coded what it does, all three carrying the same patch:
+
+```python
+ammo_id = "stone_ammo" if wanted == "stone" else wanted
+```
+
+Because `WeaponDef.ranged` said `"stone"` for a sling and there is no item
+called that -- `items.get("stone")` falls through to `boulder`. The data was
+wrong, so every reader worked around it, and the function written to hold the
+workaround once was never called. The sling now says `stone_ammo`, `ammo_for`
+is three lines with no special case, and `actions.fire`, `items.validate` and
+the arming code all ask it.
+
+### 123.4. The table already said who fights with what
+
+`elf_archer` has `bow` 7. `axedwarf` has `axe` 6. `hammerdwarf` has `hammer`
+6. `guard` has `spear` 4. `merchant` has `appraisal` 5 and no weapon skill at
+all. And `make_creature` ignored every word of it, drawing from five lists
+keyed on *race*: the archer got a spear two times in three, the axedwarf got a
+warhammer, and the town's baker got whatever the town's guard got.
+
+`trained_weapons` reads the skills and `items.weapons_for_skill` -- another
+function whose only caller was a test -- turns the skill into weapons. That is
+where the long sword, the scimitar, the halberd and the pike came into the
+world: they were always in the table under skills nobody was asked about.
+
+`usable_weapons` filters by size, which was needed the moment weapons stopped
+being hand-picked: a gremlin is 15,000 and a battle axe wants 27,500, so a
+gremlin handed one off a race list carried it around and fought with its
+hands. 32 of 40 did.
+
+`_fights` decides who gets a weapon at all, from `fighter`, `EVIL` and the
+faction. A peasant carries a knife; a goblin raider with `fighter` 1 still
+raids.
+
+**The marksdwarf.** The item table has a crossbow and bolts to feed it and
+there was nobody in any world trained to use one -- `elf_archer` was the only
+marksman of any kind and elves shoot bows. `marksdwarf` is the third dwarven
+soldier beside the hammerer and the axedwarf, and `sitegen` posts it to the
+gate with them.
+
+### 123.5. And clothes
+
+Everybody `CIVILIZED` is dressed now -- the same line `residents.could_be`
+already uses to decide who can have a name, and the right one here for the
+same reason: nothing in the item table is cut for a giant, and a cyclops in
+shoes is a worse world than a cyclops without. Night creatures are dressed and
+not armed: a werebeast fights with what it is, and is a person the rest of the
+month.
+
+The oddments come through `random_loot`'s categories, so the tables that exist
+are the tables used. `weapon`, `armor` and `clothing` came *out* of that table
+instead: `entity` hands those out itself and has to, because a coat and a
+cloak and a shirt go in three different layers and a flat random draw put
+three cloaks on one man. Two tables naming the same items is how they drift.
+`random_loot` also stopped substituting the tool table for a category nobody
+declared -- quietly handing out rope for a typo is how "everyone carries rope"
+ships.
+
+### 123.6. The tavern had no floor
+
+`tiles.py` has had a `tavern` floor since it was written, with its own glyph
+and its own colour. Two things test for it: `_tavern_music`, which is the
+entire reason to walk into a tavern in the evening, and `_applaud`, which pays
+a crowd more when they are indoors. `sitegen._furnish` dropped tables, chairs
+and beds into a tavern and **never laid its floor**, so no tavern in any world
+had one and neither feature had ever happened once.
+
+`ROOM_FLOORS` lays it. And with a floor there is somewhere to put the house
+instruments, which is the other half of the same hole:
+`performance.instrument_for` scores +8 for the right instrument in the
+performer's hands, +3 for the wrong one lying in the room and **-14 for
+nothing at all**, and its own docstring says a game that crafted every
+instrument in it would otherwise perform identically to one with none. In
+adventure mode it was the second kind: six instrument definitions and not one
+of them in any room in any world. `game/furnishings.py` is the third module in
+the arrival sequence beside `traps.populate` and `artifacts.populate` -- the
+things a place keeps because of what it is for -- and it stocks a tavern with
+the instruments its own civilization's music calls for. `_tavern_music` now
+passes the room to the performance, which it never did, so the instruments
+would not have counted even if they had been there.
+
+Measured on one tavern: a form that wants a flute scored **-4 with an empty
+room and 13 with the room** -- across the threshold from *halting* to
+*measured*. And with somebody standing in it: *"Perrine Kettleby dances The
+Raised Silver. It is plain."*
+
+### 123.7. What the world shows you now
+
+| | before | after |
+|---|---|---|
+| item ids seen in one world | 34 / 117 | **68 / 117** |
+| distinct ids on 1440 people | 24 | 59 |
+| archers wielding their bow | 0 of 248 | all of them |
+| archers with ammunition | 0 of 248 | all of them |
+| loot categories ever drawn | 1 of 7 | 4 of 4 |
+| taverns with a floor | 0 | all of them |
+
+What is still never seen is worth writing down rather than implying. Most of
+it is correct: `bed`, `table`, `chair`, `barrel`, `bin`, `cabinet`, `chest`,
+`coffer`, `coffin`, `mechanism`, `statue`, `altar`, `bar`, `ore`, `coal`,
+`log`, `cloth`, `wool`, `sand` and `cave_wheat` are things a fortress makes,
+and `corpse`, `skull`, `bone_item`, `hide` and `severed_part` come off things
+that die. The rest is a list rather than an argument: `crown`, `crutch`,
+`splint`, `flask`, `lantern`, `fishing_rod`, `pick`, `mittens`, `socks`,
+`milk`, `cooked_meat`, `prepared_meal` and `fish_food` are in no table
+anybody draws from; `great_axe`, `maul`, `morningstar` and `flail` are
+two-handed and every creature trained in their skill also carries a shield;
+and `quiver` and `shovel` are still named nowhere in the codebase at all, as
+they have been since §101 wrote them down.
+
+### 123.8. What moving the dice shook loose
+
+Every change here draws differently from the world RNG, so every world after
+it is a different world -- and one test out of 1503 fell over.
+`test_a_death_shakes_the_side_that_took_it` took `hostiles()[1]` as the
+creature that gets frightened by a death: whichever species the world's
+politics happened to send. Goblins carry `NO_FEAR`. The test had been
+asserting that somebody who cannot be frightened was frightened, and passed
+only because the draw had not yet handed it a goblin.
+
+Its own sibling `_afraid_invader` exists for exactly this and says so in its
+docstring -- *"not whichever species the world's politics happened to send"*.
+The test builds its watcher now. That is the third time in this codebase that
+a test which *picks* what it measures has been rewritten to *build* it, and
+the rule is worth stating plainly: a test that hunts through generated data
+for a subject is a test with a seed in it, whatever it looks like.
+
+## 124. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

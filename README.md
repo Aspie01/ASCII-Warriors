@@ -612,10 +612,21 @@ thing you can dig. Standing in a fire hurts and armour helps little; it also
 throws light, so you are extremely visible next to one. In the fortress, magma
 sets light to anything flammable near it.
 
-**Spent arrows.** A shot you fire still exists afterwards. Missed arrows are
-in the grass, hits are under whatever you hit, and some of them break — an
-obsidian arrow shatters about two times in three and a steel one survives about
-four times in five. Sweep the field after a fight, or forge more.
+**Spent arrows.** A shot still exists afterwards — yours or theirs. Missed
+arrows are in the grass, hits are under whatever you hit, and some of them
+break: an obsidian arrow shatters about two times in three and a steel one
+survives about four times in five. Sweep the field after a fight, or forge
+more. Elven archers and dwarven marksmen shoot back, so the field after a
+fight is worth sweeping.
+
+**Everybody is carrying something.** People fight with what the world says
+they trained in — an elven archer has a bow and arrows for it, an axedwarf has
+an axe, a hammerdwarf a hammer, a marksdwarf a crossbow and bolts — and
+nobody is issued a weapon they are too small to lift or a battle axe they were
+never taught to swing. Beyond that they are people: clothes, a coat against
+the weather, bread and cheese, a skin of something to drink, a rope, a torch,
+a bandage, a whetstone, and coins. A merchant carries goods. A bandit carries
+what a bandit carries. All of which is on them when they fall.
 
 **Saves that give back the game you saved.** Every attribute of a running
 fortress is diffed across a save and a load by the test suite, so held breath,
@@ -822,7 +833,9 @@ Perform one with `P`; a tavern crowd that liked it throws coins, which is the
 only money in the game that does not come off a corpse. Stand in a tavern and
 others will perform at you, and hearing a good one both teaches you the form
 and tells you the history behind it. A musical form asks for a particular
-instrument by name, and playing it on the wrong one shows. In the fortress,
+instrument by name, and playing it on the wrong one shows — every tavern keeps
+a few of the instruments its own people's music calls for, so there is usually
+something to hand and it is usually not the right thing. In the fortress,
 the tavern you built for friendships is also where somebody gets up a few
 times a day and performs — well, if you gave them the skill and hauled an
 instrument in there, and badly if you did not.

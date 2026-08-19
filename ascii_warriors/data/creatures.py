@@ -191,6 +191,11 @@ for _pid, _pname, _prace, _pcol, _pskills in (
      {"fighter": 6, "hammer": 6, "shield_use": 4, "armor_use": 5}),
     ("axedwarf", "axedwarf", "dwarf", colors.Color(190, 160, 120),
      {"fighter": 6, "axe": 6, "shield_use": 4, "armor_use": 5}),
+    # The crossbow is in the item table with bolts to feed it, and there was
+    # nobody in the world trained to use one: `elf_archer` was the only
+    # marksman of any kind, and elves shoot bows.
+    ("marksdwarf", "marksdwarf", "dwarf", colors.Color(170, 180, 200),
+     {"fighter": 4, "crossbow": 6, "armor_use": 4}),
     ("elf_archer", "elven archer", "elf", colors.Color(126, 196, 126),
      {"bow": 7, "dodging": 4, "ambusher": 4}),
     ("goblin_snatcher", "goblin snatcher", "goblin", colors.Color(96, 138, 78),

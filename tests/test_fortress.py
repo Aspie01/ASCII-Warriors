@@ -7575,13 +7575,21 @@ class TestNerveInTheFortress(unittest.TestCase):
         return fort
 
     def test_a_death_shakes_the_side_that_took_it(self):
+        """The watcher is built rather than picked out of the siege.
+
+        It used to take `hostiles()[1]`, which is whichever species the
+        world's politics happened to send -- and goblins carry NO_FEAR, so
+        the test asserted that somebody who cannot be frightened was
+        frightened whenever the draw went that way. Its own sibling
+        `_afraid_invader` was written for exactly this.
+        """
         from ascii_warriors.game import morale
 
         fort = self._siege("nervedeath")
         foes = fort.hostiles()
-        if len(foes) < 2:
-            self.skipTest("need two invaders to shake one with the other")
-        victim, watcher = foes[0], foes[1]
+        self.assertTrue(foes)
+        victim = foes[0]
+        watcher = self._afraid_invader(fort)
         watcher.x, watcher.y, watcher.z = victim.x, victim.y, victim.z
         watcher.shaken = 0.0
         fort.kill_creature(victim)

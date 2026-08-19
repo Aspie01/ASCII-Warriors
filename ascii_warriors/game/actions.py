@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import Optional
 
+from ..data import items as item_data
 from ..data.calendar import TICKS_PER_HOUR
 from ..engine.fov import line_of_fire
 from ..engine.scheduler import ACTION_COST
@@ -627,8 +628,7 @@ def fire(game, tx: int, ty: int) -> int:
         return FREE
     ammo = p.inventory.ammo()
     if ammo is None:
-        wanted = weapon.defn.weapon.ranged if weapon.defn.weapon else None
-        ammo_id = "stone_ammo" if wanted == "stone" else wanted
+        ammo_id = item_data.ammo_for(weapon.defn)
         matches = p.inventory.by_def(ammo_id) if ammo_id else []
         ammo = matches[0] if matches else None
     if ammo is None:

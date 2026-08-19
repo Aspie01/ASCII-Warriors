@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Mapping, Optional, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from ..data import creatures as creature_data
+from ..data import items as item_data
 from ..data import names as name_data
 from ..data.creatures import CreatureDef
 from ..data.descriptors import age_desc, list_join
@@ -638,6 +639,174 @@ def _rebuild_unique(d: Mapping[str, Any]) -> CreatureDef:
     )
 
 
+#: Every weapon skill the item table actually trains, read from the table so
+#: a weapon added with a new skill is one its students can be handed. Ammunition
+#: carries a `WeaponDef` too -- an arrow trains `bow` -- hence the category.
+WEAPON_SKILLS = frozenset(
+    i.weapon.skill for i in item_data.ITEMS.values()
+    if i.weapon is not None and i.category == "weapon"
+)
+
+#: The rank at which a weapon skill is what somebody fights with rather than
+#: something they once tried.
+TRAINED = 3
+
+#: What a people arms itself with when the table does not say this person was
+#: trained in anything in particular. Kept from before `trained_weapons`,
+#: because a goblin raider with `fighter` 1 is still a raider.
+RACE_WEAPONS: Dict[str, Tuple[str, ...]] = {
+    "goblin": ("short_sword", "spear", "whip", "dagger", "mace"),
+    "kobold": ("dagger", "short_sword", "sling"),
+    "elf": ("bow", "spear", "short_sword"),
+    "dwarf": ("axe", "warhammer", "short_sword", "mace"),
+}
+DEFAULT_WEAPONS: Tuple[str, ...] = ("sword", "spear", "axe", "mace", "dagger")
+
+#: What somebody who was never a fighter has on them. A knife is a tool as
+#: much as a weapon, which is why a merchant has one and not a halberd.
+UNTRAINED_WEAPONS: Tuple[str, ...] = ("dagger",)
+
+#: Everybody wears something. The player set out in a tunic, trousers and
+#: shoes, and then met four hundred people wearing nothing at all.
+CLOTHING: Tuple[str, ...] = ("tunic", "trousers", "shoes")
+
+#: A layer over that, some of the time.
+OUTERWEAR: Tuple[str, ...] = ("cloak", "hood", "robe")
+
+#: Armour for somebody who was not trained to wear it.
+LIGHT_ARMOUR: Tuple[str, ...] = ("leather_armor", "cap", "high_boots")
+
+#: And for somebody who was. `armor_use` is in the creature table already: a
+#: guard has 3 and a hammerdwarf 5, and both used to get the same coat off the
+#: same five-item list.
+HEAVY_ARMOUR: Tuple[str, ...] = (
+    "mail_shirt", "breastplate", "helm", "great_helm", "greaves",
+    "gauntlets", "chain_leggings",
+)
+
+#: What a kind of person carries besides their gear, as `random_loot`
+#: categories. Six of that function's seven categories -- weapon, armor,
+#: clothing, food, drink and tool, about sixty item definitions -- had never
+#: been drawn from by anything: its one caller asked only for treasure.
+MERCHANT_GOODS: Tuple[str, ...] = ("treasure", "treasure", "food", "drink", "tool")
+SOLDIER_KIT: Tuple[str, ...] = ("food", "drink", "tool")
+CIVILIAN_KIT: Tuple[str, ...] = ("food", "tool")
+ROBBER_KIT: Tuple[str, ...] = ("treasure", "drink", "tool")
+
+
+def usable_weapons(defn: CreatureDef, ids: Sequence[str]) -> List[str]:
+    """Those of *ids* this creature is big enough to hold.
+
+    A gremlin is fifteen thousand and a battle axe wants twenty-seven and a
+    half: `Inventory.equip` refuses it, so a gremlin handed one off a race
+    list carried it around and fought with its hands.
+    """
+    out: List[str] = []
+    for wid in ids:
+        w = item_data.ITEMS.get(wid)
+        if w is None or w.category != "weapon" or w.weapon is None:
+            continue
+        if w.weapon.min_size and defn.size < w.weapon.min_size:
+            continue
+        if w.weapon.two_handed_size and defn.size < w.weapon.two_handed_size:
+            # Wieldable, but only with both hands, and a shield is better.
+            if defn.skills.get("shield_use", 0) >= TRAINED:
+                continue
+        out.append(wid)
+    return out
+
+
+def trained_weapons(defn: CreatureDef) -> List[str]:
+    """What this kind of person fights with, from what they are trained in.
+
+    The creature table says it already: an `elf_archer` has `bow` 7 and an
+    `axedwarf` has `axe` 6. Both used to draw a weapon from a list keyed on
+    their *race*, which handed the archer a spear two times in three and the
+    axedwarf a warhammer -- and the archer's bow, when it came, was never
+    drawn and never loaded.
+
+    Returns the ids of every weapon in their best trained skill that they are
+    big enough to use, so a goblin trained in swords gets a short sword and a
+    giant gets a two-hander from the same line.
+    """
+    best = 0
+    for skill, rank in defn.skills.items():
+        if skill in WEAPON_SKILLS and rank >= TRAINED:
+            best = max(best, rank)
+    if not best:
+        return []
+    ids: List[str] = []
+    for skill, rank in sorted(defn.skills.items()):
+        if rank == best and skill in WEAPON_SKILLS:
+            ids.extend(w.id for w in item_data.weapons_for_skill(skill))
+    return usable_weapons(defn, ids)
+
+
+def _fights(defn: CreatureDef, faction: str) -> bool:
+    """Whether this is somebody who would be carrying a weapon at all.
+
+    A town's baker is not, and used to be handed a battle axe off the same
+    list as its guard.
+    """
+    return (faction in ("hostile", "wild") or defn.has("EVIL")
+            or defn.skills.get("fighter", 0) > 0)
+
+
+def _kit_for(defn: CreatureDef, faction: str) -> Tuple[str, ...]:
+    """The categories of oddments this kind of person has about them."""
+    if defn.skills.get("appraisal", 0) or defn.skills.get("negotiation", 0):
+        return MERCHANT_GOODS
+    if faction == "hostile" or defn.has("EVIL"):
+        return ROBBER_KIT
+    if any(s in WEAPON_SKILLS and r >= TRAINED for s, r in defn.skills.items()):
+        return SOLDIER_KIT
+    return CIVILIAN_KIT
+
+
+def _dress(c: Creature, rng: RNG, tier: int) -> None:
+    """Put clothes on somebody."""
+    from .item import make_item
+
+    for piece in CLOTHING:
+        c.inventory.add(make_item(rng, piece, tier=max(0, tier - 1)))
+    if rng.chance(0.35):
+        c.inventory.add(make_item(rng, rng.choice(OUTERWEAR), tier=tier))
+
+
+def _arm(c: Creature, rng: RNG, tier: int, faction: str) -> None:
+    """Give somebody a weapon, armour and a shield, by what they were taught."""
+    from .item import Item, make_item
+
+    defn = c.defn
+    choices = trained_weapons(defn)
+    if not choices and _fights(defn, faction):
+        choices = usable_weapons(
+            defn, RACE_WEAPONS.get(c.race, DEFAULT_WEAPONS))
+    if choices:
+        c.inventory.add(make_item(rng, rng.choice(choices), tier=tier))
+    elif rng.chance(0.6):
+        knives = usable_weapons(defn, UNTRAINED_WEAPONS)
+        if knives:
+            c.inventory.add(make_item(rng, rng.choice(knives), tier=tier))
+
+    heavy = defn.skills.get("armor_use", 0) >= TRAINED
+    table = HEAVY_ARMOUR if heavy else LIGHT_ARMOUR
+    for _ in range(rng.randint(2, 3) if heavy else 1):
+        if heavy or rng.chance(0.55):
+            c.inventory.add(make_item(rng, rng.choice(table), tier=tier))
+    if defn.skills.get("shield_use", 0) >= TRAINED or rng.chance(0.3):
+        c.inventory.add(make_item(rng, rng.choice(("shield", "buckler")), tier=tier))
+
+    bow = c.inventory.ranged_weapon()
+    if bow is not None:
+        ammo_id = item_data.ammo_for(bow.defn)
+        if ammo_id:
+            c.inventory.add(make_item(rng, ammo_id, tier=tier,
+                                      count=rng.randint(10, 25)))
+    if rng.chance(0.5):
+        c.inventory.add(Item("coin", "silver", count=rng.randint(3, 60)))
+
+
 def make_creature(
     rng: RNG,
     def_id: str,
@@ -648,40 +817,32 @@ def make_creature(
     tier: Optional[int] = None,
 ) -> Creature:
     """Create a creature and give it plausible equipment."""
-    from .item import Item, make_item, random_loot
+    from .item import random_loot
 
     c = Creature(def_id, rng=rng, faction=faction, level=level)
     defn = c.defn
     # A werebeast fights with what it is. Arming one hands it a sword and it
     # never bites again, which quietly removes the only thing that makes it a
-    # werebeast rather than a strong man.
-    armed = equip and not defn.has("NIGHT_CREATURE")
-    if armed and defn.intelligent and defn.body_plan in (
+    # werebeast rather than a strong man. It still wears clothes: it is a
+    # person most of the month, and so is the vampire in the tavern.
+    armed = not defn.has("NIGHT_CREATURE")
+    # `CIVILIZED` is the line for clothing, and it is the line already used to
+    # decide who can have a name (`residents.could_be`). Nothing in the item
+    # table is cut for a giant, and a cyclops in shoes is a worse world than a
+    # cyclops without.
+    dressed = defn.has("CIVILIZED")
+    if equip and defn.intelligent and defn.body_plan in (
         "humanoid", "giant_humanoid"
     ):
         t = tier if tier is not None else max(0, min(5, defn.tier + level // 2))
-        weapon_choices = {
-            "goblin": ["short_sword", "spear", "whip", "dagger", "mace"],
-            "kobold": ["dagger", "short_sword", "sling"],
-            "elf": ["bow", "spear", "short_sword"],
-            "dwarf": ["axe", "warhammer", "short_sword", "mace"],
-        }.get(c.race, ["sword", "spear", "axe", "mace", "dagger"])
-        c.inventory.add(make_item(rng, rng.choice(weapon_choices), tier=t))
-        if rng.chance(0.55):
-            armour = rng.choice(
-                ["leather_armor", "mail_shirt", "cap", "helm", "high_boots"]
-            )
-            c.inventory.add(make_item(rng, armour, tier=t))
-        if rng.chance(0.3):
-            c.inventory.add(make_item(rng, rng.choice(["shield", "buckler"]), tier=t))
-        if rng.chance(0.5):
-            c.inventory.add(Item("coin", "silver", count=rng.randint(3, 60)))
-        weapon = c.inventory.weapon() or c.inventory.best_weapon()
-        if weapon is not None and weapon.is_ranged:
-            ammo_id = "arrow" if weapon.def_id == "bow" else (
-                "bolt" if weapon.def_id == "crossbow" else "stone_ammo"
-            )
-            c.inventory.add(Item(ammo_id, "iron", count=rng.randint(10, 25)))
+        if dressed:
+            _dress(c, rng, t)
+        if armed:
+            _arm(c, rng, t, faction)
+        # A troll with a backpack is a worse world too. Oddments belong to
+        # people who keep house; a beast that walks upright keeps what it took.
+        kit = _kit_for(defn, faction) if dressed else ("treasure",)
+        c.inventory.add_all(random_loot(rng, t, kit))
         c.inventory.auto_equip()
     elif equip and defn.tier >= 3 and rng.chance(0.3):
         c.inventory.add_all(random_loot(rng, defn.tier, ("treasure",)))
