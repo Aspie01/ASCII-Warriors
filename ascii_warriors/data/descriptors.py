@@ -268,19 +268,26 @@ def relationship_desc(value: int) -> str:
 
 
 def age_desc(years: int, race: str = "human") -> str:
-    """Life-stage wording, adjusted for long-lived races."""
+    """Life-stage wording, adjusted for long-lived races.
+
+    The stage on its own. Five of these used to arrive with an article
+    already on them and three without, and the one caller wrote "A %s %s" in
+    front of whatever came back -- so half the wildlife in the game was
+    described as "A an adolescent wolf." `with_article`, in this module,
+    is what puts the article on.
+    """
     scale = {"elf": 5.0, "dwarf": 1.7, "goblin": 1.0, "kobold": 0.7}.get(race, 1.0)
     y = years / scale
     if y < 1:
-        return "a baby"
+        return "baby"
     if y < 12:
-        return "a child"
+        return "child"
     if y < 18:
-        return "an adolescent"
+        return "adolescent"
     if y < 30:
-        return "a young adult"
+        return "young adult"
     if y < 50:
-        return "an adult"
+        return "adult"
     if y < 70:
         return "middle-aged"
     if y < 85:

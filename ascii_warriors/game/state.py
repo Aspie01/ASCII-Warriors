@@ -883,6 +883,7 @@ class Game:
             out.append(Frag("", colors.UI["fg"]))
             out.extend(c.describe())
             out.extend(self._awareness(c))
+            out.extend(self._pace_of(c))
             out.extend(self._nerve_of(c))
         pile = self.items_at(x, y, z)
         if pile:
@@ -910,6 +911,40 @@ class Game:
         for line in tracks_mod.read(self, self.player, (x, y, z), track):
             out.append(Frag(line, colors.UI["accent2"]))
         return out
+
+    #: How much faster than you something has to be before it is worth
+    #: saying so, and then before it is worth saying it twice.
+    PACE_QUICKER = 1.12
+    PACE_MUCH_QUICKER = 1.35
+
+    def _pace_of(self, c: Creature) -> List[Frag]:
+        """Whether you could walk away from this. Worth knowing beforehand.
+
+        The same argument as `_awareness` one function up: a roll the player
+        cannot see is a dice cup, and this is the roll that decides every
+        disengagement in the game. Fifty of the eighty-one creature kinds are
+        quicker than a man -- a wolf is 160 to your 100 -- and until now the
+        only way to find that out was to try to leave.
+
+        Relative, because the absolute number means nothing on its own and
+        yours moves: pain and a broken leg both multiply into
+        `effective_speed`, so the wolf you outpaced this morning is the wolf
+        that runs you down this afternoon.
+        """
+        p = self.player
+        if c is p or c.body.dead or not c.alive:
+            return []
+        mine = max(1, p.effective_speed())
+        ratio = c.effective_speed() / float(mine)
+        if ratio >= self.PACE_MUCH_QUICKER:
+            return [Frag("It is much faster than you.", colors.UI["danger"])]
+        if ratio >= self.PACE_QUICKER:
+            return [Frag("It is faster than you.", colors.UI["warn"])]
+        if ratio > 1.0 / self.PACE_QUICKER:
+            return [Frag("It moves at about your pace.", colors.UI["dim"])]
+        if ratio > 1.0 / self.PACE_MUCH_QUICKER:
+            return [Frag("You are faster than it.", colors.UI["good"])]
+        return [Frag("You are much faster than it.", colors.UI["good"])]
 
     def _nerve_of(self, c: Creature) -> List[Frag]:
         """Whether something is about to run. Worth knowing before it does."""

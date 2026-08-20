@@ -972,10 +972,17 @@ slow at all -- the game says "you are bleeding faster than you can bind it"
 when you reach it. That is not a cue to bind harder. Bind what you can when
 nothing is swinging at you, and when something is, leave.
 
-Leave early. Blood loss and pain both cut your speed, so the longer you stand
-there deciding, the less able you are to go: whole, you can hold a wolf at
-arm's length across open ground; down to a third of your blood you are moving
-at a fifth of its speed and the decision has been made for you.
+Leave early. Pain and a broken leg both cut your speed -- and so does what you
+are carrying, being tired, poison and the cold -- so the longer you stand there
+trading blows, the less able you are to go. Whole, you can hold a wolf at arm's
+length across open ground; badly enough hurt you are moving at a fifth of its
+speed and the decision has been made for you. The Wounds tab shows your pace
+and what is taking it off you.
+
+Know before you start. Fifty of the eighty-one kinds of creature in the world
+are quicker than a man on foot. Look at something ('x') and the panel will tell
+you whether it is faster than you, along with what it is carrying, what it is
+skilled at, how hurt it is and whether it is about to run.
 
 Carrying too much slows you down. Your pack capacity depends on your strength,
 and a backpack helps.

@@ -8,7 +8,7 @@ from ..data import creatures as creature_data
 from ..data import items as item_data
 from ..data import names as name_data
 from ..data.creatures import CreatureDef
-from ..data.descriptors import age_desc, list_join
+from ..data.descriptors import age_desc, list_join, with_article
 from ..engine import colors, geometry
 from ..engine.colors import Color
 from ..engine.rng import RNG
@@ -294,11 +294,18 @@ class Creature:
     def describe(self) -> List[Frag]:
         """Lines for the look/examine panel."""
         out: List[Frag] = []
-        out.append(Frag(self.full_title(), colors.UI["title"]))
+        # `full_title` is written for the character sheet, where the
+        # subject is always the player. Pointed at a wolf it produced
+        # "Maddox Grimsby the wolf": every creature carries a name field and
+        # `known_by_name` is the rule for whether a name is the thing to say.
+        # This was the last place still ignoring it.
+        out.append(Frag(self.full_title() if self.known_by_name()
+                        else "The %s" % self.short_name(), colors.UI["title"]))
         if self.defn.description:
             out.append(Frag(self.defn.description, colors.UI["dim"]))
-        out.append(Frag("A %s %s." % (
-            age_desc(self.age, self.race), self.defn.name), colors.UI["fg"]))
+        stage = with_article("%s %s" % (age_desc(self.age, self.race),
+                                        self.defn.name))
+        out.append(Frag(stage[:1].upper() + stage[1:] + ".", colors.UI["fg"]))
         health = self.body.health_fraction()
         if self.body.dead:
             out.append(Frag("It is dead. (%s)" % self.body.death_cause,
@@ -374,6 +381,55 @@ class Creature:
             load -= self.inventory.worn_armor_weight() * relief
         return max(0.0, load / cap)
 
+    def _speed_factors(self) -> List[Tuple[float, str]]:
+        """Everything multiplying into this creature's pace, and why.
+
+        One list, read twice: `effective_speed` multiplies it and `slowed_by`
+        names it. Written out separately they drift, and the copy that would
+        drift is the one the player reads.
+
+        A reason of ``""`` is something that is not an affliction -- being
+        agile is not a thing to warn somebody about.
+        """
+        out: List[Tuple[float, str]] = []
+        if not self.body.can_stand():
+            out.append((0.35, "being off your feet"))
+        stance = [p for p in self.body.parts.values() if p.defn.has("STANCE")]
+        if stance:
+            broken = sum(1 for p in stance if not p.functional())
+            if broken:
+                out.append((max(0.3, 1.0 - 0.35 * broken / len(stance)),
+                            "a broken leg" if broken == 1 else "broken legs"))
+        enc = self.encumbrance()
+        if enc > 1.0:
+            out.append((max(0.3, 1.0 - (enc - 1.0) * 0.5), "what you carry"))
+        pain = max(0.4, 1.0 - self.body.pain_level() * 0.4)
+        if pain < 1.0:
+            out.append((pain, "pain"))
+        out.append((0.7 + 0.3 * self.attributes.factor("agility"), ""))
+        if self.needs.fatigue > 1200:
+            out.append((0.8, "tiredness"))
+        if self.venom:
+            from . import venom as venom_mod
+
+            out.append((venom_mod.slow_factor(self), "poison"))
+        if self.exposure:
+            from ..world import heat
+
+            out.append((heat.speed_factor(self), "the cold"))
+        return out
+
+    def slowed_by(self) -> List[str]:
+        """What is currently taking pace off this one, worst first.
+
+        Blood loss is not on the list and never was. It reaches the number
+        only through `can_stand`, when you have lost enough to go down; what
+        actually slows a wounded adventurer is the pain and the broken leg.
+        """
+        hurts = [(f, why) for f, why in self._speed_factors() if why and f < 1.0]
+        hurts.sort()
+        return [why for _f, why in hurts]
+
     def effective_speed(self) -> int:
         """Movement speed after wounds, load and exhaustion.
 
@@ -386,28 +442,8 @@ class Creature:
             speed = float(self.mount.defn.speed) * mounts.SPEED_SHARE
         else:
             speed = float(self.defn.speed)
-        if not self.body.can_stand():
-            speed *= 0.35
-        stance = [p for p in self.body.parts.values() if p.defn.has("STANCE")]
-        if stance:
-            broken = sum(1 for p in stance if not p.functional())
-            if broken:
-                speed *= max(0.3, 1.0 - 0.35 * broken / len(stance))
-        enc = self.encumbrance()
-        if enc > 1.0:
-            speed *= max(0.3, 1.0 - (enc - 1.0) * 0.5)
-        speed *= max(0.4, 1.0 - self.body.pain_level() * 0.4)
-        speed *= 0.7 + 0.3 * self.attributes.factor("agility")
-        if self.needs.fatigue > 1200:
-            speed *= 0.8
-        if self.venom:
-            from . import venom as venom_mod
-
-            speed *= venom_mod.slow_factor(self)
-        if self.exposure:
-            from ..world import heat
-
-            speed *= heat.speed_factor(self)
+        for factor, _why in self._speed_factors():
+            speed *= factor
         return max(10, int(speed))
 
     def sight_radius(self, light: float = 1.0) -> int:

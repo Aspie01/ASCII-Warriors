@@ -10071,3 +10071,182 @@ class TestKnowingWhenToRun(GameFixture):
         from ascii_warriors.engine.screen import frag_str
 
         return [frag_str(m.display()) for m in self.game.log.all()[n:]]
+
+
+class TestWhatYouCanTellByLooking(GameFixture):
+    """The panel a player decides on.
+
+    §132 ended with the adventurer dying because the moment to leave passes
+    before the game gives any reason to notice it. This is what the game
+    offered somebody trying to notice, measured by pointing the look cursor
+    at a wolf:
+
+        Maddox Grimsby the wolf
+        They do not hunt alone.
+        A an adolescent wolf.
+        It is in perfect health.
+        Skills: Skilled Biter and Competent Dodger.
+        It is wavering.
+
+    A person's name on an animal, two articles, and not one word about the
+    only number that answers "can I walk away from this" -- the wolf is 170
+    and the man is 92.
+    """
+
+    def _look_at(self, c):
+        from ascii_warriors.engine.screen import frag_str
+
+        self.game.update_fov()
+        return [frag_str([f]).strip()
+                for f in self.game.describe_tile(c.x, c.y, c.z)]
+
+    def _beside(self, def_id, dx=1):
+        from ascii_warriors.game.entity import make_creature
+
+        p = self.game.player
+        c = make_creature(self.game.rng, def_id, faction="hostile")
+        c.x, c.y, c.z = p.x + dx, p.y, p.z
+        c.wx, c.wy = p.wx, p.wy
+        self.game.add_creature(c)
+        self.game.update_fov()
+        return c
+
+    # -- how fast is it ---------------------------------------------------- #
+
+    def test_the_panel_says_whether_you_can_walk_away(self):
+        wolf = self._beside("wolf")
+        lines = self._look_at(wolf)
+        self.assertTrue(any("faster than you" in l for l in lines), lines)
+
+    def test_a_wolf_is_much_faster_and_a_zombie_is_not(self):
+        """Bands, not numbers: 160 against 100 means nothing on its own."""
+        wolf = self._beside("wolf")
+        self.assertTrue(any("much faster than you" in l
+                            for l in self._look_at(wolf)), "the wolf")
+        self.game.creatures.pop(wolf.id, None)
+        zombie = self._beside("zombie", dx=2)
+        lines = self._look_at(zombie)
+        self.assertTrue(any("faster than it" in l for l in lines), lines)
+        self.assertFalse(any("faster than you" in l for l in lines), lines)
+
+    def test_it_reads_your_pace_and_not_your_species(self):
+        """A hurt man is outrun by things that kept up with him this morning.
+
+        A goblin runs at a hundred and a whole man at ninety-two, which is
+        the same pace as far as anybody is concerned. In enough pain the man
+        is down to the high fifties and the goblin is not the same problem.
+        """
+        p = self.game.player
+        goblin = self._beside("goblin")
+        before = self._look_at(goblin)
+        self.assertTrue(any("about your pace" in l for l in before), before)
+        p.body.pain = int(p.body.pain_tolerance())
+        after = self._look_at(goblin)
+        self.assertTrue(any("much faster than you" in l for l in after), after)
+
+    def test_the_dead_have_no_pace(self):
+        wolf = self._beside("wolf")
+        wolf.body.dead = True
+        self.assertFalse(any("faster" in l for l in self._look_at(wolf)))
+
+    # -- who it is --------------------------------------------------------- #
+
+    def test_an_animal_is_not_introduced_by_name(self):
+        """`full_title` is written for the character sheet, where the subject
+        is always the player. Pointed at a wolf it said "Maddox Grimsby the
+        wolf", which is the v3.71 rule going unasked in the last place."""
+        wolf = self._beside("wolf")
+        lines = self._look_at(wolf)
+        self.assertTrue(wolf.name, "the wolf has no name to leak")
+        self.assertNotIn(wolf.name, " ".join(lines), lines)
+        self.assertIn("The wolf", lines)
+
+    def test_a_person_still_gets_their_name(self):
+        goblin = self._beside("goblin")
+        self.assertTrue(goblin.known_by_name())
+        self.assertIn(goblin.name, " ".join(self._look_at(goblin)))
+
+    def test_the_article_matches_the_life_stage(self):
+        """"A an adolescent wolf." was on the screen for a long time.
+
+        Asserting only that it is not doubled is not enough: strip the
+        articles out of `age_desc` and leave the caller writing "A %s %s"
+        and you get "A adolescent wolf", which passes that and is still
+        wrong. The sentence has to be the sentence.
+        """
+        from ascii_warriors.data.descriptors import age_desc, indefinite_article
+
+        wolf = self._beside("wolf")
+        for years in (5, 15, 40, 60, 80, 200):
+            wolf.age = years
+            stage = age_desc(years, wolf.race)
+            line = next(l for l in self._look_at(wolf) if l.endswith(" wolf."))
+            want = "%s %s wolf." % (indefinite_article(stage), stage)
+            self.assertEqual(line, want[:1].upper() + want[1:],
+                             (years, stage, line))
+            self.assertNotIn("A an ", line)
+            self.assertNotIn("A a ", line)
+
+    def test_every_life_stage_reads_as_english(self):
+        """Five of the eight used to arrive with an article and three without."""
+        from ascii_warriors.data.descriptors import age_desc, with_article
+
+        for years in (0, 5, 15, 25, 40, 60, 80, 200):
+            stage = age_desc(years, "human")
+            self.assertFalse(stage.startswith("a "), stage)
+            self.assertFalse(stage.startswith("an "), stage)
+            phrase = with_article("%s wolf" % stage)
+            self.assertTrue(phrase.startswith("a ") or phrase.startswith("an "),
+                            phrase)
+
+    # -- your own pace ----------------------------------------------------- #
+
+    def test_the_sheet_says_what_is_slowing_you(self):
+        p = self.game.player
+        self.assertEqual(p.slowed_by(), [])
+        p.body.pain = int(p.body.pain_tolerance() * 0.8)
+        self.assertIn("pain", p.slowed_by())
+
+    def test_blood_loss_is_not_what_slows_you(self):
+        """v3.72's own help text said it was. It is not.
+
+        `effective_speed` reads standing, broken stance parts, encumbrance,
+        pain, agility, fatigue, venom and exposure. Blood reaches it only
+        through `can_stand`, once you have lost enough to go down.
+        """
+        p = self.game.player
+        whole = p.effective_speed()
+        p.body.blood = p.body.max_blood * 0.25
+        self.assertEqual(p.effective_speed(), whole,
+                         "blood loss moved the number after all")
+        self.assertEqual(p.slowed_by(), [])
+
+    def test_the_two_readings_cannot_drift(self):
+        """One list, multiplied by one and named by the other."""
+        p = self.game.player
+        p.body.pain = int(p.body.pain_tolerance() * 0.5)
+        p.needs.fatigue = 5000
+        product = float(p.defn.speed)
+        for factor, _why in p._speed_factors():
+            product *= factor
+        self.assertEqual(p.effective_speed(), max(10, int(product)))
+        named = p.slowed_by()
+        self.assertIn("pain", named)
+        self.assertIn("tiredness", named)
+
+    def test_the_sheet_draws_it(self):
+        """A number nobody can see is the thing this milestone is about."""
+        from ascii_warriors.engine.terminal import HeadlessTerminal
+        from ascii_warriors.ui.app import App
+        from ascii_warriors.ui.character_screen import CharacterScene
+
+        p = self.game.player
+        p.body.pain = int(p.body.pain_tolerance() * 0.8)
+        term = HeadlessTerminal(100, 34)
+        app = App(term)
+        app.game = self.game
+        app.push(CharacterScene(app, tab=2))
+        app.draw()
+        text = term.last_text()
+        self.assertIn("Pace:", text)
+        self.assertIn("slowed by", text)

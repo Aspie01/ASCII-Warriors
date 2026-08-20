@@ -7733,11 +7733,19 @@ a wolf chases a man across open ground
   35% blood  : caught, and killed   your speed 37 vs wolf 167
 ```
 
-Blood loss and pain both multiply into `effective_speed`, so the state in
-which running is the right move is the state in which running does not work.
-By the time the ceiling warning fires you are at a fifth of a wolf's speed.
-The decision has to be made earlier than the game gives you any reason to make
-it — and *that* is the next thing to fix.
+The state in which running is the right move is the state in which running
+does not work. By the time the ceiling warning fires you are at a fifth of a
+wolf's speed. The decision has to be made earlier than the game gives you any
+reason to make it — and *that* is the next thing to fix.
+
+> **Corrected in v3.73.** This section first said "blood loss and pain both
+> multiply into `effective_speed`". Blood loss does not: `effective_speed`
+> reads standing, broken stance parts, encumbrance, pain, agility, fatigue,
+> venom and exposure, and blood reaches it only through `can_stand` once you
+> have lost enough to go down. Setting blood to a quarter and changing nothing
+> else leaves the number at 92. What collapsed the chased man to 37 was the
+> pain and the broken legs he had collected by then. The finding stands; the
+> mechanism named was wrong. See §133.
 
 ### 132.5. Measured and left
 
@@ -7750,7 +7758,120 @@ it — and *that* is the next thing to fix.
   turns both wounded and with nothing in sight; the two that had any were the
   two that lived. Resting is a verb for adventurers who are already winning.
 
-## 133. Style
+## 133. What you can tell by looking (v3.73)
+
+§132 ended on the adventurer dying because the moment to leave passes before
+the game gives any reason to notice it. This is the screen a player would
+have to notice it on — the look cursor, pointed at a wolf:
+
+```
+Maddox Grimsby the wolf
+They do not hunt alone.
+A an adolescent wolf.
+It is in perfect health.
+Skills: Skilled Biter and Competent Dodger.
+It is wavering.
+```
+
+A person's name on an animal, two articles, and not one word about the number
+that decides the whole question. The wolf is at 170. The man is at 92.
+
+### 133.1. The roll the player cannot see
+
+`_awareness`, one function above the one this milestone adds, already makes
+the argument in its own docstring:
+
+> The single most useful thing a stealth game can tell you, and the only way
+> the roll is playable rather than a hidden dice cup: look at the guard and
+> find out whether the guard is looking at you.
+
+`effective_speed` is the roll that decides every disengagement in the game and
+it appears in **no screen at all** — grep it and every hit is the scheduler.
+Meanwhile:
+
+```
+of 81 creature kinds: 50 faster than a man, 22 the same, 9 slower
+speeds run 70 (zombie) to 210 (giant cave swallow)
+```
+
+Fifty of eighty-one, and the only way to find out which was to try to leave.
+
+`_pace_of` says it in bands rather than numbers, because 160 against 100 means
+nothing on its own and because *your* end of it moves:
+
+| ratio | line |
+| --- | --- |
+| ≥ 1.35 | It is much faster than you. |
+| ≥ 1.12 | It is faster than you. |
+| ~1 | It moves at about your pace. |
+| ≤ 1/1.12 | You are faster than it. |
+| ≤ 1/1.35 | You are much faster than it. |
+
+A goblin runs at 100 and a whole man at 92 — the same pace, as far as anybody
+is concerned. In enough pain the man is in the high fifties and the goblin is
+a different problem entirely. The panel says so.
+
+### 133.2. Blood loss does not slow you down
+
+v3.72's help text and §132.4 both said it did. Measured, holding everything
+else still:
+
+```
+whole, kitted out    92
+at 80% blood         92
+at 60% blood         92
+at 35% blood         92
+at 25% blood         92
+in a lot of pain     70
+```
+
+`effective_speed` reads standing, broken stance parts, encumbrance, pain,
+agility, fatigue, venom and exposure. Blood reaches it only through
+`can_stand`, once you have lost enough to go down. What collapsed the chased
+man in §132.4 from 91 to 37 was the pain and the broken legs he had collected
+over those forty turns, not the blood he had lost. **The finding stands and
+the mechanism named was wrong**; both places now say pain and a broken leg.
+
+The fix for the class of error, rather than the instance: `_speed_factors`
+returns `(factor, why)` pairs, `effective_speed` multiplies them and
+`slowed_by` names them. Written out twice they drift, and the copy that drifts
+is the one the player reads. The Wounds tab prints both:
+
+```
+Pace: 57   slowed by pain and what you carry
+```
+
+### 133.3. "A an adolescent wolf."
+
+`age_desc` returned "a baby", "a child", "an adolescent", "a young adult", "an
+adult" — and then "middle-aged", "elderly", "ancient". Five with an article
+and three without, from one function, and its single caller wrote `"A %s %s."`
+in front of whatever came back. So most of the wildlife in the game was
+introduced twice.
+
+`with_article` was already in the same file, thirty lines below. `age_desc`
+names the stage now and the sentence does the grammar.
+
+### 133.4. The last place that ignored the rule
+
+`full_title` is documented as "name, profession and race for the character
+sheet", where the subject is always the player. `Creature.describe` — the look
+panel — called it on whatever the cursor was over, which is how an animal came
+to be introduced as "Maddox Grimsby the wolf". v3.71 established
+`known_by_name` as the one question for this and swept combat, deaths, webs,
+traps and mounts; the look panel was the place it did not reach.
+
+### 133.5. Measured and left
+
+- **It still does not say how hard something hits.** Pace is the disengagement
+  question; "would I win" is a different one, and armour, weapon and skill are
+  already on the panel as facts rather than as a verdict.
+- **Nothing warns you when your own pace drops.** The Wounds tab will tell you
+  if you look. `Body.tick` warns about blood at three thresholds and about the
+  bleeding ceiling since §132; a broken leg is at least as worth an
+  interruption, and is not one yet.
+
+## 134. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

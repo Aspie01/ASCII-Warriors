@@ -7,6 +7,7 @@ from typing import List
 from ..engine import colors, keys
 from ..engine.screen import Frag, Screen
 from ..engine.widgets import Tabs, key_hint, scroll_view
+from ..data.descriptors import list_join
 from ..game.attributes import ATTR_NAMES, MENTAL, PHYSICAL
 from ..game.skills import SKILLS, SKILL_CATEGORIES, level_name
 from ..game import skills as skills_mod
@@ -141,6 +142,16 @@ class CharacterScene(Scene):
             out.append(Frag("Blood: %d%%   Pain: %d%%" % (
                 int(p.body.blood_fraction() * 100),
                 int(min(1.0, p.body.pain_level()) * 100)), colors.UI["dim"]))
+            # The number the scheduler runs on and nothing ever showed. Fifty
+            # of the game's eighty-one creature kinds are quicker than a man
+            # to begin with, and a character who has quietly lost a third of
+            # their pace had no way to find out except by being caught.
+            slowed = p.slowed_by()
+            out.append(Frag(
+                "Pace: %d%s" % (p.effective_speed(),
+                                "   slowed by %s" % list_join(slowed)
+                                if slowed else ""),
+                colors.UI["warn"] if slowed else colors.UI["dim"]))
             out.append(Frag(""))
             out.append(Frag("Body", colors.UI["accent"]))
             lines = p.body.status_lines()
