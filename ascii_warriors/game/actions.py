@@ -390,6 +390,9 @@ def wait(game, ticks: int = NORMAL) -> int:
 def rest(game, ticks: int) -> int:
     """Rest without sleeping, healing slowly."""
     p = game.player
+    if game.hostiles_in_sight():
+        game.log.warn("You cannot rest with enemies nearby.")
+        return FREE
     p.body.rest_heal(ticks, p.attributes.factor("recuperation"))
     p.needs.fatigue = max(0, p.needs.fatigue - ticks // 2)
     game.log.info("You rest a while.")
@@ -399,10 +402,7 @@ def rest(game, ticks: int) -> int:
 def sleep(game, hours: int = 8) -> int:
     """Sleep, healing and clearing fatigue."""
     p = game.player
-    hostiles = [
-        c for c in game.visible_creatures() if c.is_hostile_to(p)
-    ]
-    if hostiles:
+    if game.hostiles_in_sight():
         game.log.warn("You cannot sleep with enemies nearby.")
         return FREE
     ticks = hours * TICKS_PER_HOUR

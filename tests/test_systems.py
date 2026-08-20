@@ -9779,3 +9779,295 @@ class TestTheWayAcrossTheWorld(unittest.TestCase):
                 "%s sends you to (%d, %d), which you cannot walk to"
                 % (q.kind, q.wx, q.wy))
         self.assertGreater(offered, 10)
+
+
+class TestYouCannotBandageYourWayOut(GameFixture):
+    """Stopping is stopping, and binding is not always the move.
+
+    Traced on a doomed adventurer, turn by turn: from turn thirty-two it
+    bandaged for seventeen consecutive turns in a four-way melee and its
+    bleeding rate read 0.147 on every one of them. Each bandage really did
+    close fourteen points of bleeding; twelve more arrived each turn, the
+    total climbed from forty to a hundred and twenty-four against a ceiling
+    of thirty-seven, and it died on turn forty-nine with a bandage in its
+    hand. Nothing on the screen ever said the arithmetic had stopped working.
+
+    Meanwhile `rest` -- which calls the same `Body.rest_heal`, for the same
+    ticks, as sleeping -- asked nobody's permission at all.
+    """
+
+    def _wolf_beside(self, dx=1):
+        from ascii_warriors.game.entity import make_creature
+
+        p = self.game.player
+        wolf = make_creature(self.game.rng, "wolf", faction="hostile")
+        wolf.x, wolf.y, wolf.z = p.x + dx, p.y, p.z
+        wolf.wx, wolf.wy = p.wx, p.wy
+        self.game.add_creature(wolf)
+        self.game.update_fov()
+        return wolf
+
+    def _texts(self, n=0):
+        from ascii_warriors.engine.screen import frag_str
+
+        return [frag_str(m.display()) for m in self.game.log.all()[n:]]
+
+    # -- one rule for stopping --------------------------------------------- #
+
+    def test_you_cannot_rest_with_a_wolf_on_you(self):
+        """It was a heal with no cost: 2.45 to 4.04 litres in ten presses."""
+        from ascii_warriors.game import actions
+
+        p = self.game.player
+        p.body.blood = p.body.max_blood * 0.5
+        self._wolf_beside()
+        before = p.body.blood
+        cost = actions.rest(self.game, 600)
+        self.assertEqual(cost, actions.FREE, "it rested in melee")
+        self.assertEqual(p.body.blood, before, "it healed in melee")
+        self.assertTrue(any("cannot rest" in t for t in self._texts()),
+                        "refused without saying why")
+
+    def test_you_can_rest_when_they_are_gone(self):
+        """The other half, or the guard is just a wall."""
+        from ascii_warriors.game import actions
+
+        p = self.game.player
+        p.body.blood = p.body.max_blood * 0.5
+        before = p.body.blood
+        self.assertFalse(self.game.hostiles_in_sight())
+        cost = actions.rest(self.game, 600)
+        self.assertGreater(cost, 0)
+        self.assertGreater(p.body.blood, before, "an hour's rest did nothing")
+
+    def test_resting_and_sleeping_ask_the_same_question(self):
+        """Two verbs, one rule, and it is the one the book already used.
+
+        `sleep` kept its own inline copy of `hostiles_in_sight` and `rest`
+        had none, so you could not read a novel with a wolf nearby but you
+        could heal to full.
+        """
+        import inspect
+
+        from ascii_warriors.game import actions
+
+        for verb in (actions.rest, actions.sleep):
+            src = inspect.getsource(verb)
+            self.assertIn("hostiles_in_sight", src,
+                          "%s asks its own question" % verb.__name__)
+
+    def test_sleep_still_refuses(self):
+        from ascii_warriors.game import actions
+
+        self._wolf_beside()
+        self.assertEqual(actions.sleep(self.game, 8), actions.FREE)
+
+    # -- saying when binding cannot keep up -------------------------------- #
+
+    def _flood(self, p):
+        """Open enough wounds to pin the rate at the ceiling."""
+        from ascii_warriors.game.body import BLEED_CAP, BLEED_PER_POINT, Wound
+
+        want = int(p.body.max_blood * BLEED_CAP / BLEED_PER_POINT) + 20
+        part = next(iter(p.body.parts.values()))
+        part.wounds.append(Wound(part=part.id, tissue="skin", severity=0.5,
+                                 kind="cut", bleeding=want))
+        self.assertGreaterEqual(p.body.bleeding_rate(),
+                                p.body.max_blood * BLEED_CAP - 1e-9)
+
+    def test_it_says_when_the_wounds_are_winning(self):
+        p = self.game.player
+        self._flood(p)
+        msgs = p.body.tick(self.game.rng, 1, 1.0, 1.0)
+        self.assertTrue(any("faster than you can bind" in m for m in msgs),
+                        msgs)
+
+    def test_it_says_it_once(self):
+        """A message every tick is not information."""
+        p = self.game.player
+        self._flood(p)
+        first = p.body.tick(self.game.rng, 1, 1.0, 1.0)
+        self.assertTrue(any("faster than you can bind" in m for m in first))
+        for _ in range(5):
+            again = p.body.tick(self.game.rng, 1, 1.0, 1.0)
+            self.assertFalse(any("faster than you can bind" in m
+                                 for m in again), again)
+
+    def test_it_says_it_again_if_you_get_back_into_that_state(self):
+        """Warned once is not warned for ever."""
+        p = self.game.player
+        self._flood(p)
+        p.body.tick(self.game.rng, 1, 1.0, 1.0)
+        for part in p.body.parts.values():
+            part.wounds = []
+        p.body.tick(self.game.rng, 1, 1.0, 1.0)
+        self._flood(p)
+        again = p.body.tick(self.game.rng, 1, 1.0, 1.0)
+        self.assertTrue(any("faster than you can bind" in m for m in again),
+                        again)
+
+    def test_a_scratch_says_nothing(self):
+        """The warning is about the ceiling, not about being hurt."""
+        from ascii_warriors.game.body import Wound
+
+        p = self.game.player
+        part = next(iter(p.body.parts.values()))
+        part.wounds.append(Wound(part=part.id, tissue="skin", severity=0.1,
+                                 kind="cut", bleeding=3))
+        msgs = p.body.tick(self.game.rng, 1, 1.0, 1.0)
+        self.assertFalse(any("faster than you can bind" in m for m in msgs),
+                         msgs)
+
+    def test_the_warning_survives_a_save(self):
+        """Or loading a bleeding character says it all over again."""
+        from ascii_warriors.game.body import Body
+
+        p = self.game.player
+        self._flood(p)
+        p.body.tick(self.game.rng, 1, 1.0, 1.0)
+        again = Body.from_dict(p.body.to_dict())
+        msgs = again.tick(self.game.rng, 1, 1.0, 1.0)
+        self.assertFalse(any("faster than you can bind" in m for m in msgs),
+                         msgs)
+
+
+class TestKnowingWhenToRun(GameFixture):
+    """What the driver does once binding has stopped helping.
+
+    It ran away twenty-nine times in five thousand eight hundred and
+    fifty-nine turns, because `_staunch` is asked before `_run_away` and
+    took the turn every time there was anything left to bind -- and because
+    when it did ask, the flee step was the sum of the directions its
+    attackers were in, which for four evenly spaced attackers is zero.
+    """
+
+    def _pack(self, n=4):
+        """Foes on every side, so the old flee vector cancels to nothing."""
+        from ascii_warriors.game.entity import make_creature
+
+        p = self.game.player
+        out = []
+        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))[:n]:
+            foe = make_creature(self.game.rng, "wolf", faction="hostile")
+            foe.x, foe.y, foe.z = p.x + dx, p.y + dy, p.z
+            foe.wx, foe.wy = p.wx, p.wy
+            self.game.add_creature(foe)
+            out.append(foe)
+        self.game.update_fov()
+        return out
+
+    def _flood(self, p):
+        from ascii_warriors.game.body import BLEED_CAP, BLEED_PER_POINT, Wound
+
+        want = int(p.body.max_blood * BLEED_CAP / BLEED_PER_POINT) + 20
+        part = next(iter(p.body.parts.values()))
+        part.wounds.append(Wound(part=part.id, tissue="skin", severity=0.5,
+                                 kind="cut", bleeding=want))
+
+    def test_surrounded_is_the_one_time_it_must_leave(self):
+        """Four foes, one on each side, sum to (0, 0).
+
+        The old rule read that as "no direction to run in" and stood there.
+        """
+        import collections
+
+        from tools import play
+
+        p = self.game.player
+        p.body.blood = p.body.max_blood * 0.4
+        foes = self._pack(4)
+        self.assertEqual(sum(play._sign(p.x - c.x) for c in foes), 0)
+        self.assertEqual(sum(play._sign(p.y - c.y) for c in foes), 0)
+        why = collections.Counter()
+
+        def touching():
+            return sum(1 for c in foes
+                       if max(abs(c.x - p.x), abs(c.y - p.y)) <= 1)
+
+        def spread():
+            return sum(max(abs(c.x - p.x), abs(c.y - p.y)) for c in foes)
+
+        before, before_spread = touching(), spread()
+        self.assertEqual(before, 4, "the pack is not actually around it")
+        cost = play._run_away(self.game, why)
+        self.assertIsNotNone(cost, "it stood in the middle of them")
+        self.assertEqual(why["ran"], 1)
+        self.assertLess(touching(), before, "it ran and stayed surrounded")
+        self.assertGreater(spread(), before_spread,
+                           "it ran without gaining ground")
+
+    def test_it_stops_binding_once_binding_cannot_win(self):
+        import collections
+
+        from tools import play
+
+        p = self.game.player
+        p.body.blood = p.body.max_blood * 0.5
+        self._pack(1)
+        self._flood(p)
+        self.assertTrue(play._outrun_by_the_bleeding(self.game))
+        why = collections.Counter()
+        self.assertIsNone(play._staunch(self.game, why),
+                          "it bandaged at the ceiling with a wolf on it")
+
+    def test_it_still_binds_when_binding_helps(self):
+        """Or the driver never bandages again and this is not a fix."""
+        import collections
+
+        from ascii_warriors.game.body import Wound
+        from tools import play
+
+        p = self.game.player
+        p.body.blood = p.body.max_blood * 0.7
+        part = next(iter(p.body.parts.values()))
+        part.wounds.append(Wound(part=part.id, tissue="skin", severity=0.4,
+                                 kind="cut", bleeding=4))
+        self.assertFalse(play._outrun_by_the_bleeding(self.game))
+        why = collections.Counter()
+        self.assertIsNotNone(play._staunch(self.game, why))
+
+    def test_it_rests_when_there_is_nobody_watching(self):
+        import collections
+
+        from tools import play
+
+        p = self.game.player
+        p.body.blood = p.body.max_blood * 0.6
+        p.needs.thirst = 0
+        p.needs.hunger = 0
+        why = collections.Counter()
+        before = p.body.blood
+        cost = play._rest_up(self.game, why)
+        self.assertIsNotNone(cost, "it walked on bleeding with nobody about")
+        self.assertEqual(why["rested"], 1)
+        self.assertGreater(p.body.blood, before)
+
+    def test_it_does_not_rest_with_company(self):
+        """And does not ask, either.
+
+        `actions.rest` refuses on its own, so a driver that tries anyway
+        still fails to rest -- and writes "You cannot rest with enemies
+        nearby" into the log on every turn it spends in a fight. Asking
+        first is the whole of what this check is worth, so silence is what
+        the test has to be about: without it this passes.
+        """
+        import collections
+
+        from tools import play
+
+        p = self.game.player
+        p.body.blood = p.body.max_blood * 0.6
+        p.needs.thirst = 0
+        p.needs.hunger = 0
+        self._pack(1)
+        why = collections.Counter()
+        before = len(self.game.log.all())
+        self.assertIsNone(play._rest_up(self.game, why))
+        self.assertEqual(len(self.game.log.all()), before,
+                         self._texts(before))
+        self.assertEqual(why["rested"], 0)
+
+    def _texts(self, n=0):
+        from ascii_warriors.engine.screen import frag_str
+
+        return [frag_str(m.display()) for m in self.game.log.all()[n:]]

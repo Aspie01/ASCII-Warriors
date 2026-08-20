@@ -618,8 +618,20 @@ class Game:
     def hostiles_in_sight(self) -> bool:
         """Whether anything the player can see would like it dead.
 
-        Used to refuse the long, absorbing actions -- reading, mostly. A book
-        is not a thing you finish while somebody is walking towards you.
+        The rule for the long, absorbing actions: a book is not a thing you
+        finish while somebody is walking towards you, and neither is an
+        hour's rest. It guarded reading, writing and fishing for a long time
+        while `sleep` kept a copy of it inline and `rest` did not ask at all
+        -- and `rest` calls the same `Body.rest_heal`, for the same ticks, as
+        sleeping does. It was sleep with the guard taken off, which made it a
+        heal with no cost: measured with a wolf adjacent and half the blood
+        gone, ten presses of it went from 2.45 to 4.04 litres while the wolf
+        bit thirteen times an hour.
+
+        Sight, not a radius. `can_travel` uses six tiles, because setting out
+        is not the same as lying down -- though over ten measured lives the
+        two came to the same set, nothing hostile ever being visible from
+        further than six tiles anyway.
         """
         return any(c.is_hostile_to(self.player)
                    for c in self.visible_creatures())

@@ -56,6 +56,14 @@ RUN_AWAY_AT = 0.62
 #: And the point at which you bind it whatever is standing over you.
 BIND_IT_NOW = 0.75
 
+#: Blood left at which a quiet moment is worth spending on resting rather
+#: than on walking somewhere. Above `PATCH_UP_AT`, because binding closes
+#: wounds and only time puts the blood back.
+REST_UP_AT = 0.92
+
+#: How long one sit-down is. An hour, which is what `R` does on the keyboard.
+REST_TICKS = 600
+
 #: Needs at which the driver stops what it is doing and sees to itself. Below
 #: the fatal thresholds by a wide margin, because a player who waits for
 #: `THIRST_DEATH` is not testing the game, they are testing the clock.
@@ -136,6 +144,17 @@ def _staunch(game, why) -> Optional[int]:
         return None
     if _adjacent_foe(game) is not None and blood > BIND_IT_NOW:
         return None
+    # And not at all, with something still on you, once the wounds are
+    # arriving faster than the bandages close them. Traced on a doomed run:
+    # seventeen consecutive turns of binding in a four-way melee, fourteen
+    # points closed each time and twelve more arriving, the total climbing
+    # from forty to a hundred and twenty-four against a ceiling of
+    # thirty-seven, and it bled out with a bandage in its hand. Binding was
+    # not the wrong verb, it was the wrong turn -- and because `_staunch` is
+    # asked before `_run_away`, taking the turn every time is how the driver
+    # came to run away twenty-nine times in five thousand eight hundred.
+    if _outrun_by_the_bleeding(game) and _adjacent_foe(game) is not None:
+        return None
     if not medical.treatable(p):
         return None
     said = medical.auto_treat(p, rng=game.rng)
@@ -167,21 +186,85 @@ def _tear_a_bandage(game, why) -> bool:
     return bool(made)
 
 
-def _run_away(game, why) -> Optional[int]:
-    """Back off from whatever is hitting you, when you are losing."""
+def _outrun_by_the_bleeding(game) -> bool:
+    """True when no amount of binding will bring the rate down this turn.
+
+    `Body.bleeding_rate` is capped at `BLEED_CAP` of the body's own volume,
+    so past that ceiling the number on the screen stops moving however many
+    wounds you close. That is the moment to stop closing them and leave.
+    """
+    from ascii_warriors.game.body import BLEED_CAP
+
+    body = game.player.body
+    return body.bleeding_rate() >= body.max_blood * BLEED_CAP - 1e-9
+
+
+def _rest_up(game, why) -> Optional[int]:
+    """Sit down and bleed less, once there is nobody watching.
+
+    The other half of running. Breaking contact is only worth the turns if
+    something is done with the quiet afterwards, and an hour of rest is worth
+    about a third of a litre -- which is most of what a bad fight costs.
+    """
     p = game.player
-    if p.body.blood_fraction() > RUN_AWAY_AT:
+    if p.body.blood_fraction() > REST_UP_AT or game.hostiles_in_sight():
+        return None
+    if p.needs.thirst > THIRSTY or p.needs.hunger > HUNGRY:
+        return None
+    cost = actions.rest(game, REST_TICKS)
+    if cost <= 0:
+        return None
+    why["rested"] += 1
+    return cost
+
+
+def _run_away(game, why) -> Optional[int]:
+    """Back off from whatever is hitting you, when you are losing.
+
+    The step that puts the most ground between you and the nearest of them,
+    not the sum of the directions they are in. Summing was the old rule and
+    it has one arrangement it cannot handle: four foes evenly around you add
+    up to nothing at all, `ax == ay == 0`, and the driver stood in the middle
+    of them and fought. That is the arrangement it most needed to leave.
+    """
+    p = game.player
+    if p.body.blood_fraction() > RUN_AWAY_AT \
+            and not _outrun_by_the_bleeding(game):
         return None
     foes = [c for c in game.creatures.values()
             if not c.body.dead and not c.is_player and c.is_hostile_to(p)
             and max(abs(c.x - p.x), abs(c.y - p.y)) <= 2 and c.z == p.z]
-    if not foes:
+    if not foes or game.local is None:
         return None
-    ax = sum(_sign(p.x - c.x) for c in foes)
-    ay = sum(_sign(p.y - c.y) for c in foes)
-    if ax == ay == 0:
+
+    def room(x, y):
+        """Ground gained on the nearest of them, then on all of them.
+
+        The second half matters when the first cannot move: hemmed in on
+        four sides every step still leaves you next to somebody, so the
+        nearest distance stays at one whichever way you go. Stepping
+        diagonally out of a cross puts two of them behind you even so, and
+        the total distance is what says that.
+        """
+        dists = [max(abs(c.x - x), abs(c.y - y)) for c in foes]
+        return (min(dists), sum(dists))
+
+    best, best_room = None, room(p.x, p.y)
+    for dx in (-1, 0, 1):
+        for dy in (-1, 0, 1):
+            if dx == dy == 0:
+                continue
+            cell = (p.x + dx, p.y + dy, p.z)
+            if not game.local.in_bounds(*cell) \
+                    or not game.local.walkable(*cell) \
+                    or game.creature_at(*cell) is not None:
+                continue
+            gain = room(cell[0], cell[1])
+            if gain > best_room:
+                best, best_room = (dx, dy), gain
+    if best is None:
         return None
-    cost = actions.move_or_attack(game, _sign(ax), _sign(ay))
+    cost = actions.move_or_attack(game, *best)
     if cost <= 0:
         return None
     why["ran"] += 1
@@ -641,6 +724,8 @@ def play(seed: str, turns: int, *, size: str = "small",
         cost = _look_after(game, why)
         if cost is None:
             cost = _run_away(game, why)
+        if cost is None:
+            cost = _rest_up(game, why)
         if cost is None:
             foe = _adjacent_foe(game)
             if foe is not None:

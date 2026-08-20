@@ -303,6 +303,9 @@ class Body:
         self.bloodless = False
         #: Lowest blood-warning threshold already announced.
         self._blood_warned = 1.0
+        #: Whether the wounds are currently outrunning the clotting. See the
+        #: warning in `tick`.
+        self._flooding = False
         #: Ticks of rest banked toward closing the next point of bleeding.
         self._rest_ticks = 0.0
         #: The same, banked while upright. Time, not a coin flip per call.
@@ -712,6 +715,23 @@ class Body:
             if frac > self._blood_warned + 0.1:
                 self._blood_warned = min(1.0, frac)
 
+            # The three above are about how much blood is left, which is a
+            # number that keeps moving. This one is about the rate, which
+            # stops moving at `BLEED_CAP` and stays there -- and while it is
+            # stuck there, binding a wound changes nothing you can see.
+            #
+            # Measured on a doomed run: seventeen consecutive turns of
+            # bandaging in a four-way melee. Each bandage really did close
+            # fourteen points; twelve more arrived every turn, the total went
+            # from forty to a hundred and twenty-four against a ceiling of
+            # thirty-seven, and the rate read 0.147 from the first turn to the
+            # last. Nothing on the screen said the arithmetic had stopped
+            # working. This does.
+            at_cap = rate >= self.max_blood * BLEED_CAP - 1e-9
+            if at_cap and not self._flooding:
+                msgs.append("You are bleeding faster than you can bind it.")
+            self._flooding = at_cap
+
         # Clotting: tougher creatures stop bleeding sooner. Banked as time
         # rather than rolled per call, so an hour of it closes the same wound
         # whether the hour arrives in one piece or in three hundred.
@@ -890,6 +910,7 @@ class Body:
             "bloodless": self.bloodless,
             "missing": list(self.missing),
             "warned": self._blood_warned,
+            "flooding": self._flooding,
         }
 
     @classmethod
@@ -912,6 +933,7 @@ class Body:
         b.bloodless = bool(d.get("bloodless", False))
         b.missing = tuple(str(t) for t in d.get("missing", ()))
         b._blood_warned = float(d.get("warned", 1.0))
+        b._flooding = bool(d.get("flooding", False))
         return b
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid

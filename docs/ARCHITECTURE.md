@@ -7620,7 +7620,137 @@ cannot fail, and that is.
   goblins hitting two dwarves identically used to be one message; naming them
   makes them the two events they always were.
 
-## 132. Style
+## 132. You cannot bandage your way out (v3.72)
+
+§130.4 left a question: an adventurer finishes one quest in twenty-four
+lifetimes, and "whether that is the bot, the quest design or the world being
+too big to cross is the next thing to measure". Twenty-four adventurers, six
+hundred turns each:
+
+```
+quests: 25 taken, 3 finished, 0 failed
+turns 5859 over 24 lives -- a mean life of 244 turns
+deaths: bled to death 15, lower body destroyed 1, died of thirst 1
+```
+
+None of the three. **Seventeen of twenty-four died, fifteen of them bleeding**,
+less than halfway through the turns they were given. The quest loop is not
+what is stopping them.
+
+### 132.1. Seventeen bandages and a corpse
+
+One doomed life, traced turn by turn:
+
+```
+t32  blood  70%  speed 38  bleed 0.147  foes<=6 4 (nearest 1)  -> patched itself up
+t33  blood  67%  speed 38  bleed 0.147  foes<=6 4 (nearest 1)  -> patched itself up
+ ...  seventeen consecutive turns of it ...
+t48  blood  19%  speed 38  bleed 0.147  foes<=6 4 (nearest 1)  -> patched itself up
+dead=True bled to death on turn 49
+```
+
+The rate reads **0.147 on every one of those turns**, which is
+`BLEED_CAP` × 4.9 litres exactly — the ceiling. The obvious reading is that
+bandaging is broken. It is not:
+
+```
+t39  pts  94.0 ->  79.0 (treat -15.0) ->  88.0 (turn  +9.0)
+t42  pts 101.0 ->  86.0 (treat -15.0) ->  99.0 (turn +13.0)
+t45  pts  97.0 ->  86.0 (treat -11.0) ->  113.0 (turn +27.0)
+```
+
+Each bandage really closes eleven to seventeen points. Four adjacent foes open
+three to twenty-seven a turn, the total climbs from forty to a hundred and
+twenty-four against a ceiling of thirty-seven, and the rate cannot move until
+the total gets back under it. **The treatment works; the turn is wrong.** And
+nothing on the screen said so — the three existing warnings are about how much
+blood is *left*, a number that keeps moving, and this is the one number that
+stops.
+
+`Body.tick` now says it once, and re-arms when the wounds come back under the
+ceiling: *"You are bleeding faster than you can bind it."*
+
+### 132.2. Rest was sleep with the guard taken off
+
+`rest` and `sleep` call the same `Body.rest_heal`, for the same ticks. `sleep`
+refused when anything hostile was in sight. `rest` asked nothing:
+
+```
+wolf adjacent, half the blood gone, ten presses of R:
+  1: blood 2.379   2: 2.648   3: 2.917  ...  10: 4.039   (of 4.20)
+```
+
+Full, in melee, while the wolf bit thirteen times an hour. The world does get
+its hour — both a rest and six waits log the same thirteen wolf attacks — the
+healing simply outruns it.
+
+The rule was already written and already named. `Game.hostiles_in_sight` has
+guarded reading, writing and fishing since it existed, with a docstring that
+says why: "a book is not a thing you finish while somebody is walking towards
+you." Sleeping kept its own inline copy of the same test; resting had none. So
+you could not read a novel with a wolf nearby, and you could heal to full.
+Both verbs ask the one function now.
+
+### 132.3. Four foes sum to nothing
+
+The driver ran away twenty-nine times in five thousand eight hundred and
+fifty-nine turns. Two reasons, both in `tools/play.py`:
+
+- `_staunch` is asked before `_run_away` and claimed the turn whenever
+  anything was left to bind — which, at the ceiling, is always.
+- when it did get asked, the flee step was the **sum of the directions its
+  attackers were in**. For four attackers evenly around you that is `(0, 0)`,
+  read as "nowhere to run", and it stood in the middle of them. That is the
+  one arrangement it most needed to leave.
+
+`_run_away` picks a cell now, scored `(ground gained on the nearest, ground
+gained on all of them)`. The second half is what handles the cross: hemmed in
+on four sides every step still leaves you touching somebody, so the first
+number cannot improve, and stepping diagonally still puts two of them behind
+you.
+
+### 132.4. And it did not help
+
+The same twenty-four seeds, before and after:
+
+| | before | after |
+| --- | ---: | ---: |
+| ran | 29 | 169 |
+| patched itself up | 294 | 135 |
+| bleeding, and nothing to bind it with | 37 | 0 |
+| rested | — | 14 |
+| **died** | **17** | **17** |
+| **quests finished** | **3 of 25** | **3 of 25** |
+| turns lived | 5859 | 5703 |
+
+Running five times as often saves nobody. That is the measurement this
+milestone is really for, and it is not about the driver:
+
+```
+a wolf chases a man across open ground
+  whole      : held at 6 tiles      your speed 91 vs wolf 172
+  60% blood  : reached 16 tiles     your speed 92 vs wolf 158
+  35% blood  : caught, and killed   your speed 37 vs wolf 167
+```
+
+Blood loss and pain both multiply into `effective_speed`, so the state in
+which running is the right move is the state in which running does not work.
+By the time the ceiling warning fires you are at a fifth of a wolf's speed.
+The decision has to be made earlier than the game gives you any reason to make
+it — and *that* is the next thing to fix.
+
+### 132.5. Measured and left
+
+- **The one lever left is not starting the fight**, and the game tells you
+  nothing about what a thing can do to you until it has done it.
+- **`blocked` is still a sixth of every turn** — 1000 of 5703, the random walk
+  going nowhere. Unchanged since §130.4, and still the bot rather than the
+  game.
+- **Hurt and quiet almost never coincide.** Over twelve lives, ten had *zero*
+  turns both wounded and with nothing in sight; the two that had any were the
+  two that lived. Resting is a verb for adventurers who are already winning.
+
+## 133. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

@@ -962,8 +962,20 @@ shrublands and the ice -- so top up before you cross one and look at the
 rainfall on the travel screen before you set out.
 
 Wounds heal on their own, slowly. Resting ('R') and sleeping heal much faster.
+Neither is something you do with company: both want the same quiet the game
+asks for before you read a book, and you will be told so if you try.
+
 Bleeding is the urgent problem: if the sidebar's Blood gauge is dropping, break
-off the fight.
+off the fight. There is a ceiling on how fast a body can lose blood, and past
+it a bandage still closes the wound it is tied round but the bleeding does not
+slow at all -- the game says "you are bleeding faster than you can bind it"
+when you reach it. That is not a cue to bind harder. Bind what you can when
+nothing is swinging at you, and when something is, leave.
+
+Leave early. Blood loss and pain both cut your speed, so the longer you stand
+there deciding, the less able you are to go: whole, you can hold a wolf at
+arm's length across open ground; down to a third of your blood you are moving
+at a fifth of its speed and the decision has been made for you.
 
 Carrying too much slows you down. Your pack capacity depends on your strength,
 and a backpack helps.
