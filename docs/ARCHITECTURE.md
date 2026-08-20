@@ -7871,7 +7871,129 @@ traps and mounts; the look panel was the place it did not reach.
   bleeding ceiling since §132; a broken leg is at least as worth an
   interruption, and is not one yet.
 
-## 134. Style
+## 134. The only thing that could not walk downhill (v3.74)
+
+Three milestones had circled the adventurer's death rate and the last two did
+not move it: 17 of 24 dead before v3.72, 17 of 24 after v3.73. So this one
+started by asking where a life actually goes, and split the survivors from
+the dead:
+
+```
+survived: 7 of 24, 4200 turns between them
+   blocked 991, working 840, fought 330, on the road to the job 244
+```
+
+**A quarter of a surviving adventurer's life was spent walking into things.**
+§130.4 had already noticed the line and written it off — "that is the bot, not
+the game" — twice. This time it got measured.
+
+### 134.1. What it was walking into
+
+```
+764 wandering attempts, 360 of them went nowhere (47%)
+what it walked into: open space 356, tree 4
+walkable neighbours at the time: 3 of 8 (107), 4 of 8 (136), 5 of 8 (97)
+```
+
+Not a wall — air. And the ground one level under that air was walkable 356
+times out of 360.
+
+The write-off was half right. The player is on the ground every time
+(`p.z - surface_z` was 0 in all 360), and **twenty distinct spots account for
+all 360 refusals**, one of them 107 times: the bot lands next to a drop, half
+its moves fail, it has no errand to run, and it random-walks in place for
+hundreds of turns. That much is the bot.
+
+What is not the bot is the refusal itself.
+
+### 134.2. The graph and the copy of it
+
+`LocalMap.neighbours` is the rule for what a walker can do, and its docstring
+says what it is for:
+
+> These edges are deliberately symmetric: if you can get from A to B you can
+> get back. An asymmetric graph gives you one-way drops that A* will
+> cheerfully route through, stranding whoever took them.
+
+Level ground, up a staircase, down a staircase, up the slope of a ramp you are
+standing on, **down onto a ramp on the level below**. Every creature in the
+game is moved by it.
+
+`actions.move_or_attack` — the player's own step — reimplemented the up half
+and nothing else:
+
+```python
+        # Try stepping up onto a ramp or ledge.
+        if game.is_passable(nx, ny, nz + 1, p) and tile_data.get(
+            game.local.tile(p.x, p.y, p.z)
+        ).has("RAMP"):
+```
+
+Sorting the 360 refusals by what else could have made that step:
+
+| at a refused step | count |
+| --- | ---: |
+| **A\* can step down here, the player cannot** | **184** |
+| a ramp below, but the step is diagonal — neither can | 99 |
+| no ramp at all — nobody can step down | 73 |
+| genuinely solid | 4 |
+
+The player was the only thing on the map that could not walk downhill.
+
+`_step_on_the_graph` asks `neighbours` instead of copying it, and the answer
+falls through to the same tail as any other step, so a walk down a slope
+crosses the same traps, items and water as a walk along one.
+
+```
+360 refused steps -> 14
+blocked, over twenty-four lifetimes: 1000 -> 162
+```
+
+`gravity.SAFE_DROP` is 1 and has been all along: the damage model already said
+a one-level drop costs nothing while the movement model said you cannot go
+that way.
+
+### 134.3. It made the death rate worse
+
+Honestly, and by a lot:
+
+| twenty-four lifetimes | before | after |
+| --- | ---: | ---: |
+| died | 17 | 22 |
+| mean life, turns | 238 | 196 |
+| turns `blocked` | 1000 | 162 |
+| turns `fought` | 874 | 1608 |
+| world squares visited | 270 | 270 |
+| quests finished | 3 | 3 |
+
+Nobody died of a fall — the causes are the same three as before, twenty of
+them bleeding. What changed is that the driver stopped standing in a corner
+for a quarter of its life, and standing in a corner is an extremely safe way
+to live. The dead now last 159 turns each rather than 88 and see more of the
+world on the way; the two that lived finished both of the quests they took.
+
+This is a fix to a defect, not a balance change, and the number it moved is
+not the number a balance change would move. The adventurer's survival is
+still the open question it was in §132 — but it is no longer being measured
+through a driver that spent a quarter of its life facing a wall.
+
+### 134.4. Measured and left
+
+- **Diagonal ramps.** 99 of the 360 were a ramp one level down on a diagonal.
+  `neighbours` offers ramp-up orthogonally only, so allowing ramp-down
+  diagonally would break the symmetry the graph exists to keep. Both halves
+  would have to move together.
+- **73 bare one-tile cliffs**, where the terrain drops a level with no ramp
+  and nothing can get down. `_dig_pond` and the heightmap make these; whether
+  worldgen should ramp its own slope edges is a terrain question.
+- **An unknown tile id is silently a floor.** `tiles.get` defaults to `floor`,
+  which is right for reading an old save with a retired id in it, but
+  `set_tile(x, y, z, "wall")` — there is no tile called `wall` — quietly
+  writes walkable ground. It cost an hour in this milestone's own test bench.
+  Audited: the game writes 28 distinct tile ids and every one of them exists,
+  so there is nothing to fix today.
+
+## 135. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

@@ -10250,3 +10250,131 @@ class TestWhatYouCanTellByLooking(GameFixture):
         text = term.last_text()
         self.assertIn("Pace:", text)
         self.assertIn("slowed by", text)
+
+
+class TestTheOnlyThingThatCannotWalkDownhill(GameFixture):
+    """The player's step against the graph every other creature moves on.
+
+    `LocalMap.neighbours` says what a walker can do -- level ground, up a ramp
+    it is standing on, down onto a ramp on the level below, and either way
+    along a staircase -- and its docstring insists the edges are symmetric:
+    "An asymmetric graph gives you one-way drops that A* will cheerfully route
+    through, stranding whoever took them."
+
+    `actions.move_or_attack` reimplemented the up half of that and nothing
+    else. Measured over eight adventurer lifetimes: 764 free steps attempted,
+    360 refused, and **184 of those 360 were steps any wolf standing on that
+    tile could have taken**. The player was the only thing on the map that
+    could not walk downhill.
+    """
+
+    def _shelf(self, ramp=True):
+        """You on high ground, a step down to the east, a ramp to take it."""
+        lm, p = self.game.local, self.game.player
+        z = p.z
+        for y in range(p.y - 2, p.y + 3):
+            for x in range(p.x - 2, p.x + 4):
+                lm.set_tile(x, y, z + 1, "air")
+                lm.set_tile(x, y, z, "grass")
+                lm.set_tile(x, y, z - 1, "rock_wall")
+                lm.set_tile(x, y, z - 2, "rock_wall")
+        # East of you the ground is one level lower. Solid rock under the
+        # upper shelf, so walking back is a climb and not a flat step -- the
+        # bench has to make the question the one being asked.
+        for y in range(p.y - 2, p.y + 3):
+            for x in range(p.x + 1, p.x + 4):
+                lm.set_tile(x, y, z, "air")
+                lm.set_tile(x, y, z - 1, "ramp_up" if ramp else "grass")
+                lm.set_tile(x, y, z - 2, "rock_wall")
+        self.game.update_fov()
+        return z
+
+    def test_you_can_walk_down_a_slope(self):
+        z = self._shelf()
+        p = self.game.player
+        was = (p.x, p.y, p.z)
+        actions.move_or_attack(self.game, 1, 0)
+        self.assertEqual((p.x, p.y, p.z), (was[0] + 1, was[1], z - 1),
+                         "refused a step every wolf on the map can take")
+
+    def test_and_you_can_walk_back_up_it(self):
+        """The graph promises symmetry. A one-way drop strands you."""
+        z = self._shelf()
+        p = self.game.player
+        actions.move_or_attack(self.game, 1, 0)
+        self.assertEqual(p.z, z - 1)
+        down = (p.x, p.y, p.z)
+        actions.move_or_attack(self.game, -1, 0)
+        self.assertEqual((p.x, p.y, p.z), (down[0] - 1, down[1], z),
+                         "you could get down there and not back")
+
+    def test_a_bare_cliff_is_still_a_cliff(self):
+        """Not a new rule -- the graph's rule. No ramp, no step."""
+        self._shelf(ramp=False)
+        p = self.game.player
+        was = (p.x, p.y, p.z)
+        actions.move_or_attack(self.game, 1, 0)
+        self.assertEqual((p.x, p.y, p.z), was, "walked off a cliff")
+
+    def test_a_wall_is_still_a_wall(self):
+        from ascii_warriors.engine.screen import frag_str
+
+        lm, p = self.game.local, self.game.player
+        for dz in (-1, 0, 1):
+            lm.set_tile(p.x + 1, p.y, p.z + dz, "rock_wall")
+        n = len(self.game.log.all())
+        was = (p.x, p.y, p.z)
+        actions.move_or_attack(self.game, 1, 0)
+        self.assertEqual((p.x, p.y, p.z), was)
+        said = " ".join(frag_str(m.display()) for m in self.game.log.all()[n:])
+        self.assertIn("in the way", said)
+
+    def test_the_step_goes_over_what_is_on_the_ground(self):
+        """Down a slope is a step, not a teleport: the same tail runs."""
+        from ascii_warriors.engine.screen import frag_str
+        from ascii_warriors.game.item import make_item
+
+        z = self._shelf()
+        p = self.game.player
+        item = make_item(self.game.rng, "coin")
+        self.game.drop_item(item, p.x + 1, p.y, z - 1)
+        n = len(self.game.log.all())
+        actions.move_or_attack(self.game, 1, 0)
+        self.assertEqual(p.z, z - 1)
+        said = " ".join(frag_str(m.display()) for m in self.game.log.all()[n:])
+        self.assertIn("You see", said, said)
+
+    def test_somebody_standing_there_is_not_walked_through(self):
+        from ascii_warriors.game.entity import make_creature
+
+        z = self._shelf()
+        p = self.game.player
+        other = make_creature(self.game.rng, "goblin", faction="hostile")
+        other.x, other.y, other.z = p.x + 1, p.y, z - 1
+        other.wx, other.wy = p.wx, p.wy
+        self.game.add_creature(other)
+        was = (p.x, p.y, p.z)
+        actions.move_or_attack(self.game, 1, 0)
+        self.assertEqual((p.x, p.y, p.z), was, "walked onto somebody")
+
+    def test_the_player_can_take_every_step_the_graph_offers(self):
+        """The property, over real ground rather than a built bench.
+
+        One rule, one place: whatever `neighbours` says a walker may do from
+        this tile, the player's own step has to be able to do.
+        """
+        lm, p = self.game.local, self.game.player
+        checked = refused = 0
+        for cell in list(lm.neighbours(p.x, p.y, p.z)):
+            if self.game.creature_at(*cell) is not None:
+                continue
+            dx, dy = cell[0] - p.x, cell[1] - p.y
+            back = (p.x, p.y, p.z)
+            checked += 1
+            actions.move_or_attack(self.game, dx, dy)
+            if (p.x, p.y, p.z) != cell:
+                refused += 1
+            p.x, p.y, p.z = back
+        self.assertTrue(checked, "nowhere to step from here")
+        self.assertEqual(refused, 0,
+                         "%d of %d legal steps refused" % (refused, checked))
