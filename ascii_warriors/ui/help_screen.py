@@ -883,6 +883,12 @@ Bleeding is what will actually kill you. Carry bandages and use 'A' to bind a
 wound the moment the Blood gauge starts dropping; 'D' tells you how many turns
 you have left. Splints set broken bones.
 
+You start with three bandages and they do not last a season. When they are
+gone, tear up what you are wearing: 'c' and "Tear a bandage" turns any cloth
+garment -- a tunic, trousers, a cloak, anything off a corpse -- into four more.
+A scratch clots on its own in a few minutes; a deep wound does not clot at all
+before it kills you, so bind that one first.
+
 You can dodge, block with a shield and parry with a weapon. All three improve
 with use. So does everything else.
 """

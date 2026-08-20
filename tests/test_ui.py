@@ -126,8 +126,14 @@ class TestScreensRender(UITestBase):
         holder = next(f for f in world.figures.values() if f.alive(world.year))
         site.owner_hf = holder.id
         scene = TravelScene(self.app, view_only=True)
+        # Pushed first, because `Scene.on_enter` puts the cursor back on the
+        # player: setting it before `render` and hoping was a test that passed
+        # only while the player happened to be standing on the site it had
+        # just handed a lord to.
+        self.app.push(scene)
         scene.cx, scene.cy = site.wx, site.wy
-        text = self.render(scene)
+        self.app.draw()
+        text = self.term.last_text()
         self.assertIn("held by", text)
         self.assertIn(holder.name, text)
 

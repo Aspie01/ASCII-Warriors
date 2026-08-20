@@ -4031,8 +4031,37 @@ class TestMilitary(unittest.TestCase):
 class TestHospital(unittest.TestCase):
     """Wounds, doctors and beds."""
 
+    #: A wound a dwarf cannot walk off. Measured against v3.69's bleeding,
+    #: over three embarks: ten points clot on their own and leave the patient
+    #: at half its blood, fourteen kill an untreated dwarf in seven steps and
+    #: are bound in five by a doctor standing over it, and twenty are over
+    #: before anybody can do anything at all. Below that band there is no
+    #: hospital to test and above it there is no time to be one.
+    MORTAL = 14
+
+    def _doctor_beside(self, fort, patient):
+        """Put somebody who can treat it within arm's reach.
+
+        A mortal bleed kills in one to two minutes of game time, and a doctor
+        on the far side of the fortress loses that race every time -- measured
+        on two embarks, the patient died on exactly the same step with a
+        stocked ward and a trained doctor as with neither. That is a fact
+        about how fast blood leaves a body, not about whether treatment works,
+        and these tests are about the second thing.
+        """
+        from ascii_warriors.game.item import Item
+
+        doctor = next(d for d in fort.dwarves() if d is not patient)
+        doctor.x, doctor.y, doctor.z = patient.x + 1, patient.y, patient.z
+        # And the dressings in the ward with them, for the same reason: a
+        # doctor who has to cross the fortress for a bandage is measuring the
+        # length of the corridor.
+        fort.drop_item(Item("bandage", "pig_tail_cloth", count=4),
+                       patient.x, patient.y, patient.z)
+        return doctor
+
     def _wound(self, dwarf, bleeding=6):
-        """Open a survivable but serious cut."""
+        """Open a cut of a given severity."""
         from ascii_warriors.game.body import Wound
 
         pid = dwarf.body.order[5]
@@ -4106,15 +4135,8 @@ class TestHospital(unittest.TestCase):
         # standing tests the map, not the hospital.
         from ascii_warriors.game.item import Item
 
-        doctor = fort.dwarves()[0]
-        doctor.x, doctor.y, doctor.z = patient.x + 1, patient.y, patient.z
-        # Bandages within reach as well. A doctor that has to cross the
-        # fortress for supplies loses the race against a four-point bleed
-        # every time, which is a fact about hospital layout, not about
-        # whether treatment works.
-        fort.drop_item(Item("bandage", "pig_tail_cloth", count=4),
-                       patient.x, patient.y, patient.z)
-        self._wound(patient, bleeding=4)
+        self._doctor_beside(fort, patient)
+        self._wound(patient, bleeding=self.MORTAL)
         for _ in range(600):
             sim.step(fort)
             if patient.body.bleeding_rate() == 0 or patient.body.dead:
@@ -4129,7 +4151,9 @@ class TestHospital(unittest.TestCase):
             fort = embark("saved")
             self._ward(fort, doctors=with_doctors)
             patient = fort.dwarves()[3]
-            self._wound(patient, bleeding=4)
+            if with_doctors:
+                self._doctor_beside(fort, patient)
+            self._wound(patient, bleeding=self.MORTAL)
             for _ in range(900):
                 sim.step(fort)
                 if patient.body.dead or patient.body.bleeding_rate() == 0:
@@ -4143,14 +4167,21 @@ class TestHospital(unittest.TestCase):
         """A doctor must not pocket the fortress's only bandages."""
         fort = embark("supplies")
         self._ward(fort)
-        before = fort.stock_count("bandage")
         patient = fort.dwarves()[3]
-        self._wound(patient, bleeding=3)
+        self._doctor_beside(fort, patient)
+        # Counted after the ward is stocked, or the dressings this puts at the
+        # patient's feet read as a gain.
+        before = fort.stock_count("bandage")
+        self._wound(patient, bleeding=self.MORTAL)
         sim.run(fort, 500)
         carried = sum(i.count for c in fort.creatures.values()
                       for i in c.inventory.items if i.def_id == "bandage")
         self.assertLessEqual(carried, 0,
                              "%d bandages are stuck in a pocket" % carried)
+        # And one was actually spent, or the two lines above are true of a
+        # fortress where nothing happened at all.
+        self.assertLess(fort.stock_count("bandage"), before,
+                        "nobody used a bandage on a mortal wound")
         self.assertGreater(fort.stock_count("bandage"), before - 4)
 
     def test_a_ward_with_no_doctor_warns(self):

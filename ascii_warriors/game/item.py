@@ -656,6 +656,16 @@ def starting_kit(rng: RNG, race: str, profession: str) -> List[Item]:
     torch.charges = 2400
     kit.append(torch)
     kit.append(Item("rope", "pig_tail_cloth"))
+    # Clothes under the armour. `_dress` puts a tunic, trousers and shoes on
+    # every other creature in the world and the adventurer walked out of
+    # character creation wearing a mail shirt over nothing at all. They are
+    # also what a bandage is made of: `make_bandage` tears up a garment, and
+    # the one person in the world who could not make one was the player.
+    from .entity import CLOTHING
+
+    for piece in CLOTHING:
+        kit.append(make_item(rng, piece))
+    kit.append(make_item(rng, "cloak"))
     # Something to bind a wound with. Bleeding is what kills an adventurer --
     # a driver playing four seeds died of it four times, thirteen turns in a
     # row reporting "nothing to bind it with" -- and the kit had rope and

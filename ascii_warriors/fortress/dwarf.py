@@ -689,9 +689,14 @@ def _handle_wounds(fort, dwarf, ticks: int) -> bool:
     release_job(fort, dwarf)
     bed = hospital.free_bed(fort, dwarf)
     here = (dwarf.x, dwarf.y, dwarf.z)
-    if bed is None or here == bed.center:
+    # Critical means lie down here. Walking to the ward while bleeding out is
+    # a race against your own blood, and worse, it moves the thing the doctor
+    # is walking towards: measured on a mortal wound, the patient crossed four
+    # tiles towards a bed with the doctor following one step behind it the
+    # whole way, and it died on step twelve with the doctor still walking.
+    if bed is None or here == bed.center or hospital.is_critical(dwarf):
         dwarf.body.rest_heal(ticks * 3, dwarf.attributes.factor("recuperation"))
-        if bed is not None:
+        if bed is not None and here == bed.center:
             dwarf.needs.add_thought("rested in a hospital bed", -2)
         return True
     if path_to(fort, dwarf, bed.center, adjacent=False):

@@ -7099,7 +7099,234 @@ away when the map changes shape.
   deepens, and the drowning path already handles that, so this is named rather
   than guessed at.
 
-## 129. Style
+## 129. Something to bind it with (v3.69)
+
+Eight adventurers, played by `tools/play` on eight seeds. Eight deaths, and
+every one of them the same:
+
+```
+a1  81 turns  bled to death      a5  121 turns  bled to death
+a2  36 turns  bled to death      a6  600 turns  alive
+a3  66 turns  bled to death      a7  124 turns  bled to death
+a4  60 turns  bled to death      a8   64 turns  bled to death
+```
+
+Seven of the eight counted the same two lines in their action tally:
+
+```
+'patched itself up': 3, 'bleeding, and nothing to bind it with': 21
+```
+
+Three, every time. Three is how many bandages the kit holds.
+
+### 129.1. Clotting had no rate
+
+```python
+if rng.chance(min(0.9, 0.0018 * ticks * toughness)):
+    w.bleeding = max(0, w.bleeding - 1)
+```
+
+A chance per *call* to `Body.tick`, and the game calls it with whatever slice
+of time the scheduler happened to hand over: one tick in a fight, four
+thousand for a night's sleep. Clamped at 0.9, so a single long call could only
+ever close one point. The same twenty-point wound over the same four thousand
+ticks of game time:
+
+| ticks per call | points still open |
+| ---: | ---: |
+| 1 | 13.2 |
+| 10 | 13.7 |
+| 100 | 13.0 |
+| 1000 | 16.3 |
+| 4000 | 19.1 |
+
+Sleeping through the night healed less than walking through it. It is banked
+time now — `_clot_ticks += ticks * toughness`, a point off every wound per
+`CLOT_TICKS` — so an hour is an hour however it arrives.
+
+Fifteen ticks a point, which is a minute and a half, chosen so the two ends of
+the model say different things: a three-point scratch closes in a few minutes,
+and the twenty-eight points a troll leaves in a thigh take seven hundred ticks
+to close on their own, which is a good deal longer than you have. **Small
+wounds close. Big ones need a bandage.** Before this, a one-point scratch on a
+finger took ten hours of game time to stop and cost two and a half litres
+getting there.
+
+One clock, not two. `REST_CLOT_TICKS` was a second constant for lying down,
+and the two drifted the moment either moved: at five ticks a point against
+`_handle_wounds`'s three-times multiplier it closed six points a *step*, which
+out-healed a mortal wound and made the bandage decorative. Resting banks the
+same clock now, and the caller's multiplier is the whole of the difference.
+
+`BLEED_PER_POINT` did not move, and the reason is worth writing down. It was
+tried at a quarter — the two constants only ever meant anything together, and
+with clotting thirty-seven times slower than the bleed every wound in the game
+was a slow fatal bleed. A quarter bought an adventurer half again as long to
+live: median survival 163 turns against 104. It also made every fight in the
+game two to three times longer, because what kills things here *is* bleeding:
+
+| iron sword, blows to put down | 0.004 | 0.001 |
+| --- | ---: | ---: |
+| wolf | 6 | 12 |
+| goblin | 8 | 18 |
+| kobold | 7 | 13 |
+| human | 6 | 13 |
+
+§126 anchored those numbers deliberately — "a wolf has to cost what a wolf
+cost" — and `test_an_ordinary_fight_did_not_move` caught it. How long a fight
+lasts is its own question with its own measurement, and it is not a side
+effect of fixing the clock on clotting. The rate went back.
+
+### 129.2. And bleeding had no ceiling
+
+`bleeding_rate` was the sum of every open wound and nothing else. Instrumented
+through a real troll fight, the player's total:
+
+```
+pts  22 -> blood 4.900   pts 183 -> blood 3.872
+pts  57 -> blood 4.636   pts 232 -> blood 3.140
+pts 134 -> blood 4.408   pts 263 -> blood 1.252 -> 0.200, dead
+```
+
+Two hundred and sixty-three points of bleeding is 1.05 litres a tick out of a
+body that holds 4.9 and dies at 0.98 — a fifth of your blood every six
+seconds. Wounds do not add up like that. A heart can only pump so fast, and
+past a certain point more holes do not empty you any quicker.
+
+`BLEED_CAP = 0.03` — three percent of your own volume per tick, thirty percent
+a minute: a severed artery, four minutes from whole to dead. It binds only on
+a mauling; one bad wound of twenty points still bleeds at its own rate.
+
+### 129.3. The recipe the person bleeding could not make
+
+There is exactly one recipe in the game that answers bleeding:
+
+```python
+_r("make_bandage", "Tear a bandage", "crafting", 0, (("cloak", 1),), "bandage", 4)
+```
+
+A cloak. The adventurer's starting kit is a sword, a shield, a mail shirt, a
+helm, boots, a waterskin, a backpack, food, a torch, a rope, three bandages
+and a splint — armour over nothing at all, while `_dress` puts a tunic,
+trousers and shoes on every other creature in the world and outerwear on a
+third of them. The one person in the world who could not make a bandage was
+the one bleeding.
+
+Two changes, both small. The adventurer gets dressed, out of the same
+`CLOTHING` list everybody else wears. And a recipe input in capitals now names
+a *kind* of thing:
+
+```python
+CLASSES: Dict[str, str] = {"CLOTH": "clothing"}
+
+def _satisfies(item, need: str) -> bool:
+    if item.def_id == need:
+        return True
+    category = CLASSES.get(need)
+    return (category is not None and item.category == category
+            and need in item.mat.flags)
+```
+
+Cloth *and* clothing, both halves: a mail shirt is armour, a leather tunic is
+not cloth, and a cloth rope is neither — you want the rope for the climb down.
+Anything you are wearing is four bandages.
+
+### 129.4. What the driver does with it
+
+`_staunch` used to reach the end of `medical.auto_treat`, hear "there is
+nothing you can do", count it and walk on bleeding. It tears up a shirt now,
+which is also the first time anything has exercised adventure crafting in
+play.
+
+Twenty-four adventurers, six hundred turns each, before and after:
+
+| | before | after |
+| --- | ---: | ---: |
+| median turns survived | 75 | 104 |
+| upper quartile | 171 | 419 |
+| alive at the end | 3 of 24 | 4 of 24 |
+| bled to death | 21 | 15 |
+| died of anything else | 0 | 5 |
+| bandages torn from clothing | 0 | 34 |
+
+The line that matters is the last two rows. Before, bleeding was not the
+commonest way to die, it was the *only* way to die: twenty-one deaths out of
+twenty-one. Now people also die of thirst and of having their upper body
+destroyed, which are things that should kill an adventurer.
+
+### 129.5. And the wounded had to lie down
+
+Faster bleeding cost the fortress its hospital, and the trace said why. A
+mortal wound, a stocked ward, a trained doctor standing next to the patient:
+
+```
+step  2 blood 77%  doctor_job treat  jobs [('treat', (41, 34, -1), 4)]
+step  4 blood 63%  doctor_job treat  jobs [('treat', (40, 33, -1), 4)]
+step  6 blood 50%  doctor_job treat  jobs [('treat', (40, 32, -1), 4)]
+step  7 blood 44%  doctor_job treat  jobs [('treat', (39, 31, -1), 4)]
+step 12 blood 20%  dead
+```
+
+The job's cell moves every step. `_handle_wounds` sends a hurt dwarf to a
+hospital bed, so the patient was walking to the ward while the doctor walked
+after it, and the pair of them lost a race neither was running. A dwarf that
+is *critical* — bleeding, and under `CRITICAL_BLOOD` — lies down where it is
+now. You do not march a haemorrhaging patient across a fortress.
+
+What that buys, with the doctor and the dressings in the ward: measured over
+three embarks, ten points of bleeding clot on their own and leave the patient
+at half its blood, fourteen kill an untreated dwarf in seven steps and are
+bound in five by a doctor standing over it, and twenty are over before anybody
+can do anything at all. What it does not buy is a doctor from across the
+fortress — a mortal bleed runs out in a minute or two, and the patient dies on
+the same step with a stocked ward as without one. That is named below rather
+than tuned away.
+
+### 129.6. And two tests that had been passing by luck
+
+Moving the dice moved world history, and two tests fell over that had never
+been testing what they said.
+
+`test_travel_screen_says_who_holds_a_place` set the scene's cursor and *then*
+pushed the scene — and `Scene.on_enter` puts the cursor back on the player. It
+only ever passed while the player happened to be standing on the site it had
+just handed a lord to.
+
+`test_the_metal_decides_whether_you_can_cut_bone` asserted `iron == 300`,
+which is the number the loop gives up at: a saturating proxy that stops
+meaning anything the moment iron gets there in two hundred and ninety-nine,
+which is what the new dice did. It asserts the ratio now — copper 300, iron
+193, steel 40, adamantine 22, and iron more than three times steel.
+
+There was nearly a third. `if site.owner_hf` reads a site owned by figure zero
+as owned by nobody, in `travel_screen`, `legends` and `sitegen` alike, and it
+looked like the cause until the ids were counted: historical figures are
+numbered from one. The line is unreachable, the change was reverted, and this
+paragraph is what is left of it — a fix with no failing case is not a fix.
+
+### 129.7. Measured and left
+
+- **The driver still dies with the answer in its pack.** Of nine runs that
+  bled out, four had bandages left (three and four of them) and eight still
+  had clothes on. One died in thirty-three turns having never once fought or
+  reached for a dressing. `_staunch` binds only below `PATCH_UP_AT` and only
+  when nothing is adjacent unless it is below `BIND_IT_NOW`, and between those
+  two thresholds it does nothing at all. That is the bot's judgement, not the
+  game's, and it is the next thing.
+- **Wounds are never cleared while you are awake.** `rest_heal` prunes closed
+  wounds and `tick` does not, so a body that fought its way across a map
+  carries a hundred and thirty-three of them. Nothing reads the list except
+  bandaging and the bleeding sum, so it costs correctness nothing and it is
+  still wrong.
+- **One bandage treats one body part.** With sixty wounds spread over a dozen
+  parts that is a long night, and it is not obvious whether the answer is
+  faster dressing or fewer wounds.
+- **A doctor across the fortress always loses.** A mortal bleed runs its course
+  in one to two minutes of game time, which is not long enough to walk
+  anywhere. Either the wounded get carried or somebody is posted in the ward,
+  and both of those are a hospital milestone rather than a bleeding one.
+
+## 130. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

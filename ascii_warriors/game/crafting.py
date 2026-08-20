@@ -46,7 +46,8 @@ _r("cook_fish", "Roast fish", "cooking", 0, (("fish_food", 1),), "cooked_meat", 
 _r("fine_meal", "Prepare a fine meal", "cooking", 3,
    (("cooked_meat", 1), ("plump_helmet", 1)), "prepared_meal", 1, ("fire",))
 _r("make_torch", "Make a torch", "crafting", 0, (("log", 1),), "torch", 3, ())
-_r("make_bandage", "Tear a bandage", "crafting", 0, (("cloak", 1),), "bandage", 4, ())
+_r("make_bandage", "Tear a bandage", "crafting", 0, (("CLOTH", 1),), "bandage",
+   4, (), "Any garment will do, and a shirt is worth four bandages.")
 _r("make_arrows", "Fletch arrows", "bowyer", 2, (("log", 1),), "arrow", 12, ())
 _r("make_bolts", "Carve bolts", "bowyer", 2, (("log", 1),), "bolt", 12, ())
 _r("make_rope", "Braid a rope", "crafting", 1, (("hide", 2),), "rope", 1, ())
@@ -105,10 +106,36 @@ def _facilities(creature, game) -> set:
     return found
 
 
+#: What a recipe input in capitals means. An input is normally the id of one
+#: item; these are kinds of thing.
+#:
+#: "Tear a bandage" asked for a cloak, and no adventurer has ever carried one.
+#: The starting kit is armour, and `_dress` gives the rest of the world
+#: outerwear a third of the time -- so the one recipe in the game that answers
+#: the thing that kills adventurers could not be made by the person bleeding.
+#: Eight driver runs, eight deaths, seven of them counting "bleeding, and
+#: nothing to bind it with" after the third and last bandage in the kit.
+CLASSES: Dict[str, str] = {"CLOTH": "clothing"}
+
+
+def _satisfies(item, need: str) -> bool:
+    """Whether a carried item counts as one unit of a recipe input."""
+    if item.def_id == need:
+        return True
+    category = CLASSES.get(need)
+    return (category is not None and item.category == category
+            and need in item.mat.flags)
+
+
+def _carried(creature, need: str) -> List:
+    """Everything the creature has that would do for one input."""
+    return [i for i in creature.inventory.items if _satisfies(i, need)]
+
+
 def _has_inputs(creature, rec: Recipe) -> bool:
     """True if the creature carries everything a recipe needs."""
-    for def_id, count in rec.inputs:
-        if creature.inventory.count_of(def_id) < count:
+    for need, count in rec.inputs:
+        if sum(i.count for i in _carried(creature, need)) < count:
             return False
     return True
 
@@ -123,9 +150,9 @@ def craft(creature, recipe: Recipe, game) -> Tuple[bool, str]:
         return (False, "You need %s." % ", ".join(missing))
 
     material = "iron"
-    for def_id, count in recipe.inputs:
+    for need, count in recipe.inputs:
         left = count
-        for it in list(creature.inventory.by_def(def_id)):
+        for it in _carried(creature, need):
             material = it.material
             take = min(left, it.count)
             it.count -= take

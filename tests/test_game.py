@@ -10,6 +10,7 @@ import unittest
 from ascii_warriors.engine.rng import RNG
 from ascii_warriors.game import combat, crafting
 from ascii_warriors.game.attributes import ALL_ATTRS, Attributes, roll_attributes
+from ascii_warriors.game import body as body_mod
 from ascii_warriors.game.body import Body
 from ascii_warriors.game.entity import Creature, make_creature
 from ascii_warriors.game.inventory import Inventory
@@ -982,12 +983,20 @@ class TestTheMetalInYourSword(unittest.TestCase):
     # -- and what it does ----------------------------------------------------- #
 
     def test_the_metal_decides_whether_you_can_cut_bone(self):
-        """A skeleton is one layer of solid bone. Iron glances off it."""
+        """A skeleton is one layer of solid bone. Iron barely marks it.
+
+        The ratio, not the cap. This asserted `iron == 300` -- the number the
+        loop gives up at -- which is a saturating proxy: it says "iron never
+        got there in three hundred blows" and stops meaning anything the
+        moment iron gets there in two hundred and ninety-nine. Measured now:
+        copper 300, iron 193, steel 40, adamantine 22.
+        """
         iron = self._blows("sword", "iron", "skeleton", cap=300)
         steel = self._blows("sword", "steel", "skeleton", cap=300)
         adam = self._blows("sword", "adamantine", "skeleton", cap=300)
-        self.assertEqual(iron, 300, "an iron sword now cuts bone")
-        self.assertLess(steel, 300, "a steel sword still cannot")
+        self.assertGreater(iron, steel * 3,
+                           "an iron sword cuts bone nearly as well as steel")
+        self.assertLess(steel, 100, "a steel sword still cannot cut bone")
         self.assertLess(adam, steel, "adamantine is no better than steel")
 
     def test_armour_asks_what_hit_it(self):
@@ -1071,3 +1080,158 @@ class TestTheMetalInYourSword(unittest.TestCase):
         has to cost what a wolf cost."""
         self.assertLessEqual(self._blows("sword", "iron", "wolf"), 8)
         self.assertLessEqual(self._blows("sword", "iron", "goblin"), 8)
+
+
+class TestSomethingToBindItWith(unittest.TestCase):
+    """Bleeding, clotting, and the one recipe that answers them.
+
+    Eight adventurers played by `tools/play`, eight deaths, and every one of
+    them bled out. Seven counted "bleeding, and nothing to bind it with"
+    sixteen, nineteen, fifty-two times after the third and last bandage in the
+    kit was spent.
+    """
+
+    def _cut(self, points, *, bloodless=False):
+        """A body with one wound of *points* and nothing else wrong.
+
+        With *bloodless* it cannot die of the wound, which is the only way to
+        watch a bad one close: twenty points empties a human in forty-nine
+        ticks and a corpse stops clotting.
+        """
+        b = Body("humanoid", 70000)
+        b.bloodless = bloodless
+        part = b.part("upper_body")
+        part.wounds.append(body_mod.Wound(part.id, "skin", 0.5, "cut",
+                                          points, 5))
+        return b
+
+    def test_clotting_does_not_care_how_the_clock_is_sliced(self):
+        """The same wound, the same hour, however the hour arrives.
+
+        It was `rng.chance(0.0018 * ticks)` per call to `Body.tick`, clamped
+        at 0.9 -- so one long call could only ever close one point, and the
+        same twenty-point wound over the same four thousand ticks came out at
+        13.2 points open when time arrived one tick at a time and 19.1 when it
+        arrived in one lump. Sleeping through the night healed less than
+        walking through it.
+        """
+        rng = RNG("slices")
+        left = []
+        for slice_ticks in (1, 10, 200, 4000):
+            b = self._cut(20, bloodless=True)
+            done = 0
+            while done < 4000:
+                b.tick(rng, slice_ticks, 1.0, 1.0)
+                done += slice_ticks
+            left.append(sum(w.bleeding for p in b.parts.values()
+                            for w in p.wounds))
+        self.assertEqual(len(set(left)), 1,
+                         "same wound, same hour, different answers: %s" % left)
+
+    def test_a_scratch_closes_and_a_maiming_does_not(self):
+        """The two ends of the model have to say different things.
+
+        Otherwise there is no reason for a bandage to exist -- or no way to
+        survive a fight without one. Ten minutes of game time, in ticks rather
+        than in multiples of `CLOT_TICKS`: a test that measures itself against
+        the constant it is guarding cannot fail when the constant moves.
+        """
+        rng = RNG("ends")
+        ten_minutes = 100
+        small = self._cut(3, bloodless=True)
+        small.tick(rng, ten_minutes, 1.0, 1.0)
+        self.assertEqual(small.bleeding_rate(), 0.0,
+                         "a three-point cut was still open ten minutes later")
+        big = self._cut(28, bloodless=True)
+        big.tick(rng, ten_minutes, 1.0, 1.0)
+        self.assertGreater(big.bleeding_rate(), 0.0,
+                           "a torn-open thigh closed itself in ten minutes")
+
+    def test_bleeding_has_a_ceiling(self):
+        """No number of holes empties you faster than a heart can pump.
+
+        A troll fight left an adventurer carrying two hundred and sixty-three
+        points of bleeding, which is 1.05 litres a tick out of a body that
+        holds 4.9 and dies at 0.98. It was dead in the next six seconds of
+        game time.
+        """
+        b = self._cut(300)
+        cap = b.max_blood * body_mod.BLEED_CAP
+        self.assertLessEqual(b.bleeding_rate(), cap + 1e-9)
+        # And the cap is not so low that one bad wound is free.
+        one = self._cut(20)
+        self.assertAlmostEqual(one.bleeding_rate(),
+                               20 * body_mod.BLEED_PER_POINT)
+        self.assertGreater(b.bleeding_rate(), one.bleeding_rate())
+
+    def test_a_capped_body_still_bleeds_to_death(self):
+        """A ceiling is not a reprieve. Four minutes, from whole to dead."""
+        rng = RNG("cap")
+        b = self._cut(300)
+        for _ in range(60):
+            b.tick(rng, 1, 1.0, 1.0)
+            if b.blood_fraction() <= body_mod.BLOOD_DEATH:
+                break
+        self.assertLessEqual(b.blood_fraction(), body_mod.BLOOD_DEATH,
+                             "three hundred points of bleeding is survivable")
+
+    def test_the_person_bleeding_can_make_a_bandage(self):
+        """`make_bandage` asked for a cloak and nobody had one.
+
+        The starting kit is armour: a mail shirt, a helm and boots, over
+        nothing at all, while `_dress` puts a tunic, trousers and shoes on
+        every other creature in the world. So the one recipe in the game that
+        answers the thing that kills adventurers could not be made by the
+        adventurer.
+        """
+        rng = RNG("tear")
+        kit = starting_kit(rng, "human", "warrior")
+        cloth = [i for i in kit if i.category == "clothing"]
+        self.assertTrue(cloth, "the adventurer owns no clothes")
+        c = make_creature(rng, "human", faction="player", level=1)
+        for it in list(c.inventory.items):
+            c.inventory.items.remove(it)
+        c.inventory.add(make_item(rng, "tunic"))
+        recipe = crafting.RECIPES["make_bandage"]
+        self.assertIn(recipe, crafting.available(c, _NoWorld()))
+        made, why = crafting.craft(c, recipe, _NoWorld())
+        self.assertTrue(made, why)
+        self.assertGreaterEqual(c.inventory.count_of("bandage"),
+                                recipe.out_count)
+        self.assertEqual(c.inventory.count_of("tunic"), 0)
+
+    def test_a_recipe_still_means_what_it_says(self):
+        """A class input is not a licence to eat the whole pack.
+
+        Cloth, and clothing: a mail shirt is armour and a leather jerkin is
+        not cloth, and neither of them is a bandage however badly you need
+        one.
+        """
+        rng = RNG("strict")
+        recipe = crafting.RECIPES["make_bandage"]
+        c = make_creature(rng, "human", faction="player", level=1)
+        for it in list(c.inventory.items):
+            c.inventory.items.remove(it)
+        c.inventory.add(make_item(rng, "mail_shirt"))
+        # A cloth rope, which is cloth and is not clothing: you want it for
+        # the climb down and it is not a dressing.
+        c.inventory.add(make_item(rng, "rope", material="pig_tail_cloth"))
+        self.assertNotIn(recipe, crafting.available(c, _NoWorld()))
+        made, _why = crafting.craft(c, recipe, _NoWorld())
+        self.assertFalse(made, "it tore up the mail shirt or the rope")
+        leather = make_item(rng, "tunic", material="leather")
+        self.assertEqual(leather.category, "clothing")
+        c.inventory.add(leather)
+        self.assertNotIn(recipe, crafting.available(c, _NoWorld()))
+        made, _why = crafting.craft(c, recipe, _NoWorld())
+        self.assertFalse(made, "it tore strips off a leather tunic")
+
+
+class _NoWorld:
+    """Enough of a game for a recipe that needs no fire and no workshop."""
+
+    local = None
+    rng = RNG("craft")
+
+    def current_site(self):
+        return None

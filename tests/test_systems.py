@@ -3185,6 +3185,48 @@ class TestPlayingTheAdventure(GameFixture):
         # what sets the thirst to nothing.
         self.assertEqual(why["drank"] + why["filled the skin"], 1)
 
+    def test_it_tears_up_a_shirt_when_the_bandages_are_gone(self):
+        """The last thing between an adventurer and bleeding to death.
+
+        Measured over twenty-four runs before this: bleeding was the *only*
+        cause of death, twenty-one of twenty-one, and the driver counted
+        "bleeding, and nothing to bind it with" while wearing four bandages'
+        worth of clothing.
+        """
+        from ascii_warriors.game import body as body_mod
+        from tools import play
+
+        why = collections.Counter()
+        p = self.game.player
+        for it in list(p.inventory.by_def("bandage")):
+            p.inventory.items.remove(it)
+        self.assertTrue([i for i in p.inventory.items
+                         if i.category == "clothing"], "nothing to tear up")
+        part = p.body.part("upper_body")
+        part.wounds.append(body_mod.Wound(part.id, "skin", 0.5, "cut", 8, 5))
+        p.body.blood = p.body.max_blood * (play.PATCH_UP_AT - 0.05)
+        cost = play._staunch(self.game, why)
+        self.assertIsNotNone(cost, "it bled with a shirt on its back")
+        self.assertEqual(why["tore up a shirt"], 1)
+        self.assertEqual(why["bleeding, and nothing to bind it with"], 0)
+        self.assertGreater(p.inventory.count_of("bandage"), 0)
+
+    def test_it_says_so_when_there_is_nothing_left_to_tear(self):
+        """The other half of the branch, or the counter above proves nothing."""
+        from ascii_warriors.game import body as body_mod
+        from tools import play
+
+        why = collections.Counter()
+        p = self.game.player
+        for it in list(p.inventory.items):
+            if it.def_id == "bandage" or it.category == "clothing":
+                p.inventory.items.remove(it)
+        part = p.body.part("upper_body")
+        part.wounds.append(body_mod.Wound(part.id, "skin", 0.5, "cut", 8, 5))
+        p.body.blood = p.body.max_blood * (play.PATCH_UP_AT - 0.05)
+        self.assertIsNone(play._staunch(self.game, why))
+        self.assertEqual(why["bleeding, and nothing to bind it with"], 1)
+
     def test_it_fills_the_skin_at_the_water_rather_than_at_the_next_desert(self):
         """It drank when parched and never otherwise, so it walked past three
         rivers with a half-full skin and died of thirst twice in ten runs."""

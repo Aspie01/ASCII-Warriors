@@ -73,11 +73,45 @@ BLOOD_FAINT = 0.45
 #: Below this fraction of blood a creature dies.
 BLOOD_DEATH = 0.20
 #: Litres lost per tick per point of wound bleeding.
+#:
+#: Left where it was, and the reason is worth writing down. Cutting it to
+#: 0.001 alongside `CLOT_TICKS` bought an adventurer half again as long to
+#: live -- and made every fight in the game two to three times longer, because
+#: what kills things here is bleeding: an iron sword went from putting a
+#: goblin down in eight blows to eighteen. §126 anchored that number
+#: deliberately ("a wolf has to cost what a wolf cost"), and how long a fight
+#: lasts is its own question with its own measurement, not a side effect of
+#: fixing the clock on clotting.
 BLEED_PER_POINT = 0.004
 
-#: Ticks of rest that close one point of bleeding. Resting is much faster than
-#: standing about clotting, and a bandage is faster still.
-REST_CLOT_TICKS = 260.0
+#: Ticks that close one point of bleeding on every open wound, on your feet.
+#:
+#: A rate, because clotting did not have one. It was a coin flip per call to
+#: `Body.tick` -- `rng.chance(0.0018 * ticks)` -- and the same wound over the
+#: same four thousand ticks of game time came out at 13.2 points still open if
+#: time arrived one tick at a time and 19.1 if it arrived in one lump, because
+#: the chance is clamped at 0.9 and a single long call can only ever close one
+#: point. Sleeping through the night healed less than walking through it.
+#:
+#: Fifteen ticks -- a minute and a half -- because that is what makes the two
+#: ends of the model say different things. A scratch of two or three points
+#: closes in a few minutes and costs a twentieth of your blood; the
+#: twenty-eight points a troll leaves in a thigh take seven hundred ticks to
+#: close on their own and twenty-four litres of blood to get there, which is
+#: five times what a human has. Small wounds close. Big ones need a bandage.
+CLOT_TICKS = 15.0
+
+#: The fastest a body can lose blood, as a fraction of its own volume per tick.
+#:
+#: Bleeding was the sum of every open wound and nothing else, so it had no
+#: ceiling: a troll fight left an adventurer with two hundred and sixty-three
+#: points of bleeding, which at `BLEED_PER_POINT` is 1.05 litres a tick out of
+#: a body that holds 4.9 and dies at 0.98. It was dead in the next six seconds
+#: of game time. Wounds do not add up like that -- a heart can only pump so
+#: fast, and past a certain point more holes do not empty you any quicker.
+#: Three percent a tick is thirty percent a minute: a severed artery, and four
+#: minutes from whole to dead.
+BLEED_CAP = 0.03
 
 #: Every wound the game can actually give you. `edge` and `blunt` are the only
 #: two kinds the tissue model knows, so the first three come out of the physics
@@ -271,6 +305,8 @@ class Body:
         self._blood_warned = 1.0
         #: Ticks of rest banked toward closing the next point of bleeding.
         self._rest_ticks = 0.0
+        #: The same, banked while upright. Time, not a coin flip per call.
+        self._clot_ticks = 0.0
 
     # -- queries ----------------------------------------------------------- #
 
@@ -355,12 +391,15 @@ class Body:
         return any(p.functional() for p in lungs)
 
     def bleeding_rate(self) -> float:
-        """Litres of blood lost per tick."""
+        """Litres of blood lost per tick, and no faster than a body can."""
         total = 0
         for p in self.parts.values():
             for w in p.wounds:
                 total += w.bleeding
-        return total * BLEED_PER_POINT
+        rate = total * BLEED_PER_POINT
+        if self.max_blood > 0:
+            return min(rate, self.max_blood * BLEED_CAP)
+        return rate
 
     def pain_tolerance(self) -> float:
         """How much pain this body can take before shutting down."""
@@ -673,13 +712,18 @@ class Body:
             if frac > self._blood_warned + 0.1:
                 self._blood_warned = min(1.0, frac)
 
+        # Clotting: tougher creatures stop bleeding sooner. Banked as time
+        # rather than rolled per call, so an hour of it closes the same wound
+        # whether the hour arrives in one piece or in three hundred.
+        self._clot_ticks += ticks * max(0.2, toughness)
+        closed = int(self._clot_ticks // CLOT_TICKS)
+        if closed:
+            self._clot_ticks -= closed * CLOT_TICKS
         for p in self.parts.values():
             for w in list(p.wounds):
                 w.age += ticks
-                if w.bleeding > 0:
-                    # Clotting: tougher creatures stop bleeding sooner.
-                    if rng.chance(min(0.9, 0.0018 * ticks * toughness)):
-                        w.bleeding = max(0, w.bleeding - 1)
+                if closed and w.bleeding > 0:
+                    w.bleeding = max(0, w.bleeding - closed)
                 if w.pain > 0:
                     w.pain = max(0, w.pain - max(1, int(ticks * 0.02)))
 
@@ -731,10 +775,16 @@ class Body:
         on the first call, which made a bandage worthless and a severed artery
         a minor inconvenience.
         """
+        # The same clock as standing up, and the caller's multiplier is what
+        # makes lying down worth doing: `_handle_wounds` banks three ticks of
+        # rest per tick and `_go_sleep` four. A second constant for it only
+        # ever meant the two could drift, and they did -- rest at five ticks a
+        # point closed six points a step, which out-healed a mortal wound and
+        # made the bandage decorative.
         self._rest_ticks += ticks * max(0.2, recuperation)
-        closed = int(self._rest_ticks // REST_CLOT_TICKS)
+        closed = int(self._rest_ticks // CLOT_TICKS)
         if closed:
-            self._rest_ticks -= closed * REST_CLOT_TICKS
+            self._rest_ticks -= closed * CLOT_TICKS
 
         for p in self.parts.values():
             if p.gone:

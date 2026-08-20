@@ -141,10 +141,30 @@ def _staunch(game, why) -> Optional[int]:
     said = medical.auto_treat(p, rng=game.rng)
     text = " ".join(getattr(f, "text", "") for f in said)
     if "nothing you can do" in text:
+        # Out of bandages, still bleeding, and wearing four of them. Tearing
+        # up a shirt is what a person does, and until now the driver bled to
+        # death with the answer in its own pack: seven runs in eight ended
+        # with the third bandage spent and "nothing to bind it with" counted
+        # sixteen, nineteen, fifty-two times before it fell over.
+        if _tear_a_bandage(game, why):
+            return actions.NORMAL
         why["bleeding, and nothing to bind it with"] += 1
         return None
     why["patched itself up"] += 1
     return actions.NORMAL
+
+
+def _tear_a_bandage(game, why) -> bool:
+    """Rip up a garment for dressings. True if there was one to rip."""
+    from ascii_warriors.game import crafting
+
+    recipe = crafting.RECIPES.get("make_bandage")
+    if recipe is None:
+        return False
+    made, _msg = crafting.craft(game.player, recipe, game)
+    if made:
+        why["tore up a shirt"] += 1
+    return bool(made)
 
 
 def _run_away(game, why) -> Optional[int]:
