@@ -189,15 +189,81 @@ class Creature:
         """The species name, used when the creature is not known by name."""
         return self.defn.name
 
+    def known_by_name(self) -> bool:
+        """True when a message should call this one by its own name.
+
+        Worldgen names every intelligent creature it makes -- the seven who
+        embark and the goblins who come for them alike -- and the sidebar has
+        listed them by name for as long as there has been a sidebar. Whether
+        a line of text says "Uzzgul Skullsplitter" or "the goblin" is this one
+        question, and it is asked here so that a fight and a unit list cannot
+        disagree about who somebody is.
+
+        An animal is not covered by it. A dog has a name in the save file and
+        is a dog on the screen, which is why this asks `intelligent` and not
+        just whether the name field is filled in.
+        """
+        return bool(self.defn.intelligent and self.name)
+
     def display_name(self, *, with_title: bool = True) -> str:
         """How this creature is referred to in messages."""
         if self.is_player:
             return self.name
-        if self.defn.intelligent and self.name:
+        if self.known_by_name():
             if with_title and self.title:
                 return "%s %s" % (self.name, self.title)
             return self.name
         return self.defn.name
+
+    def subject_name(self) -> str:
+        """``"You"``, ``"Uzzgul Skullsplitter"`` or ``"The goblin"``.
+
+        The form a sentence starts with. A name is already capitalised and
+        takes no article; anything the game does not know by name takes one.
+
+        No title, deliberately: a siege is four goblins swinging every few
+        ticks, and spelling out what each of them is lord of on every blow
+        turns the log into a peerage. The unit list is where a title belongs.
+
+        Callers must not `capitalize()` the result. That is what this is for,
+        and `"Uzzgul Skullsplitter".capitalize()` is "Uzzgul skullsplitter".
+        """
+        if self.is_player:
+            return "You"
+        if self.known_by_name():
+            return self.display_name(with_title=False)
+        return "The %s" % self.short_name()
+
+    def object_name(self) -> str:
+        """``"you"``, ``"Uzzgul Skullsplitter"`` or ``"the goblin"``.
+
+        The same three, for the middle of a sentence.
+        """
+        if self.is_player:
+            return "you"
+        if self.known_by_name():
+            return self.display_name(with_title=False)
+        return "the %s" % self.short_name()
+
+    def pronoun(self) -> str:
+        """``"you"``, ``"he"``, ``"she"`` or ``"it"``.
+
+        For the second mention of somebody in the same sentence. Naming them
+        twice was tolerable while the name was "the dwarf" and is not once it
+        is "Nomal Anvilhammer": "Thugdush Skullsplitter bashes at Nomal
+        Anvilhammer, but Nomal Anvilhammer dodges" is a sentence nobody wrote
+        on purpose.
+
+        `female` has been rolled for every creature since they could be
+        made, and no line of text has ever asked. Sex is a fact about the
+        creature, so it decides this; being known by name does not, because
+        an unnamed goblin is still a he or a she.
+        """
+        if self.is_player:
+            return "you"
+        if not self.defn.intelligent:
+            return "it"
+        return "she" if self.female else "he"
 
     def full_title(self) -> str:
         """Name, profession and race for the character sheet."""

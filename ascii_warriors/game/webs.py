@@ -121,10 +121,10 @@ def struggle(game, creature, rng) -> Tuple[bool, str]:
     if left <= 0:
         clear(game, cell)
         return (True, "You tear free of the web." if creature.is_player
-                else "%s tears free." % creature.short_name().capitalize())
+                else "%s tears free." % creature.subject_name())
     strands(game)[cell] = left
     return (False, "You are stuck in the web." if creature.is_player
-            else "%s is stuck." % creature.short_name().capitalize())
+            else "%s is stuck." % creature.subject_name())
 
 
 def clear(game, cell: Cell) -> None:

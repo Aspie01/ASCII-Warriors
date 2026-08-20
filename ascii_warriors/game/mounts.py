@@ -122,7 +122,7 @@ def ride(game, animal) -> Tuple[bool, str]:
     game.remove_creature(animal)
     game.player.mount = animal
     game.player.add_exp(SKILL, 20)
-    return (True, "You mount %s." % _the(animal))
+    return (True, "You mount %s." % animal.object_name())
 
 
 def dismount(game, *, thrown: bool = False) -> Tuple[bool, str]:
@@ -138,7 +138,7 @@ def dismount(game, *, thrown: bool = False) -> Tuple[bool, str]:
     game.add_creature(animal)
     if thrown:
         p.needs.exert(FALL_FATIGUE)
-        return (True, "You are thrown from %s!" % _the(animal))
+        return (True, "You are thrown from %s!" % animal.object_name())
     return (True, "You dismount.")
 
 
@@ -225,7 +225,7 @@ def tame(game, animal, rng) -> Tuple[bool, str]:
     if animal is None or not is_trainable(animal):
         return (False, "That is not an animal you can tame.")
     if getattr(animal, "tame", False):
-        return (False, "%s is already yours." % _the(animal).capitalize())
+        return (False, "%s is already yours." % animal.subject_name())
     if not animal.alive:
         return (False, "It is dead.")
 
@@ -234,7 +234,7 @@ def tame(game, animal, rng) -> Tuple[bool, str]:
     odds = tame_chance(p, animal) - 0.06 * getattr(animal, "tame_tries", 0)
     animal.tame_tries = getattr(animal, "tame_tries", 0) + 1
     if not rng.chance(max(0.02, odds)):
-        return (False, "%s shies away from you." % _the(animal).capitalize())
+        return (False, "%s shies away from you." % animal.subject_name())
 
     animal.tame = True
     animal.faction = "player"
@@ -242,7 +242,7 @@ def tame(game, animal, rng) -> Tuple[bool, str]:
         animal.ai.leader_id = p.id
         animal.ai.role = "pet"
     p.add_exp(SKILL, 60)
-    return (True, "%s will follow you now." % _the(animal).capitalize())
+    return (True, "%s will follow you now." % animal.subject_name())
 
 
 def tamed_of(game) -> List[Any]:
@@ -258,9 +258,3 @@ def status(game) -> str:
         return ""
     return "riding %s" % animal.short_name()
 
-
-def _the(creature) -> str:
-    """``the horse``, but ``Bardur`` for anything that has a name of its own."""
-    if creature.defn.intelligent and creature.name:
-        return creature.display_name()
-    return "the %s" % creature.short_name()

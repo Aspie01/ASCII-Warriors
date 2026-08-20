@@ -285,7 +285,7 @@ def spring(game, cell: Cell, victim) -> None:
     if victim.is_player:
         game.log.bad(said)
     elif game.can_see_creature(victim):
-        game.log.warn("%s sets off a %s." % (victim.short_name().capitalize(),
+        game.log.warn("%s sets off a %s." % (victim.subject_name(),
                                              trap.name))
 
     landed = True
@@ -397,7 +397,7 @@ def cross(game, creature, cell: Cell) -> bool:
     if creature.is_player:
         game.log.warn("Your feet go out from under you.")
     elif game.can_see_creature(creature):
-        game.log.info("%s slips." % creature.short_name().capitalize())
+        game.log.info("%s slips." % creature.subject_name())
     return True
 
 

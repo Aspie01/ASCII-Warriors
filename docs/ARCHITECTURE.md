@@ -7463,7 +7463,164 @@ gone.
   each source three or four tiles before it hits the sea, and a river you can
   follow is a different milestone.
 
-## 131. Style
+## 131. Who is fighting (v3.71)
+
+A hundred-day fortress run, twice, on two unrelated seeds:
+
+```
+day  56: 7 alive, 53 food, 1388 drink
+day  84: 0 alive, 31 food, 1889 drink
+  deaths  {'bled to death': 7}
+FORT OK: year1, 84 days, 0 alive of 7
+```
+
+A siege came for a fortress with no military and killed everybody. That is
+the game working — the log says "Losing is fun." and means it. What is not
+the game working is the account of it. Fifty-seven lines were written while
+the fortress died. **Fifty of them said "the dwarf" or "the goblin".** Three
+used a name, and two of those three were the death notices:
+
+```
+The kobold slashes the dwarf in the upper body with a #steel dagger#, ...
+The kobold stabs the dwarf in the right lower leg with a #gold short sword#, ...
+Gemid Rockvault has died: bled to death.
+```
+
+You cannot tell from that which of your seven is dying, how many raiders
+there are, or whether the one that killed your miner is the one now standing
+over your mason.
+
+### 131.1. The names were already there
+
+Worldgen names every intelligent creature it makes, and has since there was a
+worldgen:
+
+```
+name='Gemid Goldsong'       short_name='dwarf'   display_name='Gemid Goldsong'
+name='Uzzgul Skullsplitter' short_name='goblin'  display_name='Uzzgul Skullsplitter'
+name='Lorn Crane'           short_name='rabbit'  display_name='rabbit'
+```
+
+The sidebar has drawn `display_name()` all along, so a player watching a
+siege reads "Uzzgul Skullsplitter" in the unit list and "the goblin" in the
+log, about the same creature, in the same frame. `display_name` even
+documents itself as "how this creature is referred to in messages". Combat
+called `short_name()` — "the species name, used when the creature is **not**
+known by name".
+
+`Creature.known_by_name` asks the one question — is this a person the game
+knows the name of? — and `subject_name` / `object_name` answer it in the two
+grammatical roles a sentence needs:
+
+| | player | named | animal |
+| --- | --- | --- | --- |
+| `subject_name()` | `You` | `Uzzgul Skullsplitter` | `The wolf` |
+| `object_name()` | `you` | `Uzzgul Skullsplitter` | `the wolf` |
+
+Same fight, same seed, same fifty-seven lines:
+
+| of 57 log lines | before | after |
+| --- | ---: | ---: |
+| "the dwarf" / "the goblin" | 50 | 0 |
+| somebody named | 3 | 53 |
+
+```
+Thugdush Skullsplitter bashes Thob Goldmurdered in the head with a *lead
+    mace*, tearing apart the skin, tearing apart the fat, bruising the muscle!
+Thob Goldmurdered has died: bled to death.
+Nomal Anvilhammer punches Thugdush Skullsplitter in the right upper leg ...
+```
+
+The rule already existed, once, for one thing. `mounts._the` — "``the
+horse``, but ``Bardur`` for anything that has a name of its own" — is exactly
+this, written for mounts and never generalised. It is gone now; mounts ask
+the creature like everybody else.
+
+And the README has been promising it the whole time. Its sample screen ends:
+
+```
+Snagob the Cruel stabs you in the left lower arm, tearing the muscle, ...
+```
+
+which is a line the code could not produce — `_subject` would have written
+"The goblin". The same eight lines show a message *wrapped* onto a second
+row, which §131.4 is about. The screenshot was written from what the game
+ought to look like, and nobody ever diffed it against what it printed.
+
+### 131.2. "Goblin slips."
+
+Five other places built a subject as `short_name().capitalize()` and dropped
+the article on the floor: `webs` ("Goblin tears free."), `traps` ("Goblin
+sets off a bear trap.", "Goblin slips."), and `ai` ("Giant cave spider throws
+a web!", "Goblin snatches a golden crown and bolts."). Every one of them was
+written separately, which is the argument for the funnel.
+
+`capitalize()` is also a trap of its own once names arrive:
+`"Uzzgul Skullsplitter".capitalize()` is `"Uzzgul skullsplitter"`. That is
+why `subject_name` returns the capitalised form itself and its docstring
+tells callers not to touch it.
+
+### 131.3. The second mention
+
+Naming both sides breaks one sentence, and only one:
+
+```
+Thugdush Skullsplitter bashes at Nomal Anvilhammer, but Nomal Anvilhammer dodges.
+```
+
+Blocks and parries never had the problem ("but the blow is parried"); the
+dodge is the only line that refers to the defender twice. `Creature.pronoun`
+fixes it — `you` / `he` / `she` / `it`. `female` has been rolled for every
+creature since creatures could be made, and no line of text had ever asked
+it. It keys on `intelligent`, not on `known_by_name`: an unnamed goblin is
+still a he or a she.
+
+### 131.4. The half of the sentence that was on the floor
+
+Both message panes drew `frag_slice(msg.display(), 0, w)` — the first *w*
+columns, and the rest thrown away. A blow reads
+
+```
+<who> <verb> <whom> in the <part> with a <weapon>, <what it did to the tissue>
+```
+
+so the half that says how bad it is is the half at the end. Measured over one
+fight: median line 55 columns, longest 138, and **twenty-five of fifty-seven
+ran past eighty**. `MIN_WIDTH` is 72.
+
+`wrap_frags` — a colour-preserving word wrap — has been sitting in
+`screen.py` the whole time and neither pane called it. Wrapping costs rows,
+so fewer events fit in the seven-line pane. That is the trade, and half a
+sentence is not an event.
+
+### 131.5. FORT OK over a graveyard
+
+`tools/fort.py` printed `FORT OK` on a run where every dwarf was dead. Its
+invariants are deliberately about the job board rather than about survival —
+"a fortress that plays badly should not be reported as a defect in the game"
+— and that is right. But the run *stops* at the last death, so every number
+it prints after that is measured on a corpse: the food, the wealth, the beds,
+the work left on the board. It says `FORT LOST` now, and exits non-zero.
+
+Two seeds, one outcome, the same fortnight. Whether seven civilians should
+survive the first siege is a question about difficulty and it is not this
+milestone's; a driver that cannot report the fortress falling is a guard that
+cannot fail, and that is.
+
+### 131.6. Measured and left
+
+- **The status line still says "riding horse".** `mount_status` is the last
+  `short_name()` left in a sentence, and it is a compact status bar rather
+  than prose.
+- **A named enemy is named on sight**, because the sidebar already named it.
+  Whether an adventurer should have to *ask* before the log calls a stranger
+  Uzzgul Skullsplitter is a question about knowledge, and a real one — the
+  fortress, where you know everybody, does not have it.
+- **The log collapses an exact repeat into one line with a count.** Two
+  goblins hitting two dwarves identically used to be one message; naming them
+  makes them the two events they always were.
+
+## 132. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

@@ -1235,3 +1235,160 @@ class _NoWorld:
 
     def current_site(self):
         return None
+
+
+class TestWhoIsFighting(unittest.TestCase):
+    """The log names the people in it.
+
+    Found by playing: a hundred-day fortress run on two different seeds was
+    wiped by a siege between day fifty-six and day eighty-four. The record of
+    the thing that ended the fortress was fifty-seven lines long, and fifty of
+    them said "the dwarf" or "the goblin". Three used a name, and two of those
+    three were the death notices.
+
+    Worldgen has named every intelligent creature it makes since there was a
+    worldgen -- the seven who embark, and "Uzzgul Skullsplitter" and "Durzug
+    the Black" who come for them -- and the sidebar has listed those names all
+    along. The fight was the one place that would not say them.
+    """
+
+    def _pair(self, seed="who"):
+        """An armed dwarf and a goblin, both named, neither the player."""
+        rng = RNG(seed)
+        a = make_creature(rng, "dwarf", faction="fortress", level=1)
+        b = make_creature(rng, "goblin", faction="hostile", level=1)
+        return rng, a, b
+
+    def _lines(self, log):
+        from ascii_warriors.engine.screen import frag_str
+
+        return [frag_str(m.display()) for m in log.all()]
+
+    # -- the rule ---------------------------------------------------------- #
+
+    def test_the_game_knows_their_names(self):
+        """The premise. Without this the rest is about nothing."""
+        _rng, a, b = self._pair()
+        for c in (a, b):
+            self.assertTrue(c.defn.intelligent)
+            self.assertTrue(c.name, "worldgen made an unnamed person")
+            self.assertTrue(c.known_by_name())
+            self.assertEqual(c.subject_name(), c.name)
+            self.assertEqual(c.object_name(), c.name)
+
+    def test_an_animal_is_still_an_animal(self):
+        """A dog has a name in the save file and is a dog on the screen."""
+        rng = RNG("beasts")
+        for def_id in ("wolf", "dog", "rabbit"):
+            beast = make_creature(rng, def_id, faction="wild")
+            self.assertTrue(beast.name, "even animals are named internally")
+            self.assertFalse(beast.known_by_name())
+            self.assertEqual(beast.subject_name(), "The %s" % beast.short_name())
+            self.assertEqual(beast.object_name(), "the %s" % beast.short_name())
+
+    def test_the_article_is_not_lost(self):
+        """"Goblin slips." was a real message.
+
+        Five places built a subject by capitalising the species and forgetting
+        the article. The funnel is the fix and this is the reason it has to be
+        one: every one of them was written separately.
+        """
+        rng = RNG("article")
+        beast = make_creature(rng, "wolf", faction="wild")
+        self.assertTrue(beast.subject_name().startswith("The "))
+        self.assertEqual(beast.subject_name()[0], "T")
+
+    def test_the_player_is_you(self):
+        _rng, a, b = self._pair()
+        a.is_player = True
+        self.assertEqual(a.subject_name(), "You")
+        self.assertEqual(a.object_name(), "you")
+        self.assertEqual(a.pronoun(), "you")
+        self.assertNotEqual(b.subject_name(), "You")
+
+    def test_a_title_stays_out_of_the_fight(self):
+        """It belongs in the unit list, not on every blow."""
+        _rng, _a, b = self._pair()
+        b.title = "the Pitiless"
+        self.assertIn("the Pitiless", b.display_name())
+        self.assertNotIn("Pitiless", b.subject_name())
+        self.assertNotIn("Pitiless", b.object_name())
+
+    def test_capitalize_would_have_mangled_it(self):
+        """Why `subject_name` capitalises and callers must not.
+
+        `"Uzzgul Skullsplitter".capitalize()` is "Uzzgul skullsplitter", and
+        five call sites were doing exactly that to the species name.
+        """
+        _rng, _a, b = self._pair()
+        if " " in b.name:
+            self.assertNotEqual(b.name.capitalize(), b.name)
+        self.assertEqual(b.subject_name(), b.name)
+
+    # -- the fight --------------------------------------------------------- #
+
+    def test_a_blow_says_who_struck_and_who_was_struck(self):
+        rng, a, b = self._pair()
+        log = MessageLog()
+        for _ in range(60):
+            combat.melee_attack(a, b, rng=rng, log=log)
+            if b.body.dead:
+                break
+        text = " ".join(self._lines(log))
+        self.assertTrue(text.strip(), "the fight logged nothing")
+        self.assertIn(a.name, text, "the attacker is not named")
+        self.assertIn(b.name, text, "the defender is not named")
+        self.assertNotIn("The dwarf", text)
+        self.assertNotIn("the goblin", text)
+
+    def test_a_wolf_is_still_the_wolf(self):
+        """The other half: naming people did not name the wildlife."""
+        rng = RNG("wolfhunt")
+        wolf = make_creature(rng, "wolf", faction="wild")
+        deer = make_creature(rng, "deer", faction="wild")
+        log = MessageLog()
+        for _ in range(40):
+            combat.melee_attack(wolf, deer, rng=rng, log=log)
+            if deer.body.dead:
+                break
+        text = " ".join(self._lines(log))
+        self.assertIn("wolf", text)
+        self.assertNotIn(wolf.name, text, "the wolf was introduced by name")
+        self.assertTrue("The wolf" in text or "the wolf" in text,
+                        "the wolf lost its article: %r" % text[:120])
+
+    def test_nobody_is_named_twice_in_one_sentence(self):
+        """The dodge line, which is the only one that mentions them twice.
+
+        "Thugdush Skullsplitter bashes at Nomal Anvilhammer, but Nomal
+        Anvilhammer dodges" is a sentence nobody wrote on purpose. `female`
+        has been rolled for every creature since they could be made and no
+        line of text had ever asked.
+        """
+        rng, a, b = self._pair("dodging")
+        log = MessageLog()
+        dodges = []
+        for _ in range(200):
+            combat.melee_attack(a, b, rng=rng, log=log)
+            if b.body.dead:
+                b.body.blood = b.body.max_blood
+                b.body.dead = False
+                for p in b.body.parts.values():
+                    p.wounds = []
+        for line in self._lines(log):
+            if "dodges" in line:
+                dodges.append(line)
+        self.assertTrue(dodges, "nobody dodged in two hundred blows")
+        for line in dodges:
+            self.assertEqual(line.count(b.name), 1, line)
+            self.assertIn(b.pronoun(), line.split(", but ")[-1], line)
+
+    def test_the_pronoun_matches_the_creature(self):
+        rng, a, _b = self._pair("pronouns")
+        a.female = True
+        self.assertEqual(a.pronoun(), "she")
+        a.female = False
+        self.assertEqual(a.pronoun(), "he")
+        beast = make_creature(rng, "wolf", faction="wild")
+        self.assertEqual(beast.pronoun(), "it")
+

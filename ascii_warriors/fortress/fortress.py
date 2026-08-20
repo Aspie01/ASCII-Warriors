@@ -578,7 +578,7 @@ class Fortress:
             # Nobody is held after they are dead.
             self.held.pop(c.id, None)
         else:
-            self.log.combat("The %s is dead." % c.short_name())
+            self.log.combat("%s is dead." % c.subject_name())
             self._record_kill(c)
             if c.faction == "hostile":
                 from . import war as war_mod

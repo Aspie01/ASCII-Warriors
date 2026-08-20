@@ -1224,7 +1224,7 @@ class Game:
 
             companion_mod.on_death(self, c)
         if self.can_see_creature(c):
-            self.log.combat("The %s is dead." % c.short_name())
+            self.log.combat("%s is dead." % c.subject_name())
         corpse = corpse_of(c)
         self.drop_item(corpse, c.x, c.y, c.z)
         # Before the inventory is emptied, while it can still be asked what

@@ -121,12 +121,13 @@ Urist Boatmurdered | grass | quite content | T318 | 2 tasks
                                                           |
                                                           |You see
                                                           | g Snagob the Cruel      1
-                                                          | g goblin                1
+                                                          | g Zolak Gutcarver       1
 ----------------------------------------------------------------------------------------
-You hack the goblin in the left upper arm with a *steel battle axe*, tearing apart
-the muscle, shattering the bone, severing it!
-The goblin is slain!
-Snagob the Cruel stabs you in the left lower arm, tearing the muscle, fracturing the bone!
+You hack Zolak Gutcarver in the left upper arm with a *steel battle axe*, tearing
+apart the muscle, shattering the bone, severing it!
+Zolak Gutcarver is slain!
+Snagob the Cruel stabs you in the left lower arm, tearing the muscle, fracturing
+the bone!
 You are bleeding.
 ```
 

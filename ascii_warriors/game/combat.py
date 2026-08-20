@@ -420,17 +420,19 @@ def try_parry(defender, rng: RNG) -> bool:
 
 
 def _subject(creature) -> str:
-    """``"You"`` or ``"The goblin"``."""
-    if creature.is_player:
-        return "You"
-    return "The %s" % creature.short_name()
+    """``"You"``, ``"Uzzgul Skullsplitter"`` or ``"The goblin"``.
+
+    The rule itself is `Creature.subject_name`, because the unit list, the
+    mount status line and the fight all have to answer it the same way. These
+    two are here for the grammatical role, which is what the call site knows
+    and the creature does not.
+    """
+    return creature.subject_name()
 
 
 def _object(creature) -> str:
-    """``"you"`` or ``"the goblin"``."""
-    if creature.is_player:
-        return "you"
-    return "the %s" % creature.short_name()
+    """``"you"``, ``"Uzzgul Skullsplitter"`` or ``"the goblin"``."""
+    return creature.object_name()
 
 
 def _be(creature) -> str:
@@ -636,7 +638,7 @@ def melee_attack(
         result.dodged = True
         text = "%s %s at %s, but %s" % (
             subject, verb, obj,
-            "you dodge" if defender.is_player else "%s dodges" % _object(defender),
+            "you dodge" if defender.is_player else "%s dodges" % defender.pronoun(),
         )
         result.add(text + ".", colors.UI["dim"])
         defender.add_exp("dodging", 12)

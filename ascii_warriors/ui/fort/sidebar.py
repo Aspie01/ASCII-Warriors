@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import List
 
 from ...engine import colors
-from ...engine.screen import Frag, Screen, frag_slice
+from ...engine.screen import Frag, Screen, frag_slice, wrap_frags
 from ...engine.widgets import gauge
 
 SIDEBAR_WIDTH = 32
@@ -133,12 +133,17 @@ def _draw_roster(scr: Screen, x: int, row: int, w: int, h: int, dwarves) -> None
 def draw_log(scr: Screen, x: int, y: int, w: int, h: int, fort) -> None:
     """The scrolling message log."""
     scr.hline(x, y, w, "-", colors.UI["frame"])
-    row = y + 1
-    for msg in fort.log.recent(h - 1)[-(h - 1):]:
-        if row >= y + h:
-            break
-        scr.text(x, row, frag_slice(msg.display(), 0, w))
-        row += 1
+    # Wrapped, not cut off at the edge. A blow reads
+    # "<who> <verb> <whom> in the <part> with a <weapon>, <what it did>" and
+    # the half that says how bad it is is the half at the end: measured over
+    # one fight, twenty-five of fifty-seven lines ran past eighty columns and
+    # lost their tail. Wrapping costs rows, so fewer events fit on screen --
+    # that is the trade, and half a sentence is not an event.
+    rows: List[List[Frag]] = []
+    for msg in fort.log.recent(h - 1):
+        rows.extend(wrap_frags(msg.display(), w))
+    for row, frags in zip(range(y + 1, y + h), rows[-(h - 1):]):
+        scr.text(x, row, frags)
 
 
 def _moon_matters(fort) -> bool:

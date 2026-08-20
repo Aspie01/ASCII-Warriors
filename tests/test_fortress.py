@@ -8760,6 +8760,33 @@ class TestGroundYouCanBuildOn(unittest.TestCase):
         self.assertEqual(code, 0, text)
         self.assertIn("FORT OK", text)
 
+    def test_a_fortress_that_fell_is_not_ok(self):
+        """`FORT OK: year1, 84 days, 0 alive of 7` was a real line.
+
+        Twice, on two unrelated seeds. The run stops at the last death, so
+        every number printed above that line -- the food, the wealth, the beds,
+        the work left on the board -- was measured on a corpse, and the word
+        over the top of them was OK.
+
+        Not a claim about difficulty. Whether seven civilians should live
+        through the first siege is its own question; a driver that cannot
+        report the fortress falling is a guard that cannot fail.
+        """
+        out = dict(_DRIVER_RUN, days=84, alive=0,
+                   deaths={"bled to death": 7})
+        code, text = _run_driver(out)
+        self.assertEqual(code, 1, text)
+        self.assertIn("FORT LOST", text)
+        self.assertNotIn("FORT OK", text)
+        self.assertIn("bled to death", text)
+
+    def test_an_empty_fortress_that_never_had_anybody_is_not_a_loss(self):
+        """`started_with` is the guard on the guard."""
+        out = dict(_DRIVER_RUN, started_with=0, alive=0)
+        code, text = _run_driver(out)
+        self.assertEqual(code, 0, text)
+        self.assertIn("FORT OK", text)
+
 
 #: What `tools.fort.play` hands back after a run that went well. The reporting
 #: tests replace the run itself: what is under test is which of these numbers
@@ -8991,3 +9018,92 @@ class TestNobodyArrivesWhereTheyCannotLeave(unittest.TestCase):
                              "%s picks its own way onto the map"
                              % mod.__name__)
             self.assertIn("edge_arrival", source)
+
+
+class TestTheFortressLogNamesThem(unittest.TestCase):
+    """A siege you can read.
+
+    The fortress half of `TestWhoIsFighting`. Two hundred-day runs on two
+    seeds ended the same way -- seven alive on day fifty-six, none on day
+    eighty-four, every one of them "bled to death" -- and the account of it
+    was fifty lines of "the goblin bashes the dwarf". This is the mode where
+    every one of the seven has a name, a nickname, a profession and a
+    tombstone, and the fight was the one place none of that reached.
+    """
+
+    def _text(self, fort):
+        from ascii_warriors.engine.screen import frag_str
+
+        return " ".join(frag_str(m.display()) for m in fort.log.all())
+
+    def _brawl(self, fort, dwarf, foe, rounds=60):
+        from ascii_warriors.game import combat
+
+        foe.x, foe.y, foe.z = dwarf.x, dwarf.y, dwarf.z
+        for _ in range(rounds):
+            combat.timed_strike(foe, dwarf, rng=fort.rng, log=fort.log,
+                               ground=fort)
+            if dwarf.body.dead:
+                break
+            combat.timed_strike(dwarf, foe, rng=fort.rng, log=fort.log,
+                               ground=fort)
+            if foe.body.dead:
+                break
+
+    def test_the_siege_arrives_with_names(self):
+        """A raid is people, and worldgen already named every one of them."""
+        fort = embark("namedsiege")
+        foes = sim.spawn_attack(fort, 3)
+        self.assertTrue(foes)
+        for foe in foes:
+            self.assertTrue(foe.known_by_name(),
+                            "%s came without a name" % foe.short_name())
+            self.assertEqual(foe.subject_name(), foe.name)
+
+    def test_a_fortress_fight_says_who(self):
+        fort = embark("whofights")
+        dwarf = fort.dwarves()[0]
+        foe = sim.spawn_attack(fort, 1)[0]
+        before = len(fort.log.all())
+        self._brawl(fort, dwarf, foe)
+        self.assertGreater(len(fort.log.all()), before, "nobody swung")
+        text = self._text(fort)
+        self.assertIn(dwarf.name, text, "the dwarf fought anonymously")
+        self.assertIn(foe.name, text, "the raider fought anonymously")
+        self.assertNotIn("The dwarf ", text)
+        self.assertNotIn("the dwarf ", text)
+
+    def test_the_dead_raider_is_named(self):
+        """"The goblin is dead." was the whole obituary.
+
+        A fortress records who its dwarves were down to the engraving on the
+        coffin. What killed them was a species.
+        """
+        fort = embark("deadraider")
+        foe = sim.spawn_attack(fort, 1)[0]
+        foe.body.dead = True
+        foe.body.death_cause = "slain"
+        before = len(fort.log.all())
+        fort.kill_creature(foe)
+        fresh = self._text_since(fort, before)
+        self.assertIn(foe.name, fresh, fresh)
+        self.assertNotIn("The %s is dead" % foe.short_name(), fresh)
+
+    def _text_since(self, fort, n):
+        from ascii_warriors.engine.screen import frag_str
+
+        return " ".join(frag_str(m.display()) for m in fort.log.all()[n:])
+
+    def test_the_livestock_are_still_livestock(self):
+        """Naming people did not name the cows.
+
+        Every creature carries a name field, animals included -- there is a
+        rabbit in every world called something like "Lorn Crane". The rule
+        asks whether the creature is a person, not whether the field is set.
+        """
+        fort = embark("thecows")
+        beast = make_creature(fort.rng, "cow", faction="fortress")
+        self.assertTrue(beast.name)
+        self.assertFalse(beast.known_by_name())
+        self.assertEqual(beast.subject_name(), "The cow")
+        self.assertEqual(beast.object_name(), "the cow")

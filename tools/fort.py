@@ -494,6 +494,17 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         print("FORT PROBLEM: %s" % problem)
     if problems:
         return 1
+    if out["started_with"] and not out["alive"]:
+        # Not a defect in the game. A fortress of seven with no military and
+        # twenty thousand in wealth is exactly what a siege comes for, and two
+        # separate seeds run to a hundred days were wiped between day
+        # fifty-six and day eighty-four, every dwarf bled to death. It is a
+        # defect in *this*, which printed OK over a graveyard: the run stops
+        # at the last death, so every number above -- the food, the wealth,
+        # the beds, the work left on the board -- was measured on a corpse.
+        print("FORT LOST: %s, everybody died by day %d: %s"
+              % (args.seed, out["days"], out["deaths"]))
+        return 1
     print("FORT OK: %s, %d days, %d alive of %d, %d designated cells worked"
           % (args.seed, out["days"], out["alive"], out["started_with"],
              sum(done.values())))

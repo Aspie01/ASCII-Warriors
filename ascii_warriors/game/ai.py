@@ -344,7 +344,7 @@ def take_turn(creature, game) -> int:
         if webs.maybe_spin(game, creature, prey, game.rng) is not None:
             ai.mode = "spin"
             if prey is not None and prey.is_player:
-                game.log.warn("%s throws a web!" % creature.short_name().capitalize())
+                game.log.warn("%s throws a web!" % creature.subject_name())
             return _spent(creature)
 
     mode = pick_mode(creature, game)
@@ -411,7 +411,7 @@ def take_turn(creature, game) -> int:
         took = wild.steal(game, creature, game.rng)
         if took is not None and game.can_see_creature(creature):
             game.log.warn("%s snatches %s and bolts."
-                          % (creature.short_name().capitalize(),
+                          % (creature.subject_name(),
                              took.name(article=True)))
         if target is not None:
             _step_away(creature, game, target.x, target.y)

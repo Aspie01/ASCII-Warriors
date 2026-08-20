@@ -455,3 +455,81 @@ class TestARowThatMeansNothing(unittest.TestCase):
                 os.environ.pop("ASCII_WARRIORS_SAVE_DIR", None)
             else:
                 os.environ["ASCII_WARRIORS_SAVE_DIR"] = old
+
+
+class TestTheLogIsNotCutInHalf(UITestBase):
+    """A message pane that throws away the end of every long line.
+
+    Both log panes drew `frag_slice(msg.display(), 0, w)` -- the first *w*
+    columns, and the rest on the floor. A blow reads "<who> <verb> <whom> in
+    the <part> with a <weapon>, <what it did to the tissue>", so the half that
+    says how bad it is is the half past column eighty. Measured over one
+    fortress fight, twenty-five of fifty-seven lines ran past eighty columns.
+
+    `wrap_frags` -- a colour-preserving word wrap -- has been in `screen.py`
+    the whole time, and neither pane called it.
+    """
+
+    LONG = ("Thugdush Skullsplitter bashes Nomal Anvilhammer in the right "
+            "upper leg with a lead mace, tearing apart the skin, tearing "
+            "apart the fat, bruising the muscle!")
+
+    WIDTH = 72
+
+    def _draw(self, text, log_owner=None):
+        """Draw one message into an empty pane and return the rows used.
+
+        The log starts with five lines of "you arrive at Helmsong" in it, and
+        a test that counts rows without clearing them counts those instead --
+        which is a count that cannot come out wrong.
+        """
+        from ascii_warriors.engine.screen import Screen
+        from ascii_warriors.game.log import MessageLog
+        from ascii_warriors.ui.sidebar import draw_log
+
+        owner = log_owner if log_owner is not None else self.game
+        owner.log = MessageLog()
+        owner.log.combat(text)
+        scr = Screen(self.WIDTH, 12)
+        draw_log(scr, 0, 0, self.WIDTH, 8, owner)
+        rows = [row.rstrip() for row in scr.to_text()]
+        used = [r for r in rows if r.strip() and set(r.strip()) != {"-"}]
+        return rows, used
+
+    def test_the_tail_of_a_blow_survives(self):
+        _rows, used = self._draw(self.LONG)
+        shown = " ".join(r.strip() for r in used)
+        self.assertIn("Thugdush Skullsplitter", shown)
+        self.assertIn("bruising the muscle!", shown,
+                      "the end of the sentence was cut off: %r" % shown)
+        self.assertEqual(shown, self.LONG, shown)
+
+    def test_it_wraps_rather_than_running_off_the_edge(self):
+        rows, used = self._draw(self.LONG)
+        for row in rows:
+            self.assertLessEqual(len(row), self.WIDTH, row)
+        self.assertGreater(len(used), 1,
+                           "a %d-column line fitted on one %d-column row"
+                           % (len(self.LONG), self.WIDTH))
+
+    def test_a_short_line_still_takes_one_row(self):
+        """Wrapping is not padding."""
+        _rows, used = self._draw("Nomal Anvilhammer is stunned!")
+        self.assertEqual(len(used), 1, used)
+
+    def test_the_fortress_pane_wraps_too(self):
+        """Two panes, one defect, and they are separate functions."""
+        from ascii_warriors.engine.screen import Screen
+        from ascii_warriors.game.log import MessageLog
+        from ascii_warriors.ui.fort.sidebar import draw_log as fort_log
+        from tests.test_fortress import embark
+
+        fort = embark("logwrap")
+        fort.log = MessageLog()
+        fort.log.combat(self.LONG)
+        scr = Screen(self.WIDTH, 12)
+        fort_log(scr, 0, 0, self.WIDTH, 8, fort)
+        rows = [row.rstrip() for row in scr.to_text()]
+        used = [r for r in rows if r.strip() and set(r.strip()) != {"-"}]
+        self.assertEqual(" ".join(r.strip() for r in used), self.LONG,
+                         used)
