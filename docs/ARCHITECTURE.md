@@ -7326,7 +7326,144 @@ paragraph is what is left of it — a fix with no failing case is not a fix.
   anywhere. Either the wounded get carried or somebody is posted in the ward,
   and both of those are a hospital milestone rather than a bleeding one.
 
-## 130. Style
+## 130. Water to drink (v3.70)
+
+Twenty-four adventurers, six hundred turns each, and what they got done:
+
+```
+quests taken 25, finished 1, failed 0
+turns spent: fought 1144, working 840, blocked 681, patched itself up 398,
+             ... nothing to drink 81, no water on this map 66
+```
+
+Take death out of it — hold the player's blood at full and clear their wounds
+every tick — and twelve adventurers over two thousand turns each finished two
+quests between them, with the turn budget going the same way:
+
+```
+nothing to drink 1366, no water on this map 1340
+```
+
+Thirteen hundred turns of being thirsty somewhere there was nothing to drink.
+So: how much of the world has water on it?
+
+### 130.1. One land tile in eighty
+
+Forty wilderness maps, sampled across a whole world, scanned for a single cell
+of water at any depth:
+
+```
+maps with water: 0, without: 40
+```
+
+Not one. The world map has 2997 land tiles and carves **32 river tiles and 4
+lakes** onto them — `_carve_rivers` takes the top `(w*h)/220` highland tiles,
+uses half of them as sources, and each river runs three or four tiles before
+it reaches the sea or a basin. Everything else is dry, at every scale: dry on
+the world map, and dry on the ground when you walk onto it.
+
+`rainfall` is a field the world map has computed since v1, used for biomes and
+for nothing else. A grassland under half a metre of rain has water standing in
+its hollows.
+
+```python
+POND_RAIN = 0.35
+POND_RADIUS = (3, 6)
+```
+
+`_dig_pond` sinks a pool into the low ground of any wilderness map wet enough
+to hold one — the lowest of twenty-four sampled spots, a disc three to six
+tiles across, two levels deep in the middle and one at the rim so the edge is
+shallow enough to drink from and walk out of.
+
+Dug, not flooded to a level. Filling every column below some height is the
+obvious implementation and it does not work: measured over fourteen wet maps,
+the lowest height covered anything from four columns to all three thousand of
+them, so the same rule gives a puddle on one map and a lake across a whole
+plateau on the next. A pool is a hole with water in it, so this digs the hole.
+
+| sixty land tiles sampled | before | after |
+| --- | ---: | ---: |
+| with water on the surface | 0 | 33 |
+| ...and a bank to drink from | 0 | 33 |
+
+The dry ones are shrubland, desert, glacier, savanna and badlands, which is
+the point: rain decides, and the drylands stay dry.
+
+### 130.2. The beach with no sea on it
+
+The other half of the same question. Seven hundred and six land tiles on this
+world border the ocean, and every one of them generated a local map with not a
+drop of water on it — the coastline stopped dead at the tile boundary.
+`_fill_columns` set a water level only when the tile *is* ocean or lake.
+
+The heightmap already samples its neighbours' elevation, so the ground on a
+coastal map slopes down towards the sea. It just never got wet.
+
+The first attempt flooded those maps to local z 0 and produced this:
+
+```
+(48, 4) glacier   elev 0.58 -> land    0  water 3072 (100%)
+(64,31) mountain  elev 0.88 -> land  120  water 2947 (96%)
+```
+
+Zero is not sea level. The local heightmap measures every column against its
+*own* world tile's elevation, so flooding to zero drowns a mountain that
+happens to look out over the water. `sea_level_z` is the rule stated once —
+`(SEA_LEVEL - elevation) * ELEVATION_SCALE` — and on a cliff top it comes out
+below the floor of the terrain, where it touches nothing.
+
+And a land tile keeps its land. The corners of a low coastal map average in
+the ocean next door, so the whole of one can still end up under sea level: a
+beach at elevation 0.43 came out 100% water with nowhere on it to stand.
+`SHORE_DRY` holds the water down to leave two fifths of the map dry. The world
+map calls this tile land; the sea comes up to the shore, and the shore is on
+the map.
+
+### 130.3. What the guards had to be told
+
+Five fixes, five re-breaks, and four of them passed first time with the fix
+taken out — every one because the *fixture* was wrong rather than the
+assertion.
+
+The beach test picked the first coastal tile in map order, which had rainfall
+0.44 and therefore a pool on it: it passed with the coast turned off, because
+a pond was providing the water. It picks the lowest coast on the world now and
+asks for five hundred cells rather than one, which is a sea and not a puddle.
+The land-keeps-its-land test had the same fixture and the same hole. And the
+cliff test picked a coastal tile at elevation 0.68 rather than the highest one
+there is.
+
+`_pick` takes a `key` now, so a test about the sea flooding a map asks for the
+lowest coast and one about it not flooding a cliff asks for the highest.
+
+The sea-level rule could not be guarded through generation at all: `SHORE_DRY`
+pulls the water back down on a high map, so a cliff comes out dry whichever
+formula is in place. It is asserted as arithmetic instead — the same shape as
+the Nyquist guard in §127 — which is why `sea_level_z` is a function rather
+than three lines inside `_fill_columns`.
+
+And one line went the other way. The pool carver skipped columns whose ground
+rose more than a level above the pool, so it would not cut a pit into a
+hillside. Measured with and without over twelve hilly wet maps: 851 water
+cells and two walled-in cells either way. It was doing nothing, and it is
+gone.
+
+### 130.4. Measured and left
+
+- **A quarter of the driver's turns are `blocked`.** It walks into things: on
+  twenty-four runs, 1058 turns of a random walk that went nowhere. That is the
+  bot, not the game, but it is the biggest single line in the tally.
+- **An adventurer finishes one quest in twenty-four lifetimes**, and three
+  with this milestone's water. Even immortal and given two thousand turns they
+  manage two. Whether that is the bot, the quest design or the world being too
+  big to cross is the next thing to measure.
+- **Rivers are still 32 tiles in 2997.** The pools make the world drinkable;
+  they do not make it a landscape with streams in it. `_carve_rivers` gives
+  each source three or four tiles before it hits the sea, and a river you can
+  follow is a different milestone.
+
+## 131. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

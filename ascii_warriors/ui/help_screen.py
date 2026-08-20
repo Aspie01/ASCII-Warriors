@@ -956,6 +956,11 @@ You need to eat, drink and sleep.
 Hunger and thirst build slowly, then start taking chunks out of your strength
 and agility. Sleep with 'S', but not with enemies nearby.
 
+Fill your skin whenever you pass water. There is a pool or a stream on most
+land that gets rain, and none at all in the deserts, the badlands, the
+shrublands and the ice -- so top up before you cross one and look at the
+rainfall on the travel screen before you set out.
+
 Wounds heal on their own, slowly. Resting ('R') and sleeping heal much faster.
 Bleeding is the urgent problem: if the sidebar's Blood gauge is dropping, break
 off the fight.

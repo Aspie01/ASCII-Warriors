@@ -13,7 +13,10 @@ from ascii_warriors.engine.rng import RNG
 from ascii_warriors.game.state import Game
 from ascii_warriors.world import legends, tiles
 from ascii_warriors.world import localmap as localmap_mod
-from ascii_warriors.world.localmap import LocalMap, generate_local
+from ascii_warriors.world.localmap import (POND_RAIN, SURFACE_DROP,
+                                          LocalMap, generate_local,
+                                          sea_level_z)
+from ascii_warriors.world import worldgen as worldgen_mod
 from ascii_warriors.world.worldgen import World, generate_world, summarize, world_hash
 
 
@@ -434,6 +437,144 @@ class TestLocalMap(unittest.TestCase):
                             for b in range(3)}) == 1)
         self.assertGreater(level * 100 // windows, 30,
                            "%d of %d 3x3 patches are level" % (level, windows))
+
+    # -- water to drink ---------------------------------------------------- #
+
+    def _surface_water(self, wx, wy, seed="w"):
+        """How many cells of water you could walk up to on one map."""
+        lm, _pop = generate_local(self.world, wx, wy, RNG(seed))
+        wet = 0
+        for y in range(lm.height):
+            for x in range(lm.width):
+                z = lm.surface_z(x, y)
+                if tiles.get(lm.tile(x, y, z)).has("WATER"):
+                    wet += 1
+        return lm, wet
+
+    def _pick(self, test, key=None):
+        """A land tile without a site on it that passes *test*.
+
+        With *key*, the extreme one rather than the first: a test about the
+        sea flooding a map wants the lowest coast on the world, and one about
+        it not flooding a cliff wants the highest. Picking whichever came
+        first in map order is how three of these guards passed with the fix
+        taken out.
+        """
+        hits = [(x, y) for x, y in self.world.land_tiles()
+                if self.world.tile(x, y).site_id is None
+                and test(self.world.tile(x, y), x, y)]
+        if not hits:
+            return None
+        if key is None:
+            return hits[0]
+        return min(hits, key=lambda c: key(self.world.tile(*c)))
+
+    def _coastal(self, t, x, y):
+        """True if the sea is on the next world tile over."""
+        return any(self.world.tile(nx, ny).is_ocean
+                   for nx, ny in self.world.neighbours(x, y))
+
+    def test_a_rainy_map_has_water_standing_on_it(self):
+        """One land tile in eighty had a drink on it.
+
+        Thirty-two river tiles and four lakes over two thousand nine hundred
+        and ninety-seven: measured over forty wilderness maps, not one had a
+        single cell of water, and the driver that plays the adventure spent
+        thirteen hundred turns reporting "no water on this map" and died of
+        thirst doing it. Rainfall is a field the world map has always computed
+        and nothing on the ground ever read.
+        """
+        wet = self._pick(lambda t, x, y: t.rainfall >= 0.55 and not t.river
+                         and not t.is_lake)
+        self.assertIsNotNone(wet, "no rainy land on this world")
+        _lm, cells = self._surface_water(*wet)
+        self.assertGreater(cells, 0, "a soaking wet map with nothing on it")
+
+    def test_a_desert_stays_dry(self):
+        """The other half, or every map in the world is a marsh."""
+        dry = self._pick(lambda t, x, y: t.rainfall < 0.2 and not t.river)
+        self.assertIsNotNone(dry, "no desert on this world")
+        _lm, cells = self._surface_water(*dry)
+        self.assertEqual(cells, 0, "it rained in the desert")
+
+    def test_a_pool_has_a_bank_you_can_stand_on(self):
+        """Water you cannot reach is not a drink.
+
+        The rim of the pool is dug down to the waterline, so the shallow edge
+        has walkable ground beside it rather than a cliff.
+        """
+        wet = self._pick(lambda t, x, y: t.rainfall >= 0.55 and not t.river
+                         and not t.is_lake)
+        lm, cells = self._surface_water(*wet)
+        self.assertGreater(cells, 0)
+        banks = 0
+        for y in range(1, lm.height - 1):
+            for x in range(1, lm.width - 1):
+                z = lm.surface_z(x, y)
+                if not tiles.get(lm.tile(x, y, z)).has("WATER"):
+                    continue
+                for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                    nz = lm.surface_z(x + dx, y + dy)
+                    if lm.walkable(x + dx, y + dy, nz) and \
+                            not tiles.get(lm.tile(x + dx, y + dy, nz)).has("WATER"):
+                        banks += 1
+                        break
+        self.assertGreater(banks, 0, "the water has no shore")
+
+    def test_the_beach_has_the_sea_on_it(self):
+        """A tile that borders the ocean had none of it on the map.
+
+        Seven hundred coastal land tiles on this world, and the sea stopped
+        dead at the tile boundary: the heightmap slopes down towards the water
+        and everything below sea level was dry sand. The lowest coast there
+        is, and a sea rather than a puddle -- a rainy tile gets a pool either
+        way, and this has to fail when the coast is taken out.
+        """
+        coast = self._pick(self._coastal, key=lambda t: t.elevation)
+        self.assertIsNotNone(coast, "no coast on this world")
+        lm, cells = self._surface_water(*coast)
+        self.assertGreater(cells, 500, "a beach with no sea on it")
+        land = sum(1 for y in range(lm.height) for x in range(lm.width)
+                   if not tiles.get(
+                       lm.tile(x, y, lm.surface_z(x, y))).has("WATER"))
+        self.assertGreater(land, lm.width * lm.height // 4,
+                           "the world map calls this land and it is all sea")
+
+    def test_the_sea_is_at_sea_level_and_not_at_zero(self):
+        """The rule, where it can fail on its own.
+
+        A coastal map's water goes where `sea_level_z` puts it, and that is
+        measured from the world's sea level rather than from the tile's own
+        ground. Asserted as arithmetic because the generated maps cannot tell
+        the two apart reliably: `SHORE_DRY` pulls the water down again on a
+        high map, so a cliff comes out dry either way and the guard would pass
+        with the fix taken out.
+        """
+        sea = worldgen_mod.SEA_LEVEL
+        self.assertEqual(sea_level_z(sea), 0)
+        # A fifth of the elevation range above the sea is eight levels up,
+        # which is below anything a wilderness map puts on the ground.
+        self.assertLessEqual(sea_level_z(sea + 0.2), -SURFACE_DROP)
+        self.assertGreater(sea_level_z(sea - 0.05), 0)
+
+    def test_a_cliff_over_the_sea_stays_dry(self):
+        """Sea level is not this map's zero.
+
+        The heightmap measures everything against its own tile's elevation, so
+        flooding to zero drowns a mountain that happens to look out over the
+        water -- measured with that mistake in, ten coastal maps came out
+        between 91% and 100% underwater, one of them a mountain at 0.88.
+        """
+        cliff = self._pick(
+            lambda t, x, y: (not t.river and not t.is_lake
+                             and t.rainfall < POND_RAIN
+                             and self._coastal(t, x, y)),
+            key=lambda t: -t.elevation)
+        self.assertIsNotNone(cliff, "no dry high coast on this world")
+        self.assertGreater(self.world.tile(*cliff).elevation,
+                           worldgen_mod.SEA_LEVEL + 0.15)
+        _lm, cells = self._surface_water(*cliff)
+        self.assertEqual(cells, 0, "the sea climbed the cliff")
 
     def test_round_trip(self):
         wx, wy = self.world.land_tiles()[0]

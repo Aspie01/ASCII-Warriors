@@ -6117,6 +6117,28 @@ class TestTheAccusation(unittest.TestCase):
         fort.cell = (cx, cy, z, 3, 3)
         return fort.cell
 
+    def _far_corner(self, fort):
+        """The corner of the map furthest from where the dwarves live.
+
+        Naming a corner measures the seed. Worldgen moves the embark, and one
+        day the far corner is thirty tiles from the beds -- which is exactly
+        close enough for a vampire. Pick the corner by measuring.
+        """
+        from ascii_warriors.engine import geometry
+
+        d = fort.dwarves()[0]
+        best, best_d = None, -1
+        for cx in (3, fort.local.width - 6):
+            for cy in (3, fort.local.height - 6):
+                # The nearest tile of the three-by-three cell, not its corner:
+                # the vampire may stand at whichever end of it it likes.
+                nx = min(max(d.x, cx), cx + 2)
+                ny = min(max(d.y, cy), cy + 2)
+                far = geometry.chebyshev(nx, ny, d.x, d.y)
+                if far > best_d:
+                    best, best_d = (cx, cy), far
+        return best
+
     def _vampire_and_victim(self, fort):
         """A vampire, somebody asleep beside it, and nobody else near."""
         v, victim = fort.dwarves()[0], fort.dwarves()[1]
@@ -6185,21 +6207,27 @@ class TestTheAccusation(unittest.TestCase):
         from ascii_warriors.engine import geometry
 
         fort = embark("caughtit")
-        # Far corner: the cell has to be further from the beds than a vampire
-        # can reach, and `sim.FEED_RANGE` is thirty.
-        self._cell(fort, corner=(3, 3))
+        # The cell has to be further from the beds than a vampire can reach,
+        # and `sim.FEED_RANGE` is thirty.
+        self._cell(fort, corner=self._far_corner(fort))
         v, victim = self._vampire_and_victim(fort)
+        bed = (victim.x, victim.y, victim.z)
         justice.confine(fort, v)
         sim.run(fort, 900)
         self.assertTrue(justice.in_cell(fort, v.x, v.y, v.z),
                         "the vampire never reached the cell")
+        # The nine hundred ticks are for the vampire to walk to the cell. The
+        # victim spent them awake and wandering, and a dwarf on its feet in
+        # the middle of the fortress is not what a vampire feeds on. Put it
+        # back in its bed: the bed is what the claim is about.
+        victim.x, victim.y, victim.z = bed
+        victim.fort.sleeping = True
         # The cell is a place, and the point of the place is that it is out of
         # reach of the beds. State that rather than trusting the map.
         self.assertGreater(
             geometry.chebyshev(v.x, v.y, victim.x, victim.y), sim.FEED_RANGE,
             "the cell is close enough to the beds to feed from")
         full = victim.body.blood
-        victim.fort.sleeping = True
         for _ in range(8):
             sim._feed_vampires(fort, self.night)
         self.assertEqual(victim.body.blood, full,

@@ -26,6 +26,29 @@ Z_ABOVE = 4
 #: valleys deeper, and a fortress embarks at the bottom of a new canyon.
 SURFACE_DROP = 8
 
+#: Z-levels per unit of world elevation. The local heightmap is measured
+#: against its own world tile's elevation, so this is what turns "a tenth
+#: lower than here" into "four levels down" -- and what puts the sea at the
+#: right height on a map that only borders it.
+ELEVATION_SCALE = 40.0
+
+#: How much of a coastal land tile stays above the water. The world map calls
+#: it land, so there has to be somewhere on it to stand.
+SHORE_DRY = 0.4
+
+#: Rainfall at which a wilderness map has a pool on it, and how wide it is.
+#:
+#: Thirty-two river tiles and four lakes on a world of two thousand nine
+#: hundred and ninety-seven: one land tile in eighty had anything to drink on
+#: it, forty wilderness maps in a row had not one cell of water between them,
+#: and the driver that plays the adventure spent thirteen hundred turns
+#: reporting "no water on this map" and died of thirst doing it. Rainfall is
+#: a field the world map has always computed and nothing on the ground ever
+#: read. A grassland under half a metre of rain has water standing in its
+#: hollows; a desert does not.
+POND_RAIN = 0.35
+POND_RADIUS = (3, 6)
+
 #: Detail noise for the local surface, in cycles per tile.
 #:
 #: A tile is a stride wide and a z-level is a step high, so the finest octave
@@ -476,10 +499,38 @@ def _build_heightmap(
             e = top * (1 - fy) + bot * fy
             detail = noise.fbm(x * DETAIL_FREQ, y * DETAIL_FREQ,
                                DETAIL_OCTAVES) * 0.5 + 0.5
-            local = ((e - base) * 40.0) * flatten + (detail - 0.5) * relief * 1.8
+            local = ((e - base) * ELEVATION_SCALE) * flatten \
+                + (detail - 0.5) * relief * 1.8
             floor_z = max(zmin + 2, -SURFACE_DROP)
             heights[y * w + x] = max(floor_z, min(zmax - 2, int(round(local))))
     return heights
+
+
+def sea_level_z(elevation: float) -> int:
+    """Where the sea sits on the map of a tile whose ground is *elevation*.
+
+    Not zero. The local heightmap measures everything against its own world
+    tile, so zero is this tile's own ground: flooding a coastal map to zero
+    drowns a mountain that happens to look out over the water. Measured with
+    that mistake in, ten coastal maps came out between 91% and 100% under
+    water, one of them a mountain at elevation 0.88.
+    """
+    from .worldgen import SEA_LEVEL
+
+    return int(round((SEA_LEVEL - elevation) * ELEVATION_SCALE))
+
+
+def _borders_water(world, wx: int, wy: int) -> bool:
+    """Whether the sea or a lake is on the next world tile over.
+
+    The coast is a line on the world map and a place on the local one: stand
+    on the last land tile and the water is in front of you.
+    """
+    for nx, ny in world.neighbours(wx, wy):
+        t = world.tile(nx, ny)
+        if t.is_ocean or t.is_lake:
+            return True
+    return False
 
 
 def _fill_columns(lm: LocalMap, world, rng: RNG) -> None:
@@ -492,9 +543,30 @@ def _fill_columns(lm: LocalMap, world, rng: RNG) -> None:
     if b.has("FROZEN") and here.temperature < 10:
         surface_tile = "snow"
 
+    # Water on the map, and where it comes from. A tile that *is* ocean or
+    # lake is obvious; a tile that merely borders one was bone dry, which put
+    # five hundred and six beaches on this world with no sea on them. The
+    # heightmap already samples its neighbours' elevation, so the ground on a
+    # coastal map slopes down towards the water and then stopped: everything
+    # below sea level was dry sand. Measured over forty wilderness maps, not
+    # one had a single cell of water on it, and the driver that plays the
+    # adventure spent thirteen hundred turns thirsty with "no water on this
+    # map" and died of it.
     water_level = None
     if here.is_ocean or here.is_lake:
         water_level = max(lm.zmin + 1, min(lm.zmax - 1, 0))
+    elif _borders_water(world, lm.wx, lm.wy):
+        # Below the floor of the terrain it simply never touches anything,
+        # which is what a cliff top over the sea should be.
+        water_level = min(lm.zmax - 1, sea_level_z(here.elevation))
+        # And a land tile keeps its land. The corners of a low coastal map
+        # average in the ocean next door, so the whole of it can end up under
+        # sea level -- measured, a beach at elevation 0.43 came out 100% water
+        # and there was nowhere on it to stand. The world map calls this tile
+        # land; the sea comes up to the shore and the shore is on the map.
+        dry = sorted(lm.surface)
+        keep = dry[int(len(dry) * (1.0 - SHORE_DRY))] - 1
+        water_level = min(water_level, keep)
 
     for y in range(lm.height):
         for x in range(lm.width):
@@ -580,6 +652,54 @@ def _carve_river(lm: LocalMap, world, rng: RNG) -> None:
             lm.surface[y * lm.width + x] = sz - depth + 1
             if lm.in_bounds(x, y, sz + 1):
                 lm.set_tile(x, y, sz + 1, "air")
+
+
+def _dig_pond(lm: LocalMap, world, rng: RNG) -> None:
+    """Sink a pool into the low ground of a map wet enough to hold one.
+
+    Dug rather than flooded to a level, because the two give completely
+    different maps: filling every column below some height puts a lake across
+    a whole plateau and nothing at all on the map next door. Measured over
+    fourteen wet maps, the lowest height covered anything from four columns to
+    all three thousand of them. A pool is a hole with water in it, so this
+    digs the hole.
+    """
+    here = world.tile(lm.wx, lm.wy)
+    if here.river or here.is_ocean or here.is_lake:
+        return
+    if here.rainfall < POND_RAIN or lm.site_id is not None:
+        return
+    # The lowest of a handful of tries, so it sits in a dip rather than on a
+    # hilltop -- without searching the whole map for the one lowest cell,
+    # which is as likely to be a corner as a hollow.
+    cx, cy, cz = 0, 0, 1 << 30
+    for _ in range(24):
+        x = rng.randint(8, max(9, lm.width - 9))
+        y = rng.randint(8, max(9, lm.height - 9))
+        z = lm.surface_z(x, y)
+        if z < cz:
+            cx, cy, cz = x, y, z
+    radius = rng.randint(*POND_RADIUS)
+    for dy in range(-radius, radius + 1):
+        for dx in range(-radius, radius + 1):
+            far = (dx * dx + dy * dy) ** 0.5
+            if far > radius:
+                continue
+            x, y = cx + dx, cy + dy
+            if not (1 <= x < lm.width - 1 and 1 <= y < lm.height - 1):
+                continue
+            deep = 2 if far < radius - 1.5 else 1
+            bed = cz - deep
+            if bed <= lm.zmin:
+                continue
+            for z in range(bed, cz + 1):
+                depth = cz - z
+                lm.set_tile(x, y, z,
+                            "deep_water" if depth > 1 else
+                            ("water" if depth > 0 else "shallow_water"))
+            if lm.in_bounds(x, y, cz + 1):
+                lm.set_tile(x, y, cz + 1, "air")
+            lm.surface[y * lm.width + x] = cz
 
 
 def _carve_caves(lm: LocalMap, rng: RNG) -> None:
@@ -876,6 +996,7 @@ def generate_local(
     )
     _fill_columns(lm, world, rng)
     _carve_river(lm, world, rng)
+    _dig_pond(lm, world, rng)
     if not (here.is_ocean or here.is_lake):
         _carve_caves(lm, rng)
         _add_ore(lm, rng)
