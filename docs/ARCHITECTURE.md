@@ -7993,7 +7993,130 @@ through a driver that spent a quarter of its life facing a wall.
   Audited: the game writes 28 distinct tile ids and every one of them exists,
   so there is nothing to fix today.
 
-## 135. Style
+## 135. The wound that stopped hurting (v3.75)
+
+Four milestones had gone at the adventurer's death rate from outside. This one
+asked the RPG question instead: does an adventurer who lives ever get any
+better at it? Twenty duels against a goblin at each rung of the sword ladder:
+
+| sword skill | won of 20 | rounds | blood you lose |
+| ---: | ---: | ---: | ---: |
+| 0 (Dabbling) | 14 | 33.0 | 0.92 l |
+| 6 (Talented) | 19 | 31.1 | 0.85 l |
+| 15 (Legendary) | 20 | 28.5 | 0.27 l |
+
+Skill works. It decides whether you win and it decides what winning costs —
+three and a half times the blood between the ends of the ladder. What it
+barely touches is how long the fight takes, and following that led somewhere
+else entirely.
+
+### 135.1. Eleven swings after it is over
+
+A legendary swordsman saturates a goblin's bleeding ceiling in 2.0 rounds and
+a man who has never held a sword takes 8.9 — the skill system doing exactly
+what it should. Then both of them stand there for another twenty-four rounds
+while the goblin bleeds out, and it fights back the whole way:
+
+```
+round   foe blood  foe pain  foe speed  wounds  blows landed on you
+  1       1.00       0.070      92         1            1
+ 10       0.91       0.320      83         6            4
+ 20       0.75       0.500      76        12           11
+ 30       0.54       0.430      78        16           21
+ 35       0.51       0.380      80        16           26
+```
+
+Read the pain column. It peaks at 0.50 on round twenty and **recedes** to 0.38
+by round thirty-five, while the wounds go from twelve to sixteen and the blood
+from three quarters to a half. And `effective_speed` reads pain (§133), so the
+goblin gets *faster* as it is cut apart: 76 back up to 80.
+
+### 135.2. A rate per call is not a rate
+
+```python
+w.pain = max(0, w.pain - max(1, int(ticks * 0.02)))
+```
+
+At one tick, `int(1 * 0.02)` is zero, the floor of one fires, and the wound
+sheds **fifty times** the pain the number names. The same wound, the same
+hundred ticks of game time, four wounds of twenty-five pain each:
+
+| how the hundred ticks arrived | wound pain left |
+| --- | ---: |
+| one tick at a time | **0** of 100 |
+| ten at a time | 60 |
+| fifty at a time | 92 |
+| all at once | 92 |
+
+Adventure mode hands out about one tick a turn — a turn is 1.1 ticks — and the
+fortress steps ten. The same wound on the same body stopped hurting an
+adventurer almost at once and went on hurting a dwarf.
+
+§129 found this exact shape in clotting and said so at the time:
+
+> It was a coin flip per call to `Body.tick` — `rng.chance(0.0018 * ticks)` —
+> and the same wound over the same four thousand ticks of game time came out
+> at 13.2 points still open if time arrived one tick at a time and 19.1 if it
+> arrived in one lump.
+
+It banked the time and fixed clotting. Pain is the other half of the same
+loop, four lines further down, and was not swept. `_pain_ticks` banks it the
+same way, and `PAIN_FADE` is the rate written where it can be read.
+
+After, all four deliveries agree at 92 of 100, and the fight reads the way a
+fight should:
+
+| round | pain before | pain after | speed before | speed after |
+| ---: | ---: | ---: | ---: | ---: |
+| 10 | 0.32 | 0.40 | 83 | 80 |
+| 20 | 0.50 | 0.61 | 76 | 72 |
+| 30 | 0.43 | **0.69** | 78 | **69** |
+| end | 0.41 | **0.76** | — | — |
+
+Pain rises the whole way now and speed falls and stays down. A creature is
+worse off at the end of a fight than in the middle, which is what being
+wounded is supposed to mean.
+
+### 135.3. What it did not move
+
+The anchor §126 set — an ordinary fight has to cost what it cost — is
+untouched, at every rung of the ladder:
+
+```
+skill   rounds to death   before / after
+0            31.4  /  31.4
+6            29.6  /  29.6
+15           27.6  /  27.6
+20           26.3  /  26.3
+```
+
+The duel harness hands both sides one blow a round whatever their speed, which
+is why the length does not move there; in the real game the scheduler reads
+`effective_speed` and a wounded thing acts less often. Over twenty-four
+adventurer lifetimes that came out as noise — 21 dead of 24 against 22, mean
+life 205 turns against 196 — with more of the time going on `patched itself
+up` (276 → 509) and `could not set out` (188 → 420), which is what being hurt
+for longer looks like. Three fortress seeds ran seven days with seven alive.
+
+Like §134 this is a correctness fix rather than a balance change, and the
+number it moved is not the one a balance change would move.
+
+### 135.4. Measured and left
+
+- **Nothing gives up.** A goblin at half its blood with sixteen open wounds
+  lands blows at the same rate as a fresh one; what changed here is the pain
+  and the speed, not the will. Morale exists and `_nerve_of` reads it for the
+  look panel, but no creature has ever surrendered or been beaten into
+  submission.
+- **`PAIN_BODY_FADE`** lets the body's own shock settle faster than the wounds
+  under it, floored at their sum. The number is asserted only through that
+  floor; how fast shock *should* pass is its own question.
+- **Blood loss still does nothing but kill you.** §133 established it does not
+  slow you; it does not sicken, weaken or blur you either. A creature at a
+  third of its blood fights exactly as well as one at full until the moment it
+  falls over.
+
+## 136. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

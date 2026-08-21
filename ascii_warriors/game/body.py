@@ -113,6 +113,20 @@ CLOT_TICKS = 15.0
 #: minutes from whole to dead.
 BLEED_CAP = 0.03
 
+#: Points of pain one wound sheds per tick of game time.
+#:
+#: The number the old rule named -- two percent of a tick -- and now the
+#: number it charges. A twenty-five point wound aches for a little over
+#: twenty minutes of game time and is gone in a bit under an hour, which is
+#: long enough that a fight is worse at the end of it than in the middle.
+PAIN_FADE = 0.02
+
+#: How much faster the body's own pain settles than the wounds under it.
+#: Shock passes; the cut does not. `Body.pain` is floored at the sum of the
+#: wound pain either way, so this only governs how quickly it comes back down
+#: to that floor after a bad moment.
+PAIN_BODY_FADE = 2.5
+
 #: Every wound the game can actually give you. `edge` and `blunt` are the only
 #: two kinds the tissue model knows, so the first three come out of the physics
 #: and the last two are named by whatever did the hurting. This used to list a
@@ -310,6 +324,9 @@ class Body:
         self._rest_ticks = 0.0
         #: The same, banked while upright. Time, not a coin flip per call.
         self._clot_ticks = 0.0
+        #: Ticks banked toward the next point of pain wearing off, for the
+        #: same reason: a floor of one per call is a rate per call.
+        self._pain_ticks = 0.0
 
     # -- queries ----------------------------------------------------------- #
 
@@ -739,18 +756,33 @@ class Body:
         closed = int(self._clot_ticks // CLOT_TICKS)
         if closed:
             self._clot_ticks -= closed * CLOT_TICKS
+        # Pain wears off at PAIN_FADE a tick, banked for the same reason
+        # clotting is. `max(1, int(ticks * 0.02))` was the old rule and it is
+        # a rate per *call*: at one tick `int(0.02)` is zero, the floor of one
+        # fires, and a wound sheds fifty times the pain it should. Adventure
+        # mode hands out about one tick a turn and the fortress steps ten, so
+        # the same wound on the same body stopped hurting an adventurer almost
+        # at once and went on hurting a dwarf. Measured over a hundred ticks
+        # of game time, four wounds of twenty-five pain each: one tick at a
+        # time left 0 of the 100, ten at a time left 60, all at once left 92.
+        self._pain_ticks += ticks
+        worn = int(self._pain_ticks * PAIN_FADE)
+        if worn:
+            self._pain_ticks -= worn / PAIN_FADE
         for p in self.parts.values():
             for w in list(p.wounds):
                 w.age += ticks
                 if closed and w.bleeding > 0:
                     w.bleeding = max(0, w.bleeding - closed)
-                if w.pain > 0:
-                    w.pain = max(0, w.pain - max(1, int(ticks * 0.02)))
+                if worn and w.pain > 0:
+                    w.pain = max(0, w.pain - worn)
 
-        # Pain fades toward the sum of current wound pain.
+        # Pain fades toward the sum of current wound pain. It cannot fade past
+        # it: an open wound goes on hurting for as long as it is open, which
+        # is what makes a long fight cost something.
         target = sum(w.pain for p in self.parts.values() for w in p.wounds)
-        if self.pain > target:
-            self.pain = max(target, self.pain - max(1, int(ticks * 0.05)))
+        if self.pain > target and worn:
+            self.pain = max(target, self.pain - worn * PAIN_BODY_FADE)
 
         if self.stunned > 0:
             self.stunned = max(0, self.stunned - ticks)

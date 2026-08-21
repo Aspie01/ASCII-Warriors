@@ -1392,3 +1392,135 @@ class TestWhoIsFighting(unittest.TestCase):
         beast = make_creature(rng, "wolf", faction="wild")
         self.assertEqual(beast.pronoun(), "it")
 
+
+
+class TestTheWoundThatStoppedHurting(unittest.TestCase):
+    """Pain that drained faster than the clock ran.
+
+    `Body.tick` shed wound pain at `max(1, int(ticks * 0.02))`. That is a rate
+    per *call*, not per unit of game time: at one tick `int(0.02)` is zero, the
+    floor of one fires, and the wound sheds fifty times the pain the number
+    names. Adventure mode hands out about one tick a turn and the fortress
+    steps ten, so the same wound on the same body stopped hurting an adventurer
+    almost at once and went on hurting a dwarf.
+
+    §129 found this exact shape in clotting -- "the same wound over the same
+    four thousand ticks came out at 13.2 points still open if time arrived one
+    tick at a time and 19.1 if it arrived in one lump" -- and banked the time
+    to fix it. Pain was the other half of the same loop and was not swept.
+    """
+
+    TOTAL = 100
+    PAIN = 25
+    WOUNDS = 4
+
+    def _hurt(self, seed="pain"):
+        c = make_creature(RNG(seed), "human")
+        part = c.body.parts["left_leg_upper"]
+        for _ in range(self.WOUNDS):
+            part.wounds.append(body_mod.Wound(
+                part="left_leg_upper", tissue="muscle", severity=9,
+                kind="cut", bleeding=0, pain=self.PAIN))
+        c.body.pain = self.PAIN * self.WOUNDS
+        return c
+
+    def _run(self, creature, total, step):
+        rng = RNG("t")
+        left = total
+        while left > 0:
+            n = min(step, left)
+            creature.body.tick(rng, n, 1.0, 1.0)
+            left -= n
+        return sum(w.pain for p in creature.body.parts.values()
+                   for w in p.wounds)
+
+    def test_the_same_time_wears_off_the_same_pain(self):
+        """However the hundred ticks arrive."""
+        got = {}
+        for step in (1, 10, 50, 100):
+            got[step] = self._run(self._hurt(), self.TOTAL, step)
+        self.assertEqual(len(set(got.values())), 1,
+                         "the clock still depends on how it is read: %s" % got)
+
+    def test_a_tick_at_a_time_does_not_erase_it(self):
+        """The way adventure mode actually delivers time.
+
+        One tick at a time used to take a hundred points of wound pain to
+        nothing over a hundred ticks. It should take off two.
+        """
+        left = self._run(self._hurt(), self.TOTAL, 1)
+        self.assertGreater(left, 0, "a hundred ticks erased every wound's pain")
+        self.assertEqual(left, self.PAIN * self.WOUNDS
+                         - int(self.TOTAL * body_mod.PAIN_FADE) * self.WOUNDS)
+
+    def test_the_rate_it_names_is_the_rate_it_charges(self):
+        for total in (50, 100, 500):
+            left = self._run(self._hurt(), total, 1)
+            worn = (self.PAIN * self.WOUNDS - left) / float(self.WOUNDS)
+            self.assertAlmostEqual(worn, total * body_mod.PAIN_FADE, delta=1.0,
+                                   msg="%d ticks wore off %g" % (total, worn))
+
+    def test_an_open_wound_goes_on_hurting(self):
+        """`Body.pain` cannot settle below the wounds still open.
+
+        One wound, not four, and long enough for the bank to pay out. The
+        body's own shock settles `PAIN_BODY_FADE` times faster than the cut
+        under it, so with several wounds the floor falls faster than the
+        shock does and nothing can be told apart; with one, the shock would
+        sink straight through the floor if it were not held.
+        """
+        c = make_creature(RNG("onewound"), "human")
+        part = c.body.parts["left_leg_upper"]
+        part.wounds.append(body_mod.Wound(
+            part="left_leg_upper", tissue="muscle", severity=9, kind="cut",
+            bleeding=0, pain=self.PAIN))
+        c.body.pain = self.PAIN
+        self._run(c, 600, 1)
+        floor = sum(w.pain for p in c.body.parts.values() for w in p.wounds)
+        self.assertGreater(floor, 0, "the wound closed; nothing to hold up to")
+        self.assertGreaterEqual(c.body.pain, floor,
+                                "shock settled below an open wound")
+
+    def test_a_fight_is_worse_at_the_end_than_in_the_middle(self):
+        """The point of the whole thing.
+
+        Traced before the fix: the goblin's pain peaked at 0.50 on round
+        twenty and receded to 0.41 by round thirty-five while its wounds went
+        from twelve to sixteen and its blood from 75% to 48% -- and because
+        `effective_speed` reads pain, it got *faster* as it was cut apart.
+        """
+        rng = RNG("worse")
+        a = make_creature(rng, "human", faction="player", level=1)
+        for it in starting_kit(rng, "human", "warrior"):
+            a.inventory.add(it)
+        a.inventory.auto_equip()
+        b = make_creature(rng, "goblin", faction="hostile", level=1)
+        middle = end = None
+        for n in range(1, 60):
+            combat.melee_attack(a, b, rng=rng)
+            if b.body.dead:
+                break
+            combat.melee_attack(b, a, rng=rng)
+            b.body.tick(rng, 1, 1.0, 1.0)
+            a.body.tick(rng, 1, 1.0, 1.0)
+            if n == 15:
+                middle = (b.body.pain_level(), b.effective_speed())
+            end = (b.body.pain_level(), b.effective_speed())
+        self.assertIsNotNone(middle, "the fight was over before it started")
+        self.assertGreaterEqual(end[0], middle[0],
+                                "it hurt less at the end: %s -> %s"
+                                % (middle, end))
+        self.assertLessEqual(end[1], middle[1],
+                             "it sped up as it was cut apart: %s -> %s"
+                             % (middle, end))
+
+    def test_the_bank_is_not_saved_and_does_not_need_to_be(self):
+        """The same call as `_clot_ticks`, which is not saved either."""
+        c = self._hurt()
+        c.body.tick(RNG("s"), 3, 1.0, 1.0)
+        self.assertNotIn("pain_ticks", c.body.to_dict())
+        again = body_mod.Body.from_dict(json.loads(json.dumps(c.body.to_dict())))
+        self.assertEqual(again.pain, c.body.pain)
+        self.assertEqual(
+            sum(w.pain for p in again.parts.values() for w in p.wounds),
+            sum(w.pain for p in c.body.parts.values() for w in p.wounds))
