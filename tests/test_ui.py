@@ -700,3 +700,257 @@ class TestTheManualIsAPromise(unittest.TestCase):
 
         self.assertEqual(traps.ALARM_RANGE, 40)
         self._says("within forty tiles")
+
+
+class TestTheManualOnWeapons(unittest.TestCase):
+    """The second pass over the manual's numbers, on the combat page.
+
+    §137 pinned thirteen claims and left "fifty-odd numeric sentences still
+    unpinned -- the ones about combat timing, temperature, skill ladders and
+    world generation." Ten more were put to the code here. Seven were already
+    true; three were not, and all three were about weapons:
+
+    * "A dagger swings half again as often as an axe" -- it swings *twice* as
+      often. Half again is the ratio against a sword.
+    * `AttackResult.cost`: "A maul is worth nearly two sword-blows of somebody
+      else's time" -- it is worth one and a third.
+    * "Against plate the five best weapons in the game are all blunt" -- the
+      best of them is an edge-only halberd, and a great axe gets literally
+      nothing through a breastplate.
+    """
+
+    def _fighter(self, skill=0):
+        """A stated fighter. Cost depends on skill, so it has to be said."""
+        from ascii_warriors.game.entity import make_creature
+
+        f = make_creature(RNG("mw"), "human", faction="player")
+        for sid in ("fighter", "sword", "axe", "mace", "hammer", "spear",
+                    "dagger", "whip", "pike", "misc_weapon"):
+            f.skills.set_level(sid, skill)
+        return f
+
+    def _cost(self, fighter, weapon, attack):
+        """The cost of one named attack, not of a coin toss between them."""
+        from ascii_warriors.game import combat
+
+        return combat.attack_cost(fighter, weapon, attack)
+
+    def _text(self):
+        from ascii_warriors.ui import help_screen
+
+        return " ".join(
+            " ".join(getattr(help_screen, name).split())
+            for name in ("FORTRESS_TEXT", "COMBAT_TEXT", "WORLD_TEXT",
+                         "SURVIVAL_TEXT"))
+
+    # -- how often a weapon swings ------------------------------------------ #
+
+    def test_the_attack_sets_the_speed_not_the_weapon(self):
+        """The rule four separate comments got wrong.
+
+        `swing_time` is `prepare + recover` on the *attack*, against a
+        `BASELINE_SWING` of 6. Untrained that is 66 for a stab or a lash, 100
+        for a slash, 133 for a hack or a bash -- and a dagger and a sword
+        carry the same two attacks at the same two prices.
+        """
+        from ascii_warriors.data import items as idata
+        from ascii_warriors.game.item import make_item
+
+        f = self._fighter(skill=0)
+        by_attack = {}
+        for wid, defn in sorted(idata.ITEMS.items()):
+            if getattr(defn, "category", "") != "weapon":
+                continue
+            w = make_item(RNG("i"), wid, material="iron")
+            if w.is_ranged:
+                continue
+            for a in w.attacks():
+                by_attack.setdefault(a.name, set()).add(self._cost(f, w, a))
+        for name, costs in by_attack.items():
+            self.assertEqual(len(costs), 1,
+                             "%s costs different amounts on different "
+                             "weapons: %s" % (name, sorted(costs)))
+        flat = {k: v.pop() for k, v in by_attack.items()}
+        self.assertEqual(flat.get("stab"), 66, flat)
+        self.assertEqual(flat.get("slash"), 100, flat)
+        self.assertEqual(flat.get("hack"), 133, flat)
+        self.assertEqual(flat.get("bash"), 133, flat)
+        self._says("A stab or a lash takes two thirds of a standard action")
+
+    def test_a_dagger_is_no_quicker_than_a_sword(self):
+        """The belief that was in three comments and the manual."""
+        from ascii_warriors.game.item import make_item
+
+        f = self._fighter(skill=0)
+        dagger = make_item(RNG("i"), "dagger", material="iron")
+        sword = make_item(RNG("i"), "sword", material="iron")
+        self.assertEqual(
+            {a.name: self._cost(f, dagger, a) for a in dagger.attacks()},
+            {a.name: self._cost(f, sword, a) for a in sword.attacks()},
+            "a dagger and a sword no longer cost the same")
+        self._says("A dagger is therefore no quicker than a sword")
+
+    def test_weight_never_charges_a_human_and_does_charge_a_kobold(self):
+        """The comments all reached for weight; weight is not what does it.
+
+        `heft` is the weapon against `carry_capacity() * EASY_SWING`, and a
+        strength-1008 human swings every melee weapon in the table freely --
+        so `HEFT_PENALTY` never fires for the player at all. It is not dead:
+        a kobold is charged for the same weapons. Pinned because §138 says so
+        and because the first re-break of `HEFT_PENALTY` could not fail.
+        """
+        from ascii_warriors.data import items as idata
+        from ascii_warriors.game import combat
+        from ascii_warriors.game.entity import make_creature
+        from ascii_warriors.game.item import make_item
+
+        human = make_creature(RNG("mw"), "human", faction="player")
+        kobold = make_creature(RNG("mk"), "kobold", faction="hostile")
+        charged_human, charged_kobold = [], []
+        for wid, defn in sorted(idata.ITEMS.items()):
+            if getattr(defn, "category", "") != "weapon":
+                continue
+            w = make_item(RNG("i"), wid, material="iron")
+            if w.is_ranged:
+                continue
+            if combat.heft(human, w) > 1.0:
+                charged_human.append(wid)
+            if combat.heft(kobold, w) > 1.0:
+                charged_kobold.append(wid)
+        self.assertEqual(charged_human, [],
+                         "a human is now charged for %s" % charged_human)
+        self.assertTrue(charged_kobold,
+                        "nothing charges a kobold either; the rule is dead")
+
+    def test_the_old_wrong_belief_is_gone_from_the_code(self):
+        """It was written down three times in two files."""
+        import inspect
+
+        from ascii_warriors.game import combat
+
+        src = inspect.getsource(combat)
+        self.assertNotIn("a dagger swings half again as often as a sword", src)
+        self.assertNotIn("A dagger is most of two blows to a sword's one", src)
+        self.assertNotIn("nearly two sword-blows of somebody", src)
+
+    def test_a_maul_against_both_of_a_sword_s_attacks(self):
+        """"Nearly two sword-blows" was true of one attack and not the other.
+
+        A maul bashes for 133. A sword slashes for 100 and stabs for 66, so
+        the maul is a third again of the one and twice the other -- which is
+        why the flat comparison had to go.
+        """
+        from ascii_warriors.game.item import make_item
+
+        f = self._fighter(skill=0)
+        maul = make_item(RNG("i"), "maul", material="iron")
+        sword = make_item(RNG("i"), "sword", material="iron")
+        bash = self._cost(f, maul, maul.attacks()[0])
+        by_name = {a.name: self._cost(f, sword, a) for a in sword.attacks()}
+        self.assertAlmostEqual(bash / float(by_name["slash"]), 1.33, delta=0.05)
+        self.assertAlmostEqual(bash / float(by_name["stab"]), 2.0, delta=0.06)
+        # This one lives in the code rather than the manual: it is the comment
+        # on `AttackResult.cost` that used to say "nearly two sword-blows".
+        import inspect
+
+        from ascii_warriors.game import combat
+
+        self.assertIn("a third again of a slash and twice a stab",
+                      inspect.getsource(combat))
+
+    # -- what gets through plate -------------------------------------------- #
+
+    def test_what_actually_gets_through_a_breastplate(self):
+        """Aimed at the armoured part, which is the whole of the claim.
+
+        Counting every wound on a creature wearing four pieces gave the great
+        axe first place -- because it was taking legs off, not defeating the
+        plate. Aim at the upper body and the great axe scores zero.
+        """
+        from ascii_warriors.game import combat
+        from ascii_warriors.game.item import make_item
+        from ascii_warriors.game.entity import make_creature
+
+        f = self._fighter()
+
+        def through(wid, n=260):
+            w = make_item(RNG("i"), wid, material="iron")
+            total = 0.0
+            for i in range(n):
+                rng = RNG("t%s%d" % (wid, i))
+                d = make_creature(rng, "human", faction="hostile")
+                plate = make_item(rng, "breastplate", material="iron")
+                d.inventory.add(plate)
+                d.inventory.equip(plate)
+                combat.melee_attack(f, d, weapon=w, rng=rng,
+                                    target_part="upper_body")
+                total += sum(wd.severity for p in d.body.parts.values()
+                             for wd in p.wounds if p.id == "upper_body")
+            return total / n
+
+        axe = through("great_axe")
+        self.assertEqual(axe, 0.0,
+                         "a breastplate no longer stops a great axe: %.3f" % axe)
+        halberd = through("halberd")
+        sword = through("sword")
+        self.assertGreater(halberd, sword,
+                           "a point no longer beats an edge through plate")
+        self.assertGreater(halberd, axe)
+        self._says("A great axe scores exactly nothing")
+        self._says("the halberd, the morningstar, the warhammer, the maul and "
+                   "the spear")
+
+    def test_the_halberd_is_edge_only(self):
+        """Which is why "all blunt" was wrong rather than merely imprecise."""
+        from ascii_warriors.game.item import make_item
+
+        w = make_item(RNG("i"), "halberd", material="iron")
+        self.assertEqual(sorted({a.kind for a in w.attacks()}), ["edge"])
+
+    # -- the ones that were already true ------------------------------------ #
+
+    def test_a_mace_is_two_bars_and_a_great_axe_is_five(self):
+        from ascii_warriors.fortress import production
+
+        rec = production.RECIPES
+        self.assertIn(("BAR", 2), rec["iron_mace"].inputs)
+        self.assertIn(("BAR", 5), rec["iron_greataxe"].inputs)
+        self._says("a mace is two bars, a great axe is five")
+
+    def test_you_start_with_three_bandages(self):
+        from ascii_warriors.game.item import starting_kit
+
+        kit = starting_kit(RNG("kit"), "human", "warrior")
+        n = sum(getattr(i, "count", 1) for i in kit if i.def_id == "bandage")
+        self.assertEqual(n, 3)
+        self._says("You start with three bandages")
+
+    def test_fifty_of_the_eighty_one_are_quicker_than_a_man(self):
+        """Written into the manual by §133; still true."""
+        from ascii_warriors.data import creatures as cd
+
+        self.assertEqual(len(cd.CREATURES), 81)
+        self.assertEqual(sum(1 for d in cd.CREATURES.values() if d.speed > 100),
+                         50)
+        self._says("Fifty of the eighty-one kinds of creature in the world are "
+                   "quicker than a man on foot")
+
+    def test_a_conviction_is_four_days_per_point_of_severity(self):
+        from ascii_warriors.data.calendar import TICKS_PER_DAY
+        from ascii_warriors.fortress import justice
+
+        self.assertEqual(justice.JAIL_TICKS, TICKS_PER_DAY * 4)
+        self.assertEqual(justice.CRIMES["murder"][1], 4)
+        self._says("four days off the roster per point of severity")
+
+    def test_treating_a_bite_halves_what_is_left(self):
+        import inspect
+
+        from ascii_warriors.game import venom
+
+        self.assertIn("0.5 if dose.treated", inspect.getsource(venom))
+        self._says("halve what is left of it")
+
+    def _says(self, phrase):
+        self.assertIn(phrase, self._text(),
+                      "the manual no longer says %r" % phrase)

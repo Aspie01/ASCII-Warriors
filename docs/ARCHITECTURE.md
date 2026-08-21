@@ -8335,7 +8335,112 @@ only ever sees the second one.
   simply relentless, which is what being undead is for. 129 of 1107 creatures
   across eight lifetimes.
 
-## 138. Style
+## 138. What decides how fast you swing (v3.78)
+
+§137 pinned thirteen of the manual's numbers and left "fifty-odd numeric
+sentences still unpinned — the ones about combat timing, temperature, skill
+ladders and world generation." Ten more went to the code here. Seven were
+already true. The three that were not were all about weapons, and all three
+turned out to be the same wrong belief written down four times.
+
+### 138.1. The belief
+
+> a dagger swings half again as often as a sword — `FASTEST`/`SLOWEST`
+>
+> A dagger is most of two blows to a sword's one — `attack_cost`
+>
+> A maul is worth nearly two sword-blows of somebody else's time —
+> `AttackResult.cost`
+>
+> A dagger swings half again as often as an axe — the manual
+
+None of it is true, and the table says so. `swing_time` is `prepare +
+recover` **on the attack**, against a `BASELINE_SWING` of 6, and every weapon
+in the game draws from the same five attacks:
+
+| attack | untrained cost |
+| --- | ---: |
+| stab, lash | 66 |
+| slash | 100 |
+| hack, bash | 133 |
+
+A dagger and a sword both slash and both stab, at exactly the same two
+prices. **A dagger is not faster than a sword at all.** An axe is slow because
+every attack it owns is a hack or a bash, and a great axe has only the hack.
+What a lighter weapon buys is the *option*: a spear, a halberd, a morningstar
+and a pick each carry a stab beside their heavy attack and can choose; a maul
+cannot.
+
+`heft` charges for weight only past what the wielder can comfortably swing,
+and a strength-1008 human is past it with none of these — so the "costs run
+with weight" story, which is what the four comments were all reaching for,
+does not apply to a man holding anything in the item table.
+
+### 138.2. Three measurements it took to get there
+
+Worth recording, because two of the three were wrong and the third only
+looked right:
+
+1. **Comparing weapons by one attack each.** `choose_attack(f, w, RNG("a"),
+   f)` is a coin toss between a weapon's attacks. Comparing a dagger's draw
+   against an axe's draw gave 66 against 133 and "a dagger swings twice as
+   often as an axe" — which is true of *those two attacks* and says nothing
+   about the weapons.
+2. **Forgetting that cost depends on the fighter.** The tiers are 66/100/133
+   untrained, 59/89/118 at skill five and 55/73/98 at legendary. The first
+   version of this milestone's own test asserted 66/100/133 flat and failed
+   on a fighter with skill — which is how the dependency was noticed at all.
+3. **Only then**: cost per *named attack*, for a stated fighter, across every
+   melee weapon in the table. Every attack costs the same on every weapon
+   that has it, and that is the whole rule.
+
+### 138.3. "Against plate the five best weapons are all blunt"
+
+Also wrong, and it took three attempts to establish honestly.
+
+The first measurement armoured four body parts and counted wounds anywhere,
+which put the great axe first — because it was taking legs off, not defeating
+the breastplate. Aiming at the armoured part instead:
+
+```
+1500 blows each, aimed at an upper body in an iron breastplate
+   halberd            edge          0.471
+   morningstar        blunt/edge    0.399
+   warhammer          blunt         0.338
+   maul               blunt         0.310
+   spear              blunt/edge    0.287
+   ...
+   sword              edge          0.074
+   great_axe          edge          0.000
+```
+
+The best anti-plate weapon in the game is an **edge-only halberd**, and a
+great axe gets *nothing* through — which is exactly what `_armour_absorb`'s
+docstring says should happen: "A great axe hands a breastplate the whole
+length of its edge and the plate takes almost all of it; a spear point hands
+it a few square millimetres and goes through."
+
+So the model is right and richer than the sentence: impact always transmits
+something through plate (`blunt_cap`), and a *point* concentrates on an area
+too small to spread. Hammers and spikes get through; cutting edges do not.
+The sentence immediately before it in the manual — "bring an edge to an
+unarmoured man, a point to one in mail, and a hammer to the one in plate" —
+was right all along, and the next sentence overreached past it.
+
+### 138.4. Measured and left
+
+- **Forty-odd numeric sentences are still unpinned.** Two passes have taken
+  twenty-three of them and found six wrong, which is a rate worth continuing.
+- **`heft` never fires for a human.** Every melee weapon in the table is
+  inside a strength-1008 human's comfortable swing, so `HEFT_PENALTY` only
+  ever charges a kobold or a child. The constant is doing something; it is
+  not doing it to the player.
+- **`pick` is the only weapon whose cost does not fall with skill**, because
+  it is not covered by any weapon skill the test raised. Whether a miner
+  should get better at swinging a pick at people is a question about the
+  skill table.
+
+## 139. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

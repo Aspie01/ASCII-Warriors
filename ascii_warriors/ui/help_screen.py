@@ -461,9 +461,17 @@ hands, and warns you when it is too heavy for you. Time you spend winding up
 is time everything else gets to move, so a great axe means taking more hits
 between your own.
 
-None of which makes a light weapon better. A dagger swings half again as often
-as an axe and still cannot get through a breastplate: a blow has to be hard
-enough to matter before speed matters at all.
+None of which makes a light weapon better -- and speed is not really the
+weapon's at all, it is the attack's. A stab or a lash takes two thirds of a
+standard action, a slash takes one, and a hack or a bash takes a third again.
+A dagger is therefore no quicker than a sword: both of them slash and both of
+them stab, at exactly the same cost. An axe is slow because every attack it
+owns is a hack or a bash, and a great axe has only the hack.
+
+What a lighter weapon buys is the option rather than the speed. A spear, a
+halberd, a morningstar and a pick all carry a stab beside their heavy attack
+and can choose; a maul cannot. Skill takes a little off all of it, and weight
+adds to it only once the weapon is past what you can comfortably swing.
 
 COLD AND HEAT
 
@@ -857,8 +865,12 @@ fifth, and boiled leather does not spread a blunt blow at all -- but no
 thickness of steel makes that share nothing.
 
 So: bring an edge to an unarmoured man, a point to one in mail, and a hammer to
-the one in plate. Against plate the five best weapons in the game are all
-blunt, and a swordsman is reduced to hunting for the gaps.
+the one in plate. Measured over fifteen hundred blows each, aimed at an upper
+body in an iron breastplate, the five that get most through are the halberd,
+the morningstar, the warhammer, the maul and the spear -- hammers and points,
+in that order. A great axe scores exactly nothing: the plate takes the whole
+length of the edge and spreads it. A swordsman is reduced to hunting for the
+gaps.
 
 Armor User is the skill for this, and it is worth training. It takes weight off
 what you are wearing, so you dodge and march better in it, and it takes nearly

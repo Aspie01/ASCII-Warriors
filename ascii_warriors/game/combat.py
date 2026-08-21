@@ -52,7 +52,10 @@ class AttackResult:
     #: Set when the defender had not noticed the attacker.
     ambush: bool = False
     #: Energy the strike took, against `ACTION_COST` for a standard action.
-    #: A maul is worth nearly two sword-blows of somebody else's time.
+    #: Set by the attack rather than the weapon: untrained, a stab or a lash
+    #: costs 66, a slash 100, a hack or a bash 133. A maul's bash is a third
+    #: again of a slash and twice a stab -- not the flat "nearly two
+    #: sword-blows" this said until somebody divided them.
     cost: int = ACTION_COST
 
     def add(self, text: str, color=None) -> None:
@@ -197,9 +200,9 @@ SKILL_RELIEF = 0.022
 #: things: a bare fist is the fastest attack there is and sits on the floor,
 #: and a kobold that has picked up a maul sits on the ceiling. What stops the
 #: floor from making volume beat weight is not this number, it is armour --
-#: a dagger swings half again as often as a sword and still cannot get
-#: through a breastplate, because momentum has to clear the tissue's yield
-#: before it does anything at all.
+#: the fastest attack in the game still cannot get through a breastplate,
+#: because momentum has to clear the tissue's yield before it does anything at
+#: all.
 FASTEST = 0.55
 SLOWEST = 2.20
 
@@ -227,11 +230,15 @@ def heft(attacker, weapon: Optional[Item]) -> float:
 def attack_cost(attacker, weapon: Optional[Item], attack_def: AttackDef) -> int:
     """Energy one strike costs, against `ACTION_COST` for a standard action.
 
-    A dagger is most of two blows to a sword's one and a maul is most of two
-    sword-blows' worth of time, so a weapon is finally a trade rather than a
-    damage figure. Wounds are deliberately not in here: `effective_speed`
-    already charges for pain and a mangled arm, and charging twice for the
-    same injury is how a hurt creature stops being able to act at all.
+The cost is the *attack's*, not the weapon's: `swing_time` is a stab's or a
+    hack's own wind-up, and a dagger and a sword carry the same two attacks at
+    the same two prices. What separates a maul from a sword is that a maul has
+    nothing but its bash -- a third again of a slash and twice a stab -- so a
+    weapon is a trade in what it can choose rather than a damage figure.
+
+    Wounds are deliberately not in here: `effective_speed` already charges for
+    pain and a mangled arm, and charging twice for the same injury is how a
+    hurt creature stops being able to act at all.
     """
     factor = swing_time(attack_def) / float(BASELINE_SWING)
     factor *= 1.0 + HEFT_PENALTY * max(0.0, heft(attacker, weapon) - 1.0)
