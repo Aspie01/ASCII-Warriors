@@ -10378,3 +10378,192 @@ class TestTheOnlyThingThatCannotWalkDownhill(GameFixture):
         self.assertTrue(checked, "nowhere to step from here")
         self.assertEqual(refused, 0,
                          "%d of %d legal steps refused" % (refused, checked))
+
+
+class TestNothingEverGaveUp(GameFixture):
+    """A morale system whose break point was below its own floor.
+
+    §135 left this: nothing in the game has ever been beaten into giving up.
+    The machinery was all there and wired -- `pick_mode` asks
+    `combat.opportunity_to_flee`, which asks `morale.broke` -- and measured
+    over eight adventurer lifetimes, 1908 creature-turns of facing the player,
+    the only thing that ever broke off was the goblin snatcher, which is a
+    thief and was always going to run. A wolf got to 0.39 and a bandit to
+    0.42, against a `BREAK_AT` of 0.35.
+
+    Because nerve was `bravery * (0.35 + 0.65 * health)`, and that bottoms out
+    at `bravery * 0.35`. Anything with a bravery factor of 1.0 or better could
+    not break at any wound. The median goblin rolls 1.14, the median dwarf
+    0.97.
+    """
+
+    def setUp(self):
+        super().setUp()
+        from ascii_warriors.game import morale
+
+        self.morale = morale
+        for c in list(self.game.creatures.values()):
+            if not c.is_player:
+                self.game.creatures.pop(c.id, None)
+
+    def _beast(self, cid="wolf", seed="n", n=0):
+        from ascii_warriors.game.entity import make_creature
+
+        p = self.game.player
+        c = make_creature(RNG(seed), cid, faction="wild")
+        c.x, c.y, c.z = p.x + 1 + (n % 3), p.y + (n // 3), p.z
+        self.game.creatures[c.id] = c
+        return c
+
+    def _nerve_at(self, bravery, health, blood=1.0):
+        """`nerve` for a creature with these three numbers and nothing else.
+
+        A bandit rather than a wolf: a wolf carries PACK and a lone one is
+        docked `PACK_ALONE`, which is a different rule being measured. And the
+        probe takes its creature back out of the world afterwards -- left in,
+        the second call finds the first one standing next to it and counts it
+        as company.
+        """
+        from ascii_warriors.game.body import Body
+        from ascii_warriors.game.personality import Personality
+
+        c = self._beast(cid="bandit", seed="probe")
+        self.assertFalse(c.defn.has("PACK"))
+        brav, heal = Personality.bravery_factor, Body.health_fraction
+        Personality.bravery_factor = lambda self: bravery
+        Body.health_fraction = lambda self: health
+        try:
+            c.body.blood = c.body.max_blood * blood
+            return self.morale.nerve(c, self.game)
+        finally:
+            Personality.bravery_factor = brav
+            Body.health_fraction = heal
+            self.game.creatures.pop(c.id, None)
+
+    # -- the floor --------------------------------------------------------- #
+
+    def test_a_brave_creature_can_be_beaten_into_running(self):
+        """The whole defect, as arithmetic.
+
+        Stated here rather than through a fight because a fight cannot
+        distinguish "did not break" from "did not get hurt enough", and the
+        old rule could not break at *any* wound.
+        """
+        for bravery in (1.0, 1.14, 1.5, 1.7):
+            floor = self._nerve_at(bravery, 0.0)
+            self.assertLess(floor, self.morale.BREAK_AT,
+                            "bravery %.2f cannot break at death's door: "
+                            "nerve floors at %.3f" % (bravery, floor))
+
+    def test_the_ladder_runs_the_right_way(self):
+        """A coward gives up sooner than a brave one. Always did; still does."""
+        def breaks_below(bravery):
+            for h in range(100, -1, -1):
+                if self._nerve_at(bravery, h / 100.0) < self.morale.BREAK_AT:
+                    return h
+            return -1
+
+        rungs = [breaks_below(b) for b in (0.5, 0.85, 1.14, 1.5)]
+        self.assertTrue(all(a > b for a, b in zip(rungs, rungs[1:])), rungs)
+        self.assertTrue(all(r >= 0 for r in rungs), rungs)
+
+    def test_nobody_untouched_runs_away(self):
+        """The other half. A fresh creature sits at its bravery factor."""
+        for bravery in (0.5, 0.85, 1.14, 1.5):
+            fresh = self._nerve_at(bravery, 1.0, 1.0)
+            self.assertAlmostEqual(fresh, bravery, places=5)
+            self.assertGreater(fresh, self.morale.BREAK_AT)
+
+    # -- blood ------------------------------------------------------------- #
+
+    def test_being_emptied_out_takes_the_fight_out_of_you(self):
+        """§135 left it: blood loss did nothing in this game but kill you."""
+        whole = self._nerve_at(1.14, 0.8, 1.0)
+        bled = self._nerve_at(1.14, 0.8, 0.5)
+        self.assertLess(bled, whole, "half its blood gone changed nothing")
+
+    def test_structure_and_blood_are_different_questions(self):
+        """A body opened in twenty places can be intact and nearly empty."""
+        intact_empty = self._nerve_at(1.0, 1.0, 0.4)
+        broken_full = self._nerve_at(1.0, 0.4, 1.0)
+        self.assertLess(intact_empty, self._nerve_at(1.0, 1.0, 1.0))
+        self.assertLess(broken_full, self._nerve_at(1.0, 1.0, 1.0))
+
+    # -- who is exempt, and on purpose ------------------------------------- #
+
+    def test_the_documented_fearless_stay_fearless(self):
+        """Not everything is meant to break.
+
+        The goblin's own entry says so -- "Cruel, tireless and unaging. They
+        do not fear death." -- and it is the commonest enemy in both modes.
+        That is a design statement in the data and this milestone did not
+        touch it. The undead and the megabeasts are the same.
+        """
+        for cid in ("goblin", "skeleton", "zombie", "ghoul", "dragon"):
+            beast = self._beast(cid=cid, seed=cid)
+            self.assertTrue(self.morale.fearless(beast), cid)
+            beast.body.blood = beast.body.max_blood * 0.1
+            self.assertEqual(self.morale.nerve(beast, self.game), 1.0, cid)
+            self.assertFalse(self.morale.broke(beast, self.game), cid)
+
+    def test_a_wolf_is_not_exempt(self):
+        wolf = self._beast(cid="wolf", seed="ww")
+        self.assertFalse(self.morale.fearless(wolf))
+
+    # -- and it happens in a fight ----------------------------------------- #
+
+    def test_a_hurt_and_bled_bandit_actually_breaks(self):
+        """End to end, through the funnel the AI calls.
+
+        A bandit, not a wolf: a lone wolf is already docked `PACK_ALONE` and
+        starts close enough to the line that it proves nothing either way.
+        """
+        from ascii_warriors.game import combat
+
+        # Bravery is rolled per creature and a fresh one sits at its bravery
+        # factor, so a genuinely cowardly bandit is below `BREAK_AT` before
+        # anybody touches it -- which was true before this milestone too.
+        # Find one that will stand its ground, then take it apart.
+        bandit = None
+        for i in range(40):
+            cand = self._beast(cid="bandit", seed="hurt%d" % i)
+            if cand.personality.bravery_factor() > self.morale.BREAK_AT * 2:
+                bandit = cand
+                break
+            self.game.creatures.pop(cand.id, None)
+        self.assertIsNotNone(bandit, "no bandit in forty had any nerve")
+        self.assertFalse(combat.opportunity_to_flee(bandit, self.game),
+                         "it ran before anybody touched it")
+        # Beat on it and see whether it gives up before it dies. Staging the
+        # wounds by hand measures the staging; this measures the fight.
+        rng = RNG("beating")
+        gave_up = False
+        for _ in range(120):
+            combat.melee_attack(self.game.player, bandit, rng=rng)
+            bandit.body.tick(rng, 1, 1.0, 1.0)
+            if bandit.body.dead:
+                break
+            if combat.opportunity_to_flee(bandit, self.game):
+                gave_up = True
+                break
+        self.assertFalse(bandit.body.dead,
+                         "it died before it ever thought about leaving")
+        self.assertTrue(gave_up,
+                        "beaten to nerve %.2f and still coming"
+                        % self.morale.nerve(bandit, self.game))
+
+    def test_company_still_steadies_it(self):
+        """The v3.49 half of the rule is untouched.
+
+        Bandits rather than wolves. A lone wolf is docked `PACK_ALONE` and
+        gets it back the moment anything stands beside it, so a pack test
+        written with wolves passes with `ALLY_NERVE` deleted -- which is what
+        this one did until the re-break caught it.
+        """
+        alone = self._beast(cid="bandit", seed="a1", n=0)
+        self.assertFalse(alone.defn.has("PACK"))
+        by_itself = self.morale.nerve(alone, self.game)
+        for i in range(3):
+            self._beast(cid="bandit", seed="crew%d" % i, n=i + 1)
+        self.assertGreater(self.morale.nerve(alone, self.game), by_itself,
+                           "company counted for nothing")

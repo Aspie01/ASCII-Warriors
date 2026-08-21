@@ -8116,7 +8116,122 @@ number it moved is not the one a balance change would move.
   third of its blood fights exactly as well as one at full until the moment it
   falls over.
 
-## 136. Style
+## 136. Nothing ever gave up (v3.76)
+
+§135 left it: "no creature has ever surrendered or been beaten into
+submission." The machinery is all there and all wired — `pick_mode` asks
+`combat.opportunity_to_flee`, which asks `morale.broke`, which asks
+`morale.nerve` — so the question was only ever whether it fires. Eight
+adventurer lifetimes, every creature-turn spent within eight tiles of the
+player and hostile to them:
+
+```
+kind             turns   broke   lowest nerve
+skeleton          743      0       1.00
+ghoul             258      0       1.00
+kobold            232      0       0.49
+wolf              222      0       0.39
+goblin snatcher   194     86      -0.01
+necromancer       104      0       0.49
+bandit            102      0       0.42
+```
+
+1908 creature-turns, and the only thing that ever broke off was the goblin
+snatcher — which is a thief and was always going to run. The wolf got to 0.39
+and the bandit to 0.42, against a `BREAK_AT` of 0.35, and neither ever
+crossed it.
+
+### 136.1. The floor was the ceiling
+
+```python
+left = creature.personality.bravery_factor()
+left *= 0.35 + 0.65 * creature.body.health_fraction()
+```
+
+That bottoms out at `bravery * 0.35`, and `BREAK_AT` is 0.35. **Anything with
+a bravery factor of 1.0 or better could not break at any wound**, down to and
+including having no body left. Sampling a hundred of each: the median goblin
+rolls 1.14, the median dwarf 0.97, the median human 0.82.
+
+The two 0.35s are the same number by accident rather than by intent — one is
+"what is left of your nerve when your body is gone" and the other is "where
+nerve gives out", and nothing says they should be equal. `HURT_FLOOR` is the
+first of them, written down at 0.05, and the ladder comes out:
+
+| bravery | breaks below | with half its blood gone |
+| ---: | ---: | ---: |
+| 0.50 | 68% health | any wound at all |
+| 0.85 | 38% | 69% |
+| 1.14 | 27% | 50% |
+| 1.50 | 19% | 36% |
+
+A fresh creature still sits exactly at its bravery factor, so nothing about
+what walks up to you changed — only what walks away.
+
+### 136.2. Blood, at last
+
+§135 ended on "blood loss still does nothing in this game but kill you": it
+does not slow you (§133), it does not weaken you, and it did not frighten you
+either. `health_fraction` is structure, which is a different question — a body
+opened in twenty places can be intact and nearly empty at the same time, and
+the nerve calculation only ever saw the first half.
+
+`BLED_NERVE` subtracts half a point of nerve at no blood left, pro rata. It is
+the second column of the table above.
+
+### 136.3. Who is exempt, and on purpose
+
+The commonest enemy in both modes is not covered by any of this, and should
+not be. The goblin's entry in `creatures.py` says why:
+
+> Cruel, tireless and unaging. **They do not fear death.**
+
+`NO_FEAR` is a design statement written in the data, and the undead, the
+megabeasts and the demons carry it for the same kind of reason — fifteen of
+eighty-one kinds in all. This milestone did not touch the list, and a test
+pins it so that a later one does not drift into it by accident.
+
+Measured again after the change, the same eight lifetimes:
+
+| | before | after |
+| --- | ---: | ---: |
+| creature-turns facing the player | 1908 | 1905 |
+| broke off | 86 | 181 |
+| ...of those, something other than a thief | **0** | **63** |
+
+### 136.4. It did not move the death rate either
+
+Three milestones running now:
+
+| twenty-four lifetimes | v3.74 | v3.75 | v3.76 |
+| --- | ---: | ---: | ---: |
+| died | 22 | 21 | 22 |
+| mean life, turns | 196 | 205 | 190 |
+| quests finished | 3 | 2 | 3 |
+
+And the reason is in the table at the top of this section. **The two things
+the adventurer spends most of its life fighting are skeletons and ghouls** —
+743 and 258 creature-turns of 1908, more than half between them — and both are
+fearless on purpose. Morale cannot reach the thing that is killing
+adventurers, because the thing that is killing adventurers is undead. That is
+worth knowing before the next milestone goes looking for the death rate again.
+
+### 136.5. Measured and left
+
+- **Nothing surrenders.** Breaking off is the whole of it: a creature that has
+  had enough runs, and if it is cornered it fights on to the death. Yielding,
+  being taken prisoner and begging for quarter are all still absent.
+- **A coward flees on sight**, and always has: a fresh creature's nerve is its
+  bravery factor, so a bandit rolling below 0.35 leaves before anybody touches
+  it. That is arguably correct and it is certainly untouched by this
+  milestone; it is written down here because it cost an hour in the test
+  bench.
+- **`PACK_ALONE` is a big number.** A lone wolf is docked 0.45 and starts at
+  0.38, which is close enough to the line that half of them will not engage
+  at all. v3.49 chose it deliberately; whether it is still right after the
+  floor moved is a separate measurement.
+
+## 137. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

@@ -51,6 +51,28 @@ MAX_SHOCK = 1.2
 #: Where nerve gives out.
 BREAK_AT = 0.35
 
+#: What is left of a creature's nerve when its body is entirely gone.
+#:
+#: This was 0.35 and written into the expression, which made it the same
+#: number as `BREAK_AT` -- so nerve bottomed out at `bravery * 0.35`, and
+#: anything with a bravery factor of 1.0 or better could not break however
+#: badly it was hurt. The median goblin rolls 1.14. Measured over eight
+#: adventurer lifetimes: 1908 creature-turns of facing the player and the only
+#: thing that ever broke off was the goblin snatcher, which is a thief and was
+#: always going to run. A wolf got to 0.39 and a bandit to 0.42.
+HURT_FLOOR = 0.05
+
+#: What emptying a creature out is worth, as nerve subtracted at no blood
+#: left.
+#:
+#: §135 left this: blood loss does nothing in this game but kill you. It does
+#: not slow you (§133), it does not weaken you, and until now it did not
+#: frighten you either -- a creature at a third of its blood fought exactly as
+#: hard as one at full. `health_fraction` is structure, which is a different
+#: question: a body opened up in twenty places and still standing is intact
+#: and nearly empty at the same time.
+BLED_NERVE = 0.5
+
 
 def fearless(creature) -> bool:
     """Whether fear is somebody else's problem."""
@@ -76,16 +98,22 @@ def nerve(creature, game) -> float:
     """How much fight is left in a creature. 1.0 is fresh, `BREAK_AT` is gone.
 
     Health and temperament are what it always was; the company and the losses
-    are what was missing.
+    came with v3.49; the blood and a floor low enough to reach came with §136.
+
+    A fresh creature sits at its bravery factor, so nothing here changes what
+    walks up to you -- only what walks away.
     """
     if fearless(creature):
         return 1.0
+    body = creature.body
     left = creature.personality.bravery_factor()
-    left *= 0.35 + 0.65 * creature.body.health_fraction()
+    left *= HURT_FLOOR + (1.0 - HURT_FLOOR) * body.health_fraction()
     friends = min(MAX_COMPANY, len(company(creature, game)))
     left += ALLY_NERVE * friends
     if not friends and creature.defn.has("PACK"):
         left -= PACK_ALONE
+    if body.max_blood > 0:
+        left -= BLED_NERVE * (1.0 - body.blood_fraction())
     return left - getattr(creature, "shaken", 0.0)
 
 
