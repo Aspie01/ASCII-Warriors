@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
 from ..data import materials as mat_data
-from ..data.items import AttackDef, PUNCH
+from ..data.items import AttackDef, IMPROVISED, PUNCH
 from ..engine import colors
 from ..engine.rng import RNG
 from ..engine.scheduler import ACTION_COST
@@ -83,6 +83,9 @@ NATURAL_SKILL: Dict[str, str] = {
 }
 STRIKING = "striker"
 
+#: What governs a chair, a log or a bar of iron used as a club.
+MISC_WEAPON = "misc_weapon"
+
 
 def skill_for_attack(attacker, weapon: Optional[Item],
                      attack_def: Optional[AttackDef] = None) -> str:
@@ -94,6 +97,12 @@ def skill_for_attack(attacker, weapon: Optional[Item],
     """
     if weapon is not None and weapon.defn.weapon is not None:
         return weapon.defn.weapon.skill
+    if weapon is not None:
+        # Something in your hand that was never meant to be. `misc_weapon` is
+        # in the skill table for exactly this and had no way of being reached:
+        # holding a chair used to report `wrestling`, which is the skill for
+        # having nothing in your hands at all.
+        return MISC_WEAPON
     if attack_def is None:
         return "wrestling"
     return NATURAL_SKILL.get(attack_def.name, STRIKING)
@@ -566,6 +575,11 @@ def choose_attack(attacker, weapon: Optional[Item], rng: RNG,
             if defender is None or len(attacks) < 2:
                 return rng.choice(attacks)
             return _judge_attack(attacker, weapon, attacks, defender, rng)
+        # Something in your hand with no attacks of its own. Falling through
+        # to the natural ones gave "kicks the goblin in the leg with a slate
+        # chair" -- and priced the chair at a punch's speed, which made a
+        # piece of furniture swing faster than a sword.
+        return IMPROVISED
     natural = attacker.defn.attacks
     usable = []
     for na in natural:

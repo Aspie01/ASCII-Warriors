@@ -177,7 +177,16 @@ class Inventory:
             return "weapon"
         armor = defn.armor
         if armor is None:
-            return None
+            # Anything else you are carrying, you can pick up and swing. The
+            # skill table has had `misc_weapon` -- "Misc. Object User" -- since
+            # it was written and **nothing in the game could reach it**: no
+            # item mapped to it, because nothing but a weapon could go in the
+            # hand. A chair is a poor weapon and a poor weapon is not nothing.
+            #
+            # Armour is excluded above rather than here: a mail shirt has a
+            # slot of its own and wielding it is not the useful reading of
+            # "wear this".
+            return "weapon" if item.can_be_swung else None
         cover = set(armor.coverage)
         if "head" in cover and armor.layer in ("armor", "over", "under"):
             return "head"

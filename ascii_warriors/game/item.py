@@ -54,6 +54,16 @@ def speed_word(swing: float) -> str:
     return SWING_WORDS[-1][1]
 
 
+#: The biggest thing a hand closes around, in cm^3.
+#:
+#: Measured off the item table rather than guessed at: a chair is 2000, a
+#: boulder 3000, a table, a bed and a log 4000, a coffer 5000 and a barrel
+#: 6000 -- all of them things a furious dwarf picks up. A statue is 30000 and
+#: is scenery. The first draft of this said 60000 on the assumption that a
+#: statue was half a million, and let you fight with one.
+SWINGABLE_VOLUME = 8000
+
+
 class Item:
     """One concrete object in the world."""
 
@@ -382,6 +392,28 @@ class Item:
     def is_corpse(self) -> bool:
         """True for corpses and severed parts."""
         return self.defn.has("CORPSE")
+
+    @property
+    def can_be_swung(self) -> bool:
+        """True if this could be picked up and hit somebody with.
+
+        Not a weapon -- a weapon has a slot of its own. This is the chair, the
+        log, the bar of iron and the anvil: `misc_weapon` has been in the skill
+        table as "Misc. Object User" since it was written, and nothing in the
+        game could reach it, because `slot_for` would not let anything but a
+        weapon into a hand.
+
+        The rule is volume, because the question is whether a hand closes
+        around it. A statue is furniture you cannot lift and a millstone is a
+        millstone. What is over the line is priced rather than forbidden:
+        `heft` already charges for weight, and an anvil comes out at the
+        slowest swing in the game.
+        """
+        if self.defn.armor is not None or self.is_ammo or self.is_shield:
+            return False
+        if self.defn.weapon is not None:
+            return True
+        return 0 < self.defn.volume <= SWINGABLE_VOLUME
 
     @property
     def is_container(self) -> bool:

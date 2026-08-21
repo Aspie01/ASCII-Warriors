@@ -8440,7 +8440,92 @@ was right all along, and the next sentence overreached past it.
   should get better at swinging a pick at people is a question about the
   skill table.
 
-## 139. Style
+## 139. The skill nobody could have (v3.79)
+
+§138 left the skill table as an open question — "whether a miner should get
+better at swinging a pick at people is a question about the skill table" — so
+the table got the declared-but-unreachable treatment §99 is named for.
+
+The pick turned out to be fine: every melee weapon in the game maps to a real
+skill and every one of them gains experience from being swung, measured over
+forty blows each. Two other things did not survive the look.
+
+### 139.1. The pikeman who mined
+
+```python
+_s("pick", "Pikeman", "weapon", _MELEE_ATTRS, "Mining tools turned to war.")
+```
+
+Its own description says what it is for. A pike is governed by `spear`, whose
+skill is called Spearman, and there is no `pike` skill at all — so the name
+was free to sit on the wrong weapon without ever colliding with anything. A
+dwarf who fought with a pick was listed as a pikeman on the character sheet
+and in the units list. It is `Pick User` now.
+
+### 139.2. Misc. Object User
+
+`misc_weapon` was defined once, in `skills.py`, and referenced **nowhere else
+in the game**:
+
+```
+   misc_weapon   Misc. Object User   mentioned 1 times in the source
+```
+
+Nothing could reach it, for two separate reasons. `Inventory.slot_for` put an
+item in a hand only when `defn.category == "weapon"`, so there was no way to
+be holding anything else; and `skill_for_attack`, asked about one anyway,
+answered `wrestling` — which is the skill for having nothing in your hands at
+all.
+
+It is a real feature and it was three-quarters built. `compute_momentum` has
+always added whatever is in the hand to the blow by its mass, so the physics
+of hitting somebody with a chair were already there and waiting. What was
+missing was permission to hold one, a skill to be bad at it with, and an
+attack that is not a punch.
+
+| | before | after |
+| --- | --- | --- |
+| wield a chair | "You cannot wear or wield that." | "You wield a slate chair." |
+| skill | `wrestling` | `misc_weapon` |
+| attack | `punch`, cost 55 | `club`, cost 133 |
+| the message | "kicks Ustnok in the leg with a slate chair" | "clubs Ustnok in the leg with a slate chair" |
+
+Over five hundred blows: bare hands 0.26 severity, a chair 1.37, a sword 1.47.
+A chair is nearly a sword's damage and swings at two thirds of an axe's speed,
+which is the trade: it is what you grab when you have nothing, and you put it
+down when you find a sword.
+
+### 139.3. Three things measured wrong on the way
+
+- **`SWINGABLE_VOLUME` was guessed at 60000** on the assumption that a chair
+  was 15000 and a statue half a million. A chair is 2000, a boulder 3000, a
+  table, bed and log 4000, a coffer 5000, a barrel 6000 — and a statue is
+  30000. The guess let you fight with a statue. Read off the table, the line
+  is 8000.
+- **The verb was "swings"**, which produced "swings Ustnok Eyegouger in the
+  right lower leg". Every other verb in the attack table is transitive on the
+  victim, because the message is `"%s %s %s in the %s"`. It is "clubs".
+- **A sandwich is worse than a bare fist** over five hundred blows (0.16
+  against 0.26) and better over a hundred and fifty (0.31 against 0.23). A
+  wide soft swing against a narrow hard one is close enough that the ordering
+  is noise at any sample size the suite can afford, so the test asserts the
+  two orderings that hold and says in a comment why it does not assert the
+  third.
+
+### 139.4. Measured and left
+
+- **Nobody picks anything up.** The player can wield a chair; no AI ever will,
+  and a dwarf whose axe is taken does not reach for the furniture. The rule
+  exists now; deciding to use it is a separate question.
+- **A chair is nearly as good as a sword.** Slate is heavy and the damage
+  comes off mass, so a stone chair hits about as hard as an iron blade and is
+  simply slower. Whether improvised weapons should be worse than that is a
+  balance question and this milestone did not answer it.
+- **Forty-odd of the manual's numeric sentences are still unpinned** — this
+  one went at the skill table instead. Three passes have taken twenty-three
+  claims and found six wrong.
+
+## 140. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

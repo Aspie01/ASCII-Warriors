@@ -14,6 +14,7 @@ from ascii_warriors.game import body as body_mod
 from ascii_warriors.game.body import Body
 from ascii_warriors.game.entity import Creature, make_creature
 from ascii_warriors.game.inventory import Inventory
+from ascii_warriors.game import item as item_mod
 from ascii_warriors.game.item import Item, corpse_of, make_item, starting_kit
 from ascii_warriors.game.log import MessageLog
 from ascii_warriors.game.needs import Needs
@@ -1524,3 +1525,180 @@ class TestTheWoundThatStoppedHurting(unittest.TestCase):
         self.assertEqual(
             sum(w.pain for p in again.parts.values() for w in p.wounds),
             sum(w.pain for p in c.body.parts.values() for w in p.wounds))
+
+
+class TestTheSkillNobodyCouldHave(unittest.TestCase):
+    """`misc_weapon` -- "Misc. Object User" -- and the pikeman who mined.
+
+    §138 left the skill table as an open question, so it got the
+    declared-but-unreachable treatment. Two things fell out.
+
+    `misc_weapon` was defined once in `skills.py` and referenced nowhere else
+    in the game. Nothing could reach it: `slot_for` put an item in a hand only
+    when `defn.category == "weapon"`, so there was no way to be holding
+    anything else, and `skill_for_attack` answered `wrestling` -- the skill for
+    having nothing in your hands at all -- when asked about one anyway.
+
+    And the pick's skill was called **Pikeman**. Its own description says
+    "Mining tools turned to war"; a pike is governed by `spear`, whose skill is
+    called Spearman. A dwarf who fought with a pick was shown as a pikeman.
+    """
+
+    def _item(self, iid, mat=None):
+        return make_item(RNG("i"), iid, material=mat) if mat \
+            else make_item(RNG("i"), iid)
+
+    def _man(self):
+        return make_creature(RNG("m"), "human", faction="player")
+
+    # -- the pick ---------------------------------------------------------- #
+
+    def test_a_pick_is_not_a_pike(self):
+        from ascii_warriors.game.skills import SKILLS
+
+        self.assertEqual(SKILLS["pick"].name, "Pick User")
+        self.assertNotIn("pike", SKILLS, "there is no pike skill to be named "
+                                         "after")
+        self.assertEqual(SKILLS["spear"].name, "Spearman")
+
+    def test_a_pike_is_governed_by_the_spear(self):
+        """Which is why the name was free to be wrong for so long."""
+        self.assertEqual(
+            combat.skill_for_attack(self._man(), self._item("pike", "iron")),
+            "spear")
+
+    # -- the skill nobody could have ---------------------------------------- #
+
+    def test_you_can_pick_up_a_chair(self):
+        man = self._man()
+        chair = self._item("chair")
+        man.inventory.add(chair)
+        ok, msg = man.inventory.equip(chair)
+        self.assertTrue(ok, msg)
+        self.assertIs(man.inventory.weapon(), chair)
+
+    def test_and_the_skill_for_it_is_the_one_in_the_table(self):
+        from ascii_warriors.game.skills import SKILLS
+
+        self.assertIn("misc_weapon", SKILLS)
+        self.assertEqual(
+            combat.skill_for_attack(self._man(), self._item("chair")),
+            "misc_weapon")
+
+    def test_swinging_it_teaches_you_to_swing_it(self):
+        """A skill you cannot train is the same as one you cannot have."""
+        man = self._man()
+        chair = self._item("chair")
+        man.inventory.add(chair)
+        man.inventory.equip(chair)
+        before = man.skills.exp("misc_weapon")
+        for i in range(30):
+            foe = make_creature(RNG("f%d" % i), "human", faction="hostile")
+            combat.melee_attack(man, foe, weapon=chair, rng=RNG("s%d" % i))
+        self.assertGreater(man.skills.exp("misc_weapon"), before)
+
+    def test_a_statue_is_scenery(self):
+        """The line is volume, and it was guessed wrong the first time.
+
+        60000 was picked on the assumption that a statue was half a million.
+        It is 30000, so the first version of this let you fight with one.
+        """
+        man = self._man()
+        statue = self._item("statue")
+        self.assertGreater(statue.defn.volume, item_mod.SWINGABLE_VOLUME)
+        man.inventory.add(statue)
+        ok, _msg = man.inventory.equip(statue)
+        self.assertFalse(ok, "wielded a statue")
+
+    def test_armour_still_goes_on_rather_than_in_the_hand(self):
+        """Asked of the predicate as well as of the slot.
+
+        `slot_for` filters armour out before it ever calls `can_be_swung`, so
+        going only through `equip` cannot tell whether the predicate holds --
+        which the re-break pass demonstrated by deleting the check and losing
+        nothing.
+        """
+        for iid in ("mail_shirt", "helm", "high_boots", "shield"):
+            man = self._man()
+            piece = self._item(iid, "iron")
+            self.assertFalse(piece.can_be_swung, "%s is not a club" % iid)
+            man.inventory.add(piece)
+            ok, msg = man.inventory.equip(piece)
+            self.assertTrue(ok, msg)
+            self.assertNotEqual(man.inventory.slot_of(piece), "weapon", iid)
+
+    def test_nobody_arms_themselves_with_a_sandwich(self):
+        """`auto_equip` picks a weapon, and food is not one."""
+        man = self._man()
+        for iid in ("meat", "bread", "chair"):
+            man.inventory.add(self._item(iid))
+        man.inventory.add(self._item("sword", "iron"))
+        man.inventory.auto_equip()
+        held = man.inventory.weapon()
+        self.assertIsNotNone(held)
+        self.assertEqual(held.def_id, "sword")
+
+    # -- and it is worth doing ---------------------------------------------- #
+
+    def test_a_chair_beats_a_fist_and_a_sandwich_does_not(self):
+        """The point of picking anything up."""
+        def blows(iid):
+            man = self._man()
+            w = None
+            if iid is not None:
+                w = self._item(iid)
+                man.inventory.add(w)
+                man.inventory.equip(w)
+            total = 0.0
+            for i in range(150):
+                rng = RNG("b%s%d" % (iid, i))
+                foe = make_creature(rng, "human", faction="hostile")
+                combat.melee_attack(man, foe, weapon=w, rng=rng)
+                total += sum(wd.severity for p in foe.body.parts.values()
+                             for wd in p.wounds)
+            return total / 150.0
+
+        fists = blows(None)
+        chair = blows("chair")
+        meat = blows("meat")
+        self.assertGreater(chair, fists * 2,
+                           "a chair is no better than a fist")
+        self.assertGreater(chair, meat * 3,
+                           "a sandwich is as good as a chair")
+        # Not asserted: that a sandwich is worse than a bare fist. It is, over
+        # five hundred blows (0.16 against 0.26), and it is not over a hundred
+        # and fifty (0.31 against 0.23). A wide, soft, low-penetration swing
+        # against a narrow hard one is close enough that the ordering is noise
+        # at any sample size this suite can afford.
+
+    def test_furniture_swings_like_furniture(self):
+        """Slow. A chair used to cost a punch, which made it faster than a
+        sword and nearly as damaging."""
+        man = self._man()
+        chair = self._item("chair")
+        sword = self._item("sword", "iron")
+        chair_cost = combat.attack_cost(
+            man, chair, combat.choose_attack(man, chair, RNG("a"), man))
+        sword_costs = [combat.attack_cost(man, sword, a)
+                       for a in sword.attacks()]
+        self.assertGreater(chair_cost, max(sword_costs),
+                           "furniture swings faster than a sword")
+
+    def test_it_reads_as_a_sentence(self):
+        """"swings Ustnok in the leg" is not one."""
+        from ascii_warriors.engine.screen import frag_str
+
+        man = self._man()
+        chair = self._item("chair")
+        man.inventory.add(chair)
+        man.inventory.equip(chair)
+        log = MessageLog()
+        for i in range(20):
+            foe = make_creature(RNG("l%d" % i), "goblin", faction="hostile")
+            combat.melee_attack(man, foe, weapon=chair, rng=RNG("k%d" % i),
+                                log=log)
+        text = " ".join(frag_str(m.display()) for m in log.all())
+        self.assertIn("clubs", text)
+        self.assertNotIn("swings ", text)
+        self.assertNotIn("punches", text)
+        self.assertNotIn("kicks", text)

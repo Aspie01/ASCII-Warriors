@@ -49,7 +49,7 @@ _s("mace", "Macedwarf", "weapon", _MELEE_ATTRS, "Blunt weight that breaks bone."
 _s("hammer", "Hammerman", "weapon", _MELEE_ATTRS, "Concentrated crushing force.")
 _s("spear", "Spearman", "weapon", _MELEE_ATTRS, "Reach and penetration.")
 _s("dagger", "Knife User", "weapon", _MELEE_ATTRS, "Quick, close and quiet.")
-_s("pick", "Pikeman", "weapon", _MELEE_ATTRS, "Mining tools turned to war.")
+_s("pick", "Pick User", "weapon", _MELEE_ATTRS, "Mining tools turned to war.")
 _s("whip", "Lasher", "weapon", ("agility", "kinesthetic_sense"), "")
 _s("crossbow", "Crossbowman", "weapon", _RANGED_ATTRS, "")
 _s("bow", "Bowman", "weapon", _RANGED_ATTRS, "")

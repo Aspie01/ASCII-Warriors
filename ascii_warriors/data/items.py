@@ -105,6 +105,15 @@ def _hack(contact: int, pen: int, vel: float = 1.0) -> AttackDef:
 
 
 PUNCH = AttackDef("punch", "punch", "punches", "blunt", 20, 500, 1.0, 1, 1)
+#: Hitting somebody with something that was never meant for it -- a chair, a
+#: log, a bar of iron. Blunt, wide and slow: the wind-up of an axe, because
+#: swinging furniture is not swordplay. Its momentum comes from the object's
+#: own mass, which `compute_momentum` already reads off whatever is in hand.
+#:
+#: "club" rather than "swing" because every other verb in this table takes the
+#: victim: the message is "%s %s %s in the %s", and "swings Ustnok in the leg"
+#: is not a sentence.
+IMPROVISED = AttackDef("club", "club", "clubs", "blunt", 120, 300, 0.9, 4, 4)
 KICK = AttackDef("kick", "kick", "kicks", "blunt", 40, 800, 1.0, 2, 2)
 BITE = AttackDef("bite", "bite", "bites", "edge", 20, 2000, 1.0, 2, 2)
 SCRATCH = AttackDef("scratch", "scratch", "scratches", "edge", 10, 1000, 1.0, 1, 1)
