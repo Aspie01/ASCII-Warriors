@@ -99,9 +99,10 @@ WHAT TO DO FIRST
 
 FOOD AND DRINK
 
-A dwarf drinks about one unit a day and eats about one. You embark with a
-fortnight of both. A farm plot planted with plump helmets feeds roughly six
-dwarves; a second plot gives you the surplus a still needs.
+A dwarf eats about one unit a day and drinks about one and a half. You embark
+with a fortnight of both -- a hundred and fifty units of ale is fourteen days
+for seven dwarves, not twenty-one. A farm plot planted with plump helmets feeds
+roughly six dwarves; a second plot gives you the surplus a still needs.
 
 Dwarves will drink from a river or a well if the ale runs out. They will
 complain about it. On a dry embark there is no such mercy: brew, or die.
@@ -298,8 +299,10 @@ line about your fortress being overrun, if it comes to that.
 
 WATER
 
-Water has depth, from one to seven. You can wade through two and you drown in
-seven. It falls, it spreads, and it does not go away on its own underground.
+Water has depth, from one to seven. You can wade through three; at four your
+feet leave the bottom and you are swimming, which is slow, tiring and how
+people drown. It falls, it spreads, and it does not go away on its own
+underground.
 
 Rivers and lakes hold their water until you break the bank. Channel a trench
 to one and it pours in for as long as you leave the trench there.
@@ -559,8 +562,8 @@ it takes a while, a wild animal minds a great deal more than a village one,
 and every refusal makes the next attempt a little harder.
 
 Once an animal is yours, press m to get on and m again to get off. Mounted you
-move at the animal's pace rather than your own, carry half again as much, and
-cross the world map in about two thirds of the time.
+move at the animal's pace rather than your own, carry a little over half again
+as much, and cross the world map in about two thirds of the time.
 
 Every solid hit you take while mounted is a roll to stay on. Untrained you
 come off most of the time; a good rider almost never does. Being thrown leaves

@@ -8231,7 +8231,111 @@ worth knowing before the next milestone goes looking for the death rate again.
   at all. v3.49 chose it deliberately; whether it is still right after the
   floor moved is a separate measurement.
 
-## 137. Style
+## 137. The manual is a promise (v3.77)
+
+§136 ended by pointing at the adventurer's death rate and saying not to go
+back at it, so this one went at the other mode — and at the one artifact in
+the game that had never been audited at all.
+
+The help screen is where a fortress player gets the figures they plan with.
+There are about sixty sentences in it carrying a number. **Nothing had ever
+checked one of them.** Thirteen were pulled out and put to the code, and
+three were wrong.
+
+### 137.1. "A dwarf drinks about one unit a day"
+
+It does not. Four fortresses, twelve days each, counting the barrels:
+
+```
+r1: 7 dwarves, food 1.04/day each, drink 1.54/day each
+r2: 7 dwarves, food 0.98/day each, drink 1.67/day each
+r3: 7 dwarves, food 1.01/day each, drink 1.58/day each
+r4: 7 dwarves, food 1.00/day each, drink 1.54/day each
+```
+
+Food is exactly what the manual says. Drink is **half again** what it says,
+on the resource the same page calls "the difference between a fortress and a
+graveyard".
+
+The constant is `THIRST_URGENT`, in `fortress/dwarf.py`, and it is 9000
+against a 14400-tick day: **1.60 drinks a day**, which is the measured 1.58 to
+within the rounding. (`needs.THIRST_THIRSTY` is a different number for a
+different mode — it is when an adventurer is *told* they are thirsty. Doubling
+it moves the fortress rate by nothing at all, which is how this paragraph came
+to be written twice.)
+
+The embark knew the truth the whole time. A hundred and fifty units of ale is
+
+```
+150 / (7 dwarves x 1.58 a day) = 13.6 days
+150 / (7 dwarves x 1.00 a day) = 21.4 days
+```
+
+— so "you embark with a fortnight of both" is *correct*, and correct only at
+the rate the sentence three words earlier denied. The stockpile was balanced
+against the real number and the prose against an imagined one.
+
+### 137.2. Two more
+
+**"You can wade through two and you drown in seven."** `SWIM_DEPTH` is 4, so
+three is still wading; and drowning is not a depth at all — past 4 your feet
+leave the bottom and `DROWN_TICKS` starts counting, which is a thing that
+happens to bad swimmers rather than a thing that happens at seven.
+
+**"Mounted you carry half again as much."** `CARRY_SHARE` is 1.6. "Half again"
+is a rounded English phrase for 1.5 and the constant is deliberate — the
+sentence moved, not the number.
+
+### 137.3. What was already true
+
+Worth listing, because an audit that only reports its hits is not a
+measurement:
+
+| claim | code |
+| --- | --- |
+| Seven dwarves arrive with a wagon | 7 |
+| two dogs, a cat, two cows and two sheep | exactly that |
+| a dwarf eats about one a day | 1.01 |
+| you embark with a fortnight of both | 13.6 and 15.0 days |
+| a farm plot feeds roughly six dwarves | 7.7 |
+| water has depth, from one to seven | `MAX_DEPTH` 7 |
+| one level is a step | `SAFE_DROP` 1 |
+| a sheriff needs eighteen dwarves | `at_population` 18 |
+| thirty personality facets and twenty values | 30 and 20 |
+| an alarm carries forty tiles | `ALARM_RANGE` 40 |
+
+Ten of thirteen. The manual is mostly honest, which is why the three that
+were not had gone unnoticed.
+
+### 137.4. The guard is the point
+
+Correcting three sentences is worth an afternoon. What is worth more is that
+`TestTheManualIsAPromise` now pins each of these to the constant behind it:
+change `SWIM_DEPTH` and the test that reads the wading sentence fails, change
+the thirst clock and the test that counts barrels fails. The manual is a
+checked artifact now rather than prose that happens to sit near the code.
+
+The drink test measures rather than reads: it embarks a fortress, runs eight
+days and counts what went out of the barrels, because the clock rate (2.00)
+and the rate a player experiences (1.58) are different numbers and the player
+only ever sees the second one.
+
+### 137.5. Measured and left
+
+- **Fifty-odd numeric sentences are still unpinned** — the ones about combat
+  timing, temperature, skill ladders and world generation. Thirteen was what
+  fitted in one milestone; the class is set up to grow.
+- **The siege gives forty minutes.** Measured from the announcement to the
+  first blow: an army lands 23 tiles out and is on the dwarves in 40 steps,
+  2.8% of a day. That is not enough to raise and arm a militia, and it is not
+  meant to be — the DEFENCE section says to have one standing before you are
+  worth robbing. Checked, correct, left alone.
+- **Undead are 12% of what spawns and 58% of what an adventurer fights.**
+  §136 wondered whether there were too many of them; there are not. They are
+  simply relentless, which is what being undead is for. 129 of 1107 creatures
+  across eight lifetimes.
+
+## 138. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

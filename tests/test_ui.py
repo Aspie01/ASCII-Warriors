@@ -533,3 +533,170 @@ class TestTheLogIsNotCutInHalf(UITestBase):
         used = [r for r in rows if r.strip() and set(r.strip()) != {"-"}]
         self.assertEqual(" ".join(r.strip() for r in used), self.LONG,
                          used)
+
+
+class TestTheManualIsAPromise(unittest.TestCase):
+    """Every number the help screen gives a player, against the code.
+
+    The manual is where a fortress player gets the figures they plan with, and
+    nothing had ever checked one of them. Thirteen claims audited; three were
+    wrong:
+
+    * "A dwarf drinks about one unit a day" -- measured over four fortresses
+      and twelve days each, 1.54, 1.67, 1.58 and 1.54. Half again what it said,
+      on the resource the same page calls "the difference between a fortress
+      and a graveyard".
+    * "You can wade through two" -- `SWIM_DEPTH` is 4, so you wade through
+      three.
+    * "Mounted you carry half again as much" -- `CARRY_SHARE` is 1.6.
+
+    The embark stock knew the truth all along: a hundred and fifty units of
+    ale is a fortnight for seven at 1.58 a day and three weeks at the rate the
+    sentence claimed.
+
+    These tests pin the wording to the constant, so moving one without the
+    other fails here rather than in somebody's fortress.
+    """
+
+    def _text(self):
+        from ascii_warriors.ui import help_screen
+
+        return " ".join(
+            " ".join(getattr(help_screen, name).split())
+            for name in ("FORTRESS_TEXT", "COMBAT_TEXT", "WORLD_TEXT",
+                         "SURVIVAL_TEXT"))
+
+    def _says(self, phrase):
+        self.assertIn(phrase, self._text(),
+                      "the manual no longer says %r" % phrase)
+
+    # -- water ------------------------------------------------------------- #
+
+    def test_the_depth_you_can_wade_through(self):
+        from ascii_warriors.world.fluids import MAX_DEPTH, SWIM_DEPTH
+
+        self.assertEqual(SWIM_DEPTH, 4)
+        self.assertEqual(MAX_DEPTH, 7)
+        self._says("Water has depth, from one to seven")
+        self._says("You can wade through three")
+        self._says("at four your feet leave the bottom")
+
+    def test_swimming_starts_where_the_manual_says_it_does(self):
+        """The sentence and the function, asked the same question."""
+        from ascii_warriors.game import swimming
+
+        self.assertFalse(swimming.is_swimming(3), "three is wading")
+        self.assertTrue(swimming.is_swimming(4), "four is swimming")
+
+    # -- food and drink ----------------------------------------------------- #
+
+    def test_a_dwarf_eats_about_one_a_day_and_drinks_more(self):
+        """Measured, not read off a constant.
+
+        `fortress.dwarf.THIRST_URGENT` is 9000 against a 14400-tick day, so
+        1.60 a day; the barrels say 1.58. It is measured here rather than
+        divided out because the first attempt divided out the *wrong*
+        constant -- `needs.THIRST_THIRSTY`, which is when an adventurer is
+        told they are thirsty and has no bearing on a dwarf at all. Doubling
+        it changes the fortress rate by nothing, which is what the re-break
+        pass caught.
+        """
+        from ascii_warriors.data.calendar import TICKS_PER_DAY
+        from ascii_warriors.fortress import sim
+        from ascii_warriors.fortress.fortress import Fortress
+        from ascii_warriors.ui.fort.embark import suggest_site
+        from ascii_warriors.world.worldgen import generate_world
+
+        rng = RNG("manual")
+        world = generate_world(rng.sub("w"), size="small", history_years=25)
+        wx, wy = suggest_site(world)
+        fort = Fortress.embark(world, wx, wy, rng.sub("f"))
+        days = 8
+        food0, drink0 = fort.food_stock(), fort.stock_count("dwarven_ale")
+        for _ in range(days):
+            fort_steps = TICKS_PER_DAY // sim.STEP_TICKS
+            sim.run(fort, fort_steps)
+        n = max(1, len(fort.dwarves()))
+        food = (food0 - fort.food_stock()) / float(days) / n
+        drink = (drink0 - fort.stock_count("dwarven_ale")) / float(days) / n
+        self.assertTrue(0.8 <= food <= 1.25,
+                        "manual says a dwarf eats about one a day; %.2f" % food)
+        self.assertTrue(1.25 <= drink <= 1.9,
+                        "manual says about one and a half a day; %.2f" % drink)
+        self._says("eats about one unit a day and drinks about one and a half")
+
+    def test_the_embark_really_is_a_fortnight_of_drink(self):
+        """The claim the wrong rate made nonsense of."""
+        from ascii_warriors.fortress.fortress import Fortress
+        from ascii_warriors.ui.fort.embark import suggest_site
+        from ascii_warriors.world.worldgen import generate_world
+
+        rng = RNG("manual2")
+        world = generate_world(rng.sub("w"), size="small", history_years=25)
+        wx, wy = suggest_site(world)
+        fort = Fortress.embark(world, wx, wy, rng.sub("f"))
+        n = len(fort.dwarves())
+        ale = fort.stock_count("dwarven_ale")
+        days = ale / float(n) / 1.58
+        self.assertTrue(12 <= days <= 16,
+                        "%d units of ale is %.1f days for %d dwarves"
+                        % (ale, days, n))
+        self._says("a hundred and fifty units of ale is fourteen days")
+        self.assertEqual(ale, 150)
+
+    # -- the rest of the numbers -------------------------------------------- #
+
+    def test_seven_dwarves_and_the_livestock(self):
+        import collections
+
+        from ascii_warriors.fortress.fortress import Fortress
+        from ascii_warriors.ui.fort.embark import suggest_site
+        from ascii_warriors.world.worldgen import generate_world
+
+        rng = RNG("manual3")
+        world = generate_world(rng.sub("w"), size="small", history_years=25)
+        wx, wy = suggest_site(world)
+        fort = Fortress.embark(world, wx, wy, rng.sub("f"))
+        self.assertEqual(len(fort.dwarves()), 7)
+        self._says("Seven dwarves arrive with a wagon")
+        herd = collections.Counter(
+            c.short_name() for c in fort.creatures.values()
+            if c.faction == "fortress" and c.def_id != "dwarf")
+        self.assertEqual(herd["dog"], 2)
+        self.assertEqual(herd["cat"], 1)
+        self.assertEqual(herd["cow"], 2)
+        self.assertEqual(herd["sheep"], 2)
+        self._says("You arrive with two dogs, a cat, two cows and two sheep")
+
+    def test_a_mount_carries_what_the_manual_says(self):
+        from ascii_warriors.game import mounts
+
+        self.assertEqual(mounts.CARRY_SHARE, 1.6)
+        self._says("carry a little over half again as much")
+
+    def test_one_level_is_a_step(self):
+        from ascii_warriors.world import gravity
+
+        self.assertEqual(gravity.SAFE_DROP, 1)
+        self._says("One level is a step")
+
+    def test_a_sheriff_needs_eighteen_dwarves(self):
+        from ascii_warriors.fortress import nobles
+
+        sheriff = nobles.POSITIONS.get("sheriff")
+        self.assertIsNotNone(sheriff, "there is no sheriff")
+        self.assertEqual(sheriff.at_population, 18)
+        self._says("a sheriff needs eighteen dwarves")
+
+    def test_thirty_facets_and_twenty_values(self):
+        from ascii_warriors.game.personality import FACETS, VALUES
+
+        self.assertEqual(len(FACETS), 30)
+        self.assertEqual(len(VALUES), 20)
+        self._says("thirty personality facets and twenty values")
+
+    def test_an_alarm_carries_forty_tiles(self):
+        from ascii_warriors.game import traps
+
+        self.assertEqual(traps.ALARM_RANGE, 40)
+        self._says("within forty tiles")
