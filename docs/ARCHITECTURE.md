@@ -9059,7 +9059,79 @@ information for the rest of the run.
   Twelve of forty seeds get shorter. Shipped because the move it removes
   cannot work, not because the numbers went up.
 
-## 145. Style
+## 145. The shape that did not recur (v3.85)
+
+§140.5 has been open since v3.80:
+
+> **The same shape may be elsewhere.** Anything that picks "the nearest" every
+> step and moves one tile between picks can oscillate. `_go_pray`, the job
+> board's `_claim_job` and the hauling destination all choose by distance;
+> none of them were measured here.
+
+Measured now. It does not recur, and this milestone changes no game code --
+it closes the question and pins the answer.
+
+### 145.1. Why each one is immune
+
+| | how it chooses | why it cannot oscillate |
+| --- | --- | --- |
+| `_go_pray` | `temples(fort)[0]` | sorted by **quality**, not distance; the cells it then sorts are all in one room |
+| `_claim_job` | first reachable on the board | only runs with no job in hand; once assigned the job is held on `DwarfState.job` |
+| `fetch_target` | `job_items(job)` | reserved item **ids**, so where the dwarf stands cannot change the answer |
+| `free_bed` | first bed owned by this dwarf | "keeping the one it already has", in its own docstring |
+| `_to_the_tavern` | `tavern_spot` | keeps `path_goal`, re-plans only on a timer |
+
+### 145.2. The one that still asks every step
+
+`_drink_water` does call `nearest_water` on every step, and that function has
+the *bigger* z-penalty of the two -- four tiles a level against the three that
+sprang the barrel trap. It looked like the same bug.
+
+It is not, and the first thing measuring showed is why nobody had ever seen
+it: **`_drink_water` is called zero times in a hundred days of `year1`.** The
+embark arrives with 150 units of ale, `_go_drink` finds one every time, and
+the fallback below it is never reached.
+
+Strip the ale out and it runs -- 820 calls over twenty days:
+
+```
+calls                                    820
+goal changed under a walking dwarf       187
+of those, changes back to where it came    6
+```
+
+Six, out of 820. And the goals converge rather than alternate:
+
+```
+(47,31,-3), (43,26,-2), (42,29,-2) x4, (42,26,-2) x8 ...
+```
+
+That is a dwarf finding genuinely nearer water as it walks, which is the
+behaviour wanted. All seven survived the twenty dry days.
+
+### 145.3. What this milestone ships
+
+Guards, and nothing else. Each immunity above is now pinned by a test that
+fails when it is removed -- hauling made to follow the nearest pile, the ward
+chosen by distance, the temple list sorted by position -- so the shape cannot
+come back unnoticed. Four re-break cases, no misses.
+
+One of those guards had to be rebuilt to be a guard: the hauling test dropped
+a single log, and "the nearest pile" and "the item this job booked" agree when
+there is only one. It drops a decoy nearer than the booked one now.
+
+### 145.4. Measured and left
+
+- **`_drink_water` is a fallback nobody exercises.** Zero calls in a hundred
+  days. It works when forced -- seven of seven alive over twenty dry days --
+  and that is now pinned, but every other property of that path is still
+  untested by anything.
+- **`_find_water` in `tools/play.py` is the adventurer-side version of the
+  same waste** (§144.3): 1318 full-map scans, 7.66 seconds over forty seeds,
+  to re-derive a fact that cannot change while the adventurer stands still.
+  Not fixed here; this milestone is about the fortress.
+
+## 146. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

@@ -9628,3 +9628,161 @@ class TestTheStillCheckAsksAboutBrewing(unittest.TestCase):
         self.assertEqual(code, 0, text)
         for key in ("low_food", "low_drink", "left_undug", "lost", "made"):
             self.assertIn(key, text, "%s is worked out and never shown" % key)
+
+
+#: The real `rooms.rooms`, kept so a test that swaps it can put it back.
+from ascii_warriors.fortress import rooms as _rooms_mod
+_REAL_ROOMS = _rooms_mod.rooms
+
+
+class _Room:
+    """A stand-in room, for asking `temples` what it sorts by."""
+
+    def __init__(self, kind, center, quality=0):
+        self.kind = kind
+        self.center = center
+        self.quality = quality
+        self.cells = [center]
+
+
+class TestTheShapeThatDidNotRecur(unittest.TestCase):
+    """§140.5 wondered where else the barrel oscillation was hiding.
+
+    v3.80 fixed a dwarf that chose the nearest drink, stepped one tile, and
+    chose again from where it had landed -- with a z-penalty of three tiles a
+    level, two barrels either side of a ramp was a trap it died in. §140.5
+    left the question open for everything else that ranks by distance:
+    `_go_pray`, `_claim_job`, and the hauling destination.
+
+    Measured, the answer is that it does not recur, and each of them is immune
+    for its own reason:
+
+    - `_go_pray` takes `temples(fort)[0]`, not the nearest temple, and the
+      cells it sorts are all inside one room.
+    - `_claim_job` only runs when the dwarf has no job; once assigned, the job
+      is held on `DwarfState.job`.
+    - `fetch_target` walks `job_items`, which are reserved item *ids*, so the
+      destination cannot change because the dwarf moved.
+    - `free_bed` says so in its own docstring: "keeping the one it already
+      has".
+    - `_to_the_tavern` keeps `path_goal` and only re-plans on a timer.
+
+    `_drink_water` is the one that still asks `nearest_water` every step, and
+    it has the bigger z-penalty of the two -- four tiles a level. Measured on
+    a fortress with the ale stripped out, which is the only way to make it run
+    at all: 820 calls, the goal changing under a walking dwarf 187 times, and
+    six of those changes returning to the cell they came from. The goals
+    converge -- (47,31,-3), (43,26,-2), (42,29,-2) four times, (42,26,-2)
+    eight times and settled -- so what the 187 mostly are is a dwarf finding
+    genuinely nearer water as it walks. Not the trap.
+
+    These tests pin the immunities rather than fix anything, so that the shape
+    cannot come back unnoticed.
+    """
+
+    def _fort(self, seed="shape"):
+        fort = embark(seed)
+        return fort, fort.dwarves()[0]
+
+    def test_hauling_does_not_re_choose_when_the_dwarf_moves(self):
+        """`fetch_target` follows reserved ids, not whatever is nearest.
+
+        With a decoy log lying nearer than the reserved one, so that "the
+        nearest pile" and "the item this job booked" are different answers --
+        the first version of this test dropped one log, and both readings
+        agreed on it whatever the code did.
+        """
+        fort, dwarf = self._fort()
+        fort.items_on_ground.clear()
+        job = Job(1, "craft", dwarf.x, dwarf.y, dwarf.z)
+        booked = Item("wood_log", "wood")
+        decoy = Item("wood_log", "wood")
+        fort.drop_item(booked, dwarf.x + 8, dwarf.y, dwarf.z)
+        fort.drop_item(decoy, dwarf.x + 1, dwarf.y, dwarf.z)
+        fort.jobs.reserved_items[booked.id] = job.id
+        job.target = booked.id
+        fort.job_items = lambda _job: [booked.id]
+
+        booked_cell = fort.item_cell(booked)
+        self.assertNotEqual(booked_cell, fort.item_cell(decoy))
+        self.assertEqual(fort.fetch_target(dwarf, job), booked_cell,
+                         "it went for the nearest log, not the booked one")
+        # Now stand the other side of the decoy, so "nearest" flips.
+        dwarf.x, dwarf.y, dwarf.z = dwarf.x - 6, dwarf.y, dwarf.z
+        self.assertEqual(fort.fetch_target(dwarf, job), booked_cell,
+                         "the haul destination moved because the dwarf did")
+
+    def test_a_dwarf_keeps_the_job_it_claimed(self):
+        fort, dwarf = self._fort("shape2")
+        job = Job(1, "dig", dwarf.x + 3, dwarf.y, dwarf.z, labor="mining")
+        fort.jobs.jobs[job.id] = job
+        fort.jobs.assign(job, dwarf)
+        dwarf.fort.job = job
+        # `_claim_job` is only reached with no job in hand; holding one, the
+        # dwarf never asks the board again.
+        self.assertIs(dwarf.fort.job, job)
+        dwarf.x += 2
+        self.assertIs(dwarf.fort.job, job)
+
+    def test_a_patient_keeps_the_bed_it_was_given(self):
+        """Two wards, and the patient does not swap when it walks."""
+        from ascii_warriors.fortress import hospital
+
+        fort, dwarf = self._fort("shape3")
+        near = Building("hospital", dwarf.x + 2, dwarf.y, dwarf.z)
+        far = Building("hospital", dwarf.x + 12, dwarf.y, dwarf.z)
+        for b in (near, far):
+            b.built = True
+            fort.buildings.append(b)
+        first = hospital.free_bed(fort, dwarf)
+        self.assertIsNotNone(first)
+        # Stand next to the other one and ask again.
+        other = far if first is near else near
+        dwarf.x, dwarf.y, dwarf.z = other.center
+        self.assertIs(hospital.free_bed(fort, dwarf), first,
+                      "the patient changed wards because it moved")
+
+    def test_the_temple_list_is_ordered_by_quality_not_by_distance(self):
+        """Two temples, and the order does not follow the dwarf about."""
+        from ascii_warriors.fortress import rooms as room_mod
+
+        fort, dwarf = self._fort("shape4")
+        good = _Room("temple", (dwarf.x + 12, dwarf.y, dwarf.z), quality=40)
+        poor = _Room("temple", (dwarf.x + 2, dwarf.y, dwarf.z), quality=5)
+        room_mod.rooms = lambda _fort: [poor, good]
+        try:
+            self.assertIs(room_mod.temples(fort)[0], good)
+            dwarf.x, dwarf.y, dwarf.z = poor.center
+            self.assertIs(room_mod.temples(fort)[0], good,
+                          "standing in the poor temple reordered the list")
+        finally:
+            room_mod.rooms = _REAL_ROOMS
+
+    def test_a_dwarf_with_no_ale_still_gets_a_drink(self):
+        """The path none of the seven-day runs has ever entered.
+
+        `_drink_water` is called zero times over a hundred days of `year1`,
+        because the embark's 150 units of ale outlast the run and `_go_drink`
+        never falls through to it. Strip the ale and it is called 820 times in
+        twenty days -- and all seven dwarves are still alive at the end, which
+        is the thing worth pinning about a fallback nobody exercises.
+        """
+        fort, dwarf = self._fort("shape5")
+        for cell, pile in list(fort.items_on_ground.items()):
+            keep = [i for i in pile if not i.is_drink]
+            if keep:
+                fort.items_on_ground[cell] = keep
+            else:
+                del fort.items_on_ground[cell]
+        self.assertIsNone(fort.find_consumable(dwarf, drink=True),
+                          "the fixture left a drink on the floor")
+        if fort.nearest_water(dwarf) is None:
+            self.skipTest("this embark has no water within reach")
+        dwarf.needs.thirst = dwarf_mod.THIRST_URGENT * 2
+        was = dwarf.needs.thirst
+        for _ in range(60):
+            dwarf_mod._handle_needs(fort, dwarf, sim.STEP_TICKS)
+            if dwarf.needs.thirst < was:
+                break
+        self.assertLess(dwarf.needs.thirst, was,
+                        "sixty steps with a river in reach and no drink")
