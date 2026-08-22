@@ -47,6 +47,15 @@ from ascii_warriors.game.state import Game
 from ascii_warriors.world.worldgen import generate_world
 from tools import scratch_saves
 
+#: Turns an adventurer has to have lived before "it never went anywhere" and
+#: "nobody had any work for it" are fair questions.
+#:
+#: Measured over twelve seeds: the ones that died inside 70 turns saw one or
+#: two world squares and the ones that lived 189 turns or more saw between 5
+#: and 34. A hundred sits in the gap, and the shortest life that clears it
+#: had already reached four.
+TRAVEL_ENOUGH = 100
+
 #: Ticks of game time below which "nobody got thirsty" says nothing, and the
 #: thirst a working clock has to have produced by then.
 #:
@@ -847,13 +856,24 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         problems.append("died of thirst standing next to water")
     if out["cause"] == "drowned" and out["dry_land_beside"]:
         problems.append("drowned with dry land one step away")
+    # Dormant by design, not by accident: this one only means anything about
+    # a run that ended with the adventurer alive, and none of them do. Left
+    # exactly as it is, because it guards the driver against truncating a run
+    # silently and it cannot fire wrongly.
     if out["turns"] < args.turns and not out["dead"]:
         problems.append("stopped early without dying")
     if out["nowhere"]:
         problems.append("work with no destination: %s"
                         % ", ".join(out["nowhere"]))
-    if out["world_tiles"] < 2 and not out["dead"]:
-        problems.append("never left the world square it started on")
+    # Gated on having lived long enough to go somewhere, not on having
+    # survived. Twelve seeds measured, twelve dead -- every adventurer in the
+    # ritual bleeds to death, most of them inside 300 turns of a 16000-turn
+    # budget -- so `not dead` was a gate that never opened and these two
+    # checks had never run at all. An adventurer killed on turn 36 has not
+    # failed to travel; one that lived 300 turns on one world square has.
+    if out["turns"] > TRAVEL_ENOUGH and out["world_tiles"] < 2:
+        problems.append("%d turns and it never left the world square it "
+                        "started on" % out["turns"])
     missed = out["actions"].get("ARRIVED AND IT WAS NOT THERE", 0)
     if missed:
         problems.append("%d times it walked to where the job was and the job "
@@ -861,8 +881,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if out["ready_but_unpaid"]:
         problems.append("%d jobs met and reported and never paid"
                         % out["ready_but_unpaid"])
-    if not out["quests_taken"] and not out["dead"]:
-        problems.append("nobody in the world had any work")
+    if out["turns"] > TRAVEL_ENOUGH and not out["quests_taken"]:
+        problems.append("%d turns and nobody in the world had any work"
+                        % out["turns"])
     for problem in problems:
         print("PLAY PROBLEM: %s" % problem)
     if problems:

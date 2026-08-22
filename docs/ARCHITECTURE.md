@@ -8886,7 +8886,81 @@ reported and not what gets simulated.
   honestly stranded. That is the right answer to a different question than the
   one v3.80 was hunting.
 
-## 143. Style
+## 143. The checks that never ran (v3.83)
+
+§142.4 left the rest of the drivers' invariants unaudited -- "read and left,
+which is not the same as checked". Seven more in `fort` and eight in `play`.
+Asked what each one measures, three of them turn out never to have run at all.
+
+### 143.1. A gate that could not open
+
+    if out["drink"] <= 0 and "brew_ale" in out["orders"]:
+        problems.append("the still had a standing order and made nothing")
+
+`drink` is the ale in store when the run stops, and an embark arrives with 150
+units of it. Measured over three seeds, the stock went 150 to 413, 150 to 617
+and 150 to 427 -- so the fortress would have to drink its way through
+everything it brought *and* everything it brewed before this could fire. In a
+seven-day run it never can.
+
+It was wrong the other way as well. A still that worked all year for dwarves
+who drank the lot would have been reported as a still that made nothing.
+
+Leftovers were never the question. `_watch_the_workshops` counts the work
+instead: a finished `craft` job carries the building it was done at, so the
+driver now reports `made {'still': 162, 'carpenter': 4}` and asks whether the
+still brewed, not whether anything is left.
+
+### 143.2. Two more, gated on an outcome that never happens
+
+    if out["world_tiles"] < 2 and not out["dead"]: ...
+    if not out["quests_taken"] and not out["dead"]: ...
+
+Twelve seeds measured, twelve dead. Every adventurer in the ritual bleeds to
+death, most of them inside 300 turns of a 16000-turn budget:
+
+```
+play 36  beta 230  gamma 138  delta 189  epsilon 52  zeta 645
+eta 288  theta 69  iota 43   kappa 70   lambda 50   mu 69
+```
+
+So `not dead` was a gate that never opened, and neither check had ever run.
+
+Gated on opportunity instead. An adventurer killed on turn 36 has not failed
+to travel; one that lived 300 turns on a single world square has. The seeds
+that died inside 70 turns saw one or two squares and the ones that lived 189
+or more saw between 5 and 34, so `TRAVEL_ENOUGH = 100` sits in the gap.
+
+A third, "stopped early without dying", is dormant for the same reason and has
+been left exactly as it is: it guards the driver against truncating a run
+silently, it only means anything about a run that ended alive, and it cannot
+fire wrongly. Dormant by design is not the same as broken, and the difference
+is worth writing down rather than papering over.
+
+### 143.3. Numbers worked out every day and thrown away
+
+`low_food` and `low_drink` are recomputed on every one of the seven days,
+stored in the result, and read by nothing -- neither printed nor asserted on.
+So are `left_undug` and `lost`. The driver was already measuring the low-water
+mark of the larder and then discarding it; seed `fort` bottoms out at 18 units
+of food, which is the sort of number the whole driver exists to surface.
+
+All four are printed now. They are not asserted on: a fortress that runs its
+larder down to 18 is a fortress playing badly, and §119's rule is that playing
+badly is not a defect in the game.
+
+### 143.4. Measured and left
+
+- **Every adventurer bleeds to death.** Twelve of twelve, and `tools/play.py`
+  has a `BLOOD_REST` threshold whose whole purpose is to break off a fight
+  before that happens. The driver is asking for 16000 turns and getting
+  between 36 and 645, so nothing past the first few percent of an adventure
+  has ever been exercised. That is the next milestone.
+- **`play` computes `coins`, `kinds_taken`, `quests_failed` and `kinds_done`
+  and shows none of them.** The same shape as §143.3 on the other side of the
+  game, left for whoever needs one of those numbers.
+
+## 144. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

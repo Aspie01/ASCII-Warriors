@@ -404,6 +404,33 @@ class _Searches:
         }
 
 
+def _watch_the_workshops(fort):
+    """Count what the workshops finish, by the kind of shop that finished it.
+
+    The still's invariant used to read the ale *stock* at the end of the run,
+    which answers a different question. The embark arrives with 150 units, so
+    "the still made nothing" could not fire until the fortress had drunk its
+    way through every one of them -- measured over three seeds the stock went
+    150 to 413, 150 to 617 and 150 to 427, and the check has never once fired.
+    It was wrong the other way too: a still that worked all year for dwarves
+    who drank the lot would have been reported as a still that made nothing.
+
+    A finished `craft` job carries the building it was done at, so this counts
+    the work rather than the leftovers.
+    """
+    made = collections.Counter()
+    real = fort.complete_job
+
+    def counting(dwarf, job):
+        if job.kind == "craft":
+            shop = next((b for b in fort.buildings if b.id == job.target), None)
+            made[shop.kind if shop is not None else "?"] += 1
+        return real(dwarf, job)
+
+    fort.complete_job = counting
+    return made
+
+
 def _could_have_drunk(fort, dwarf) -> bool:
     """Whether a drink was within this dwarf's reach where it fell.
 
@@ -459,6 +486,7 @@ def play(seed: str, days: int, *, size: str = "small", history: int = 60,
     # hold still: magma spreads, water flows, and a corpse's surroundings an
     # hour later are not the ones it died in.
     counted, stranded = set(), []
+    made = _watch_the_workshops(fort)
     searches = _Searches()
     searches.__enter__()
     for day in range(days):
@@ -505,6 +533,7 @@ def play(seed: str, days: int, *, size: str = "small", history: int = 60,
         "left_undug": sum(1 for k in fort.designations.cells.values()
                           if k == "dig"),
         "thirst_in_reach": stranded,
+        "made": dict(made),
         "wealth": fort.wealth,
         "beds": sum(1 for b in fort.buildings if b.kind == "bed" and b.built),
         "lost": fort.lost,
@@ -529,8 +558,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if not args.quiet:
         for key in ("at", "painted", "done", "left", "built", "unbuilt",
                     "felled", "furthest_build", "orders", "militia",
-                    "water_cells", "aquifer", "thirst_in_reach",
+                    "water_cells", "aquifer", "thirst_in_reach", "made",
                     "started_with", "alive", "idle", "deaths", "food", "drink",
+                    "low_food", "low_drink", "left_undug", "lost",
                     "wealth", "beds", "days", "searches"):
             print("  %-13s %s" % (key, out[key]))
 
@@ -567,8 +597,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if out["thirst_in_reach"]:
         problems.append("died of thirst with a drink in reach: %s"
                         % "; ".join(out["thirst_in_reach"]))
-    if out["drink"] <= 0 and "brew_ale" in out["orders"]:
-        problems.append("the still had a standing order and made nothing")
+    if "brew_ale" in out["orders"] and not out["made"].get("still"):
+        problems.append("the still had a standing order and brewed nothing")
     for problem in problems:
         print("FORT PROBLEM: %s" % problem)
     if problems:

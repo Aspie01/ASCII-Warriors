@@ -8842,7 +8842,8 @@ _DRIVER_RUN = {
     "done": {"dig": 62, "chop": 60}, "left": {}, "built": ["farm"],
     "unbuilt": [], "felled": 0, "furthest_build": 4, "orders": ["brew_ale"],
     "militia": {"squad": 1, "enlisted": 2, "barracks": True},
-    "thirst_in_reach": [],
+    "thirst_in_reach": [], "made": {"still": 162, "carpenter": 4},
+    "low_food": 18, "low_drink": 317, "left_undug": 0, "lost": False,
     "water_cells": 0, "aquifer": 0, "started_with": 7, "alive": 7, "idle": 0,
     "deaths": {}, "food": 40, "drink": 40, "low_food": 40, "low_drink": 40,
     "wealth": 100, "beds": 7, "left_undug": 0, "lost": 0,
@@ -9572,3 +9573,58 @@ class TestTheThirstAlarmAsksTheDwarf(unittest.TestCase):
         self.assertEqual(code, 1, text)
         self.assertIn("died of thirst with a drink in reach", text)
         self.assertIn("Urist McThirsty", text)
+
+
+class TestTheStillCheckAsksAboutBrewing(unittest.TestCase):
+    """A check that had never once fired, and would have fired backwards.
+
+        if out["drink"] <= 0 and "brew_ale" in out["orders"]:
+            problems.append("the still had a standing order and made nothing")
+
+    `drink` is the ale in store when the run stops, and the embark arrives
+    with 150 units of it. Measured over three seeds the stock went 150 to 413,
+    150 to 617 and 150 to 427 -- so "the still made nothing" could not fire
+    until the fortress had drunk its way through the lot, which in a seven-day
+    run it never does. And a still that worked all year for dwarves who drank
+    everything it made would have been reported as a still that made nothing.
+
+    Leftovers were never the question. `_watch_the_workshops` counts the work.
+    """
+
+    def test_it_counts_what_each_shop_finished(self):
+        fort = embark("brewing")
+        driver_fort._put_up_the_workshops(fort)
+        made = driver_fort._watch_the_workshops(fort)
+        still = next(b for b in fort.buildings if b.kind == "still")
+        dwarf = fort.dwarves()[0]
+        job = Job(1, "craft", *still.center)
+        job.target = still.id
+        fort.complete_job(dwarf, job)
+        self.assertEqual(made["still"], 1)
+
+    def test_a_still_that_brewed_nothing_fails_the_run(self):
+        out = dict(_DRIVER_RUN, orders=["brew_ale"], made={"carpenter": 4},
+                   drink=500)
+        code, text = _run_driver(out)
+        self.assertEqual(code, 1, text)
+        self.assertIn("brewed nothing", text)
+
+    def test_a_dry_store_is_not_a_still_that_failed(self):
+        """The old check's false alarm: it brewed, and they drank it."""
+        out = dict(_DRIVER_RUN, orders=["brew_ale"],
+                   made={"still": 162}, drink=0)
+        code, text = _run_driver(out)
+        self.assertEqual(code, 0, text)
+        self.assertIn("FORT OK", text)
+
+    def test_no_order_means_no_question(self):
+        out = dict(_DRIVER_RUN, orders=[], made={}, drink=0)
+        code, text = _run_driver(out)
+        self.assertEqual(code, 0, text)
+
+    def test_the_numbers_it_works_out_are_shown(self):
+        """`low_food` and the rest were computed daily and never looked at."""
+        code, text = _run_driver(dict(_DRIVER_RUN))
+        self.assertEqual(code, 0, text)
+        for key in ("low_food", "low_drink", "left_undug", "lost", "made"):
+            self.assertIn(key, text, "%s is worked out and never shown" % key)

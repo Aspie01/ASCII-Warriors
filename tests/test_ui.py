@@ -1271,3 +1271,57 @@ class TestAnAlarmYouCanTrust(unittest.TestCase):
         from tools import play as driver
 
         self.assertLess(driver.CLOCK_FLOOR, driver.CLOCK_ENOUGH // 2)
+
+
+class TestTheGatesThatNeverOpened(unittest.TestCase):
+    """Two checks gated on the adventurer surviving, which none of them do.
+
+        if out["world_tiles"] < 2 and not out["dead"]: ...
+        if not out["quests_taken"] and not out["dead"]: ...
+
+    Twelve seeds measured, twelve dead -- every adventurer in the ritual
+    bleeds to death, most inside 300 turns of a 16000-turn budget. So `not
+    dead` was a gate that never opened and neither check had ever run.
+
+    Gated on opportunity instead: an adventurer killed on turn 36 has not
+    failed to travel, and one that lived 300 turns on a single world square
+    has. The seeds that died inside 70 turns saw one or two squares; the ones
+    that lived 189 or more saw between 5 and 34.
+    """
+
+    def test_a_short_life_that_went_nowhere_is_not_a_defect(self):
+        code, text = _run_play(dict(_PLAY_RUN, turns=36, ticks=36,
+                                    world_tiles=1,
+                                    peak={"thirst": 36, "hunger": 36,
+                                          "drowsy": 13}))
+        self.assertEqual(code, 0, text)
+
+    def test_a_long_life_that_went_nowhere_is(self):
+        code, text = _run_play(dict(_PLAY_RUN, turns=300, world_tiles=1))
+        self.assertEqual(code, 1, text)
+        self.assertIn("never left the world square", text)
+
+    def test_a_short_life_with_no_work_is_not_a_defect(self):
+        """Seed `iota`: nobody offered it anything, and it died on turn 43."""
+        code, text = _run_play(dict(_PLAY_RUN, turns=43, ticks=43,
+                                    quests_taken=0, world_tiles=1,
+                                    peak={"thirst": 43, "hunger": 43,
+                                          "drowsy": 20}))
+        self.assertEqual(code, 0, text)
+
+    def test_a_long_life_with_no_work_is(self):
+        code, text = _run_play(dict(_PLAY_RUN, turns=300, quests_taken=0))
+        self.assertEqual(code, 1, text)
+        self.assertIn("nobody in the world had any work", text)
+
+    def test_the_gate_sits_in_the_gap_the_seeds_left(self):
+        """The threshold has to separate the short lives from the long ones.
+
+        Measured: dead by turn 70 means one or two world squares seen, and
+        alive at 189 means five or more. A gate inside that gap asks the
+        question only of runs that had a chance to answer it.
+        """
+        from tools import play as driver
+
+        self.assertGreater(driver.TRAVEL_ENOUGH, 70)
+        self.assertLess(driver.TRAVEL_ENOUGH, 189)
