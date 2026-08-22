@@ -9261,7 +9261,117 @@ re-break pass is the only thing that finds them.
 - **The adventurer still dies every time.** 0 of 40 reach the 16000 turns the
   driver asks for (§144.4), and none of these five milestones changed that.
 
-## 148. Style
+## 148. A warrior who cannot use a sword (v3.88)
+
+Three milestones have now recorded the same thing and left it: §143.4, §144.4
+and §147 each note that no adventurer survives -- 0 of 40 reach the 16000
+turns `tools/play.py` asks for, and three quarters of the run it requests has
+never been exercised by anything.
+
+The cause is one line that was never written.
+
+```python
+player.profession = profession
+for skill, level in (player_spec.get("skills") or {}).items():
+    player.skills.set_level(skill, level)
+```
+
+`Game.new_game` takes a profession, stores it on the character, and then
+applies whatever skills the *caller* passed alongside. It never consults the
+table that says what a profession knows -- that lived in `ui/charcreate.py`,
+where the game layer could not see it. The character-creation screen passes
+the skills, so a real player gets a real warrior. `tests/test_systems.py`
+reaches into the UI and applies the table by hand, in three separate places.
+`tools/play.py` passes this:
+
+```python
+Game.new_game(world, {"race": "human", "profession": "warrior"}, rng)
+```
+
+and gets a man with an iron sword, a mail shirt, a helm, and `fighter 0`,
+`sword 0`.
+
+### 148.1. Two true statements about different warriors
+
+`TestWhatTheModelCannotSay` says, in its own docstring, that "a starting
+warrior beats a wolf forty times in forty in seven exchanges". Duelled twenty
+times, the warrior `play()` actually made won **one of twenty** against a
+wolf, and none at all against a goblin. Both statements are true. They were
+never about the same character.
+
+The measurements that led here, in order, and four of them wrong:
+
+| | |
+| --- | --- |
+| 38 of 40 bled to death | so it is bleeding, not blunt trauma |
+| only 12 of 40 ever ran out of bandages | so it is not the supply -- 28 died with dressings in hand |
+| worn cloth *is* reachable by crafting | `equip` leaves the item in `items`, so the shirt on your back can be torn |
+| median 28 consecutive swings at one creature | so fights *do* run to a finish; they are not being interrupted |
+| 4994 swings, **11 kills** | one kill per 454 swings, and 619 swings at badgers killed no badger |
+| sword in hand for all 1048 sampled swings, 67% hit | so it is not the weapon, and not the aim |
+
+The last one is what pointed at the character rather than the fight.
+
+### 148.2. What it is worth
+
+Forty seeds, the same seeds both ways:
+
+| | mean | median | longest | survived |
+| --- | ---: | ---: | ---: | ---: |
+| `fighter 0`, as it was | 328.7 | 138.5 | 4214 | 0 of 40 |
+| `fighter 4`, as asked for | **679.5** | 155.0 | **16000** | **1 of 40** |
+
+Thirty-eight of the forty lived longer. One reached the sixteen thousand turns
+the driver asks for, which nothing had ever done.
+
+The table now lives in `data/professions.py` where the game can see it,
+`new_game` applies it, and skills the caller passes still win -- so character
+creation behaves exactly as before, and the UI re-exports the table rather
+than keeping a second copy to drift.
+
+### 148.3. What this does to the earlier numbers
+
+Every adventure measurement before this one was taken on the novice. That does
+not overturn §144's conclusion -- fleeing was a symptom rather than the cause,
+and 394 retreats from things that cannot be outrun are still 394 wasted turns
+-- but the numbers in §144.1 and §144.3 describe a character who no longer
+exists, and should be read that way. Whether the flee gate is still the right
+call for a warrior who can fight has not been re-measured.
+
+### 148.4. Two tests were measuring the novice too
+
+The full suite failed twice, and neither was collateral -- both were the same
+defect, one layer further in.
+
+`TestTheMetalInYourSword` builds its swordsman with the same
+`new_game(..., "warrior")` call, so every claim that class makes about what a
+metal does was measured by somebody who had never held a blade. It pins the
+skill now, because the class is about the blade and not about who swings it:
+
+| twenty-five samples, cap 400 | copper | iron | steel | adamantine |
+| --- | ---: | ---: | ---: | ---: |
+| the novice it used to get | 400 | 400 | 37 | 22 |
+| a warrior who can use a sword | 400 | 81 | 30 | 17 |
+
+The ordering never moved. Only the threshold did -- ten times becomes two and
+a half, because skill closes on the metal a little -- so the assertion is
+`iron > steel * 2` and says so. The failing run's `iron 56, steel 69` was
+nine-sample noise; at twenty-five the gap is clean.
+
+`TestSkillsYouWereSold._scholar` laid a scholar's skills over the fixture's
+warrior and returned it. That warrior now comes with `sword 4`, so the
+"scholar" could write a treatise on swordsmanship -- which the very next test
+forbids. It builds a scholar now instead of dressing one up.
+
+### 148.5. Measured and left
+
+- **One survivor of forty is not a solved game.** The median life is still 155
+  turns. What kills them now is worth its own measurement: the causes have
+  changed shape, with a head severed and a throat destroyed among them where
+  before it was almost uniformly bleeding.
+- **`smoke.py` makes its character the same way** and was not touched here.
+
+## 149. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

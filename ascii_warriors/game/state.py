@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Set, Tuple
 
 from ..data import biomes as biome_data
+from ..data import professions
 from ..data import creatures as creature_data
 from ..data import names as name_data
 from ..data.calendar import GameTime, TICKS_PER_DAY
@@ -117,6 +118,13 @@ class Game:
             player=True, faction="player",
         )
         player.profession = profession
+        # What the profession knows, before whatever the caller asked for on
+        # top of it. Applied here rather than left to the caller: the name was
+        # being stored and otherwise ignored, so `tools/play.py` asked for a
+        # warrior for years and got somebody holding a sword for the first
+        # time -- fighter 0, sword 0, one win in twenty against a wolf.
+        for skill, level in professions.skills_for(profession).items():
+            player.skills.set_level(skill, level)
         for skill, level in (player_spec.get("skills") or {}).items():
             player.skills.set_level(skill, level)
         for attr, value in (player_spec.get("attributes") or {}).items():

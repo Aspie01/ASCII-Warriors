@@ -915,6 +915,17 @@ class TestTheMetalInYourSword(unittest.TestCase):
     blows as anything else, because it weighs a fortieth of what steel does.
     """
 
+    #: The swordsman these measurements are taken with.
+    #:
+    #: Held fixed on purpose. Every number in this class is a claim about a
+    #: *metal*, and until v3.88 the character swinging it happened to have
+    #: `sword 0` -- `new_game` was given a profession and ignored it. When
+    #: that was fixed the same tests measured a different swordsman, iron went
+    #: from 400 blows to 81 and the ratio to steel fell from 10.8 to 2.7. The
+    #: ordering never moved; the threshold did. Pinning the skill keeps these
+    #: about the blade.
+    BLOWS_SKILL = 4
+
     @staticmethod
     def _blows(weapon, material, beast, n=9, cap=400, armour_mat=""):
         """Median blows to put something down, unopposed."""
@@ -940,6 +951,9 @@ class TestTheMetalInYourSword(unittest.TestCase):
                 w = Item(weapon, material, quality=2)
                 p.inventory.add(w)
                 p.inventory.equip(w, "weapon")
+                for sid in ("sword", "axe", "hammer", "spear", "dagger",
+                            "fighter"):
+                    p.skills.set_level(sid, TestTheMetalInYourSword.BLOWS_SKILL)
                 foe = make_creature(r, beast, faction="hostile", equip=False)
                 if armour_mat:
                     for piece in ("breastplate", "helm", "greaves"):
@@ -989,13 +1003,18 @@ class TestTheMetalInYourSword(unittest.TestCase):
         The ratio, not the cap. This asserted `iron == 300` -- the number the
         loop gives up at -- which is a saturating proxy: it says "iron never
         got there in three hundred blows" and stops meaning anything the
-        moment iron gets there in two hundred and ninety-nine. Measured now:
-        copper 300, iron 193, steel 40, adamantine 22.
+        moment iron gets there in two hundred and ninety-nine.
+
+        Measured over twenty-five samples at `BLOWS_SKILL`, cap 400: copper
+        400, iron 81, steel 30, adamantine 17. With the `sword 0` swordsman
+        this class used to get by accident it was copper 400, iron 400, steel
+        37, adamantine 22 -- the same ordering, a wider gap. Two and a half
+        times, not three, because skill closes on the metal a little.
         """
         iron = self._blows("sword", "iron", "skeleton", cap=300)
         steel = self._blows("sword", "steel", "skeleton", cap=300)
         adam = self._blows("sword", "adamantine", "skeleton", cap=300)
-        self.assertGreater(iron, steel * 3,
+        self.assertGreater(iron, steel * 2,
                            "an iron sword cuts bone nearly as well as steel")
         self.assertLess(steel, 100, "a steel sword still cannot cut bone")
         self.assertLess(adam, steel, "adamantine is no better than steel")
@@ -1794,3 +1813,99 @@ class TestTheModesNobodyEnters(unittest.TestCase):
         self.assertEqual(calendar.SECONDS_PER_TICK * calendar.TICKS_PER_MINUTE,
                          60)
         self.assertEqual(calendar.TICKS_PER_DAY, 14400)
+
+
+class TestAWarriorWhoCanUseASword(unittest.TestCase):
+    """`Game.new_game` took a profession, stored it, and ignored it.
+
+    The skills each profession starts with lived in `ui/charcreate.py`, and
+    `new_game` applied only whatever skills the caller passed alongside. The
+    character-creation screen passed them. `tests/test_systems.py` reaches
+    into the UI and applies them by hand, in three places. `tools/play.py`
+    passed `{"race": "human", "profession": "warrior"}` and nothing else, and
+    so spent its whole existence measuring a man with an iron sword, a mail
+    shirt and no idea what to do with either:
+
+        the character play() made: sword/iron, mail_shirt, helm
+                                   fighter 0, sword 0
+        duelled twenty times:      1 win of 20 against a wolf
+                                   0 of 20 against a goblin
+
+    The duel test two classes up says a starting warrior "beats a wolf forty
+    times in forty in seven exchanges". Both were true. They were not the same
+    warrior.
+
+    Measured over forty seeds, the same seeds both ways:
+
+        fighter 0   mean 328.7 turns, median 138.5, longest 4214, survived 0
+        fighter 4   mean 679.5 turns, median 155.0, longest 16000, survived 1
+
+    Thirty-eight of the forty lived longer, and one reached the sixteen
+    thousand turns the driver asks for -- the first time anything has, and the
+    reason §143.4, §144.4 and §147 could each report that three quarters of
+    the run had never been exercised by anything.
+    """
+
+    def _new_game(self, spec, seed="prof"):
+        import tempfile
+
+        from ascii_warriors.game.state import Game
+        from ascii_warriors.world.worldgen import generate_world
+
+        old = os.environ.get("ASCII_WARRIORS_SAVE_DIR")
+        os.environ["ASCII_WARRIORS_SAVE_DIR"] = tempfile.mkdtemp()
+        try:
+            rng = RNG(seed)
+            world = generate_world(rng.sub("w"), size="pocket",
+                                   history_years=5)
+            return Game.new_game(world, spec, rng)
+        finally:
+            if old is None:
+                os.environ.pop("ASCII_WARRIORS_SAVE_DIR", None)
+            else:
+                os.environ["ASCII_WARRIORS_SAVE_DIR"] = old
+
+    def test_asking_for_a_warrior_gets_one(self):
+        game = self._new_game({"race": "human", "profession": "warrior"})
+        p = game.player
+        self.assertGreaterEqual(p.skills.level("sword"), 4,
+                                "a warrior who has never held a sword")
+        self.assertGreaterEqual(p.skills.level("fighter"), 4)
+
+    def test_every_profession_starts_with_what_it_says(self):
+        from ascii_warriors.data import professions
+
+        for name, (_desc, skills) in professions.PROFESSIONS.items():
+            game = self._new_game({"race": "human", "profession": name},
+                                  seed="prof-" + name)
+            for skill, level in skills.items():
+                self.assertGreaterEqual(
+                    game.player.skills.level(skill), level,
+                    "%s should start with %s %d" % (name, skill, level))
+
+    def test_what_the_caller_asks_for_still_wins(self):
+        """Character creation passes its own skills; they must not be lost."""
+        game = self._new_game({"race": "human", "profession": "warrior",
+                               "skills": {"sword": 9}})
+        self.assertEqual(game.player.skills.level("sword"), 9)
+
+    def test_a_profession_nobody_has_heard_of_is_not_a_crash(self):
+        from ascii_warriors.data import professions
+
+        self.assertEqual(professions.skills_for("chandler"), {})
+        game = self._new_game({"race": "human", "profession": "chandler"})
+        self.assertEqual(game.player.profession, "chandler")
+
+    def test_there_is_only_one_copy_of_the_table(self):
+        """The UI re-exports it rather than keeping a second one to drift."""
+        from ascii_warriors.data import professions
+        from ascii_warriors.ui import charcreate
+
+        self.assertIs(charcreate.PROFESSIONS, professions.PROFESSIONS)
+
+    def test_the_driver_gets_a_fighter(self):
+        """End to end, through the call `tools/play.py` actually makes."""
+        game = self._new_game({"race": "human", "profession": "warrior"},
+                              seed="driver")
+        self.assertGreater(game.player.skills.level("fighter"), 0,
+                           "the adventure driver is measuring a novice again")

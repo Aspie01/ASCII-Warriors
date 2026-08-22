@@ -5511,10 +5511,25 @@ class TestSkillsYouWereSold(GameFixture):
     # -- writing ------------------------------------------------------------- #
 
     def _scholar(self):
-        from ascii_warriors.ui.charcreate import PROFESSIONS
+        """A scholar, rather than a warrior with a scholar's reading list.
+
+        This used to lay the scholar's skills over the fixture's player and
+        return it. The fixture's player is a warrior, and since `new_game`
+        started honouring the profession it asks for (§148) that warrior comes
+        with `sword 4` -- so the "scholar" could write a treatise on
+        swordsmanship, which is exactly what the test below forbids. Anything
+        the scholar was not sold is cleared.
+        """
+        from ascii_warriors.data import professions
 
         p = self.game.player
-        for k, v in PROFESSIONS["scholar"][1].items():
+        from ascii_warriors.game import skills as skills_mod
+
+        keep = professions.skills_for("scholar")
+        for name in skills_mod.SKILLS:
+            if name not in keep:
+                p.skills.set_level(name, 0)
+        for k, v in keep.items():
             p.skills.set_level(k, v)
         return p
 
