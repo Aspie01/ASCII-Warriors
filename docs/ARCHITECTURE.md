@@ -8798,7 +8798,95 @@ not the run. Eight cases, no misses.
   test suite sets its own save directory in `setUp`, which is exactly why it
   never saw any of this: the harness was insulated and the drivers were not.
 
-## 142. Style
+## 142. An alarm you can trust (v3.82)
+
+Two of the drivers' invariants were measuring a proxy, and §140.5 and §141.5
+both wrote them down and left them. This is them.
+
+Neither was wrong to exist. Between them they found the errand bug of §140 and
+the fleeing bug of §140.4. They were asking the wrong question, and an alarm
+that cries wolf is one you stop reading -- `tools/play.py --seed play` printed
+PLAY PROBLEM in every run of the ritual from v3.71 to v3.81, and the honest
+answer each time was "yes, we know, ignore that one".
+
+### 142.1. The clock that was running perfectly
+
+    if out["peak"]["thirst"] < 100:
+        problems.append("needs never moved: the clock is not running")
+
+How many ticks a turn buys depends entirely on what the turn was. Walking the
+world map moves the clock in strides of a hundred; trading blows with a wolf
+moves it by one. Seed `play` is jumped on the road and dead in 36 local turns,
+so 36 ticks pass and thirst reaches 36.
+
+The first replacement was worse than the original: comparing thirst against
+*elapsed* ticks, on the assumption that one followed the other. It failed
+`beta` immediately -- 22126 thirst over 109921 ticks -- and the measurement
+says why:
+
+| seed | ticks | peak thirst | ratio |
+| --- | ---: | ---: | ---: |
+| play | 36 | 36 | 1.000 |
+| epsilon | 3586 | 4097 | 1.142 |
+| gamma | 11600 | 11600 | 1.000 |
+| zeta | 115506 | 16904 | 0.146 |
+| beta | 109921 | 22126 | 0.201 |
+| delta | 118368 | 28797 | 0.243 |
+
+Thirst is not proportional to time. It climbs about a point a tick until the
+character *drinks*, and then it flattens: the first three seeds have not drunk
+yet and the last three have. So the original shape -- an absolute floor -- was
+right all along. What was missing was a gate: ask only once enough game time
+has passed to clear it. `CLOCK_ENOUGH = 600` against `CLOCK_FLOOR = 100`
+leaves six times the margin an honest run needs, and a clock that has genuinely
+stopped still trips it.
+
+### 142.2. The map is not the dwarf
+
+    if out["water_cells"] and "died of thirst" in out["deaths"]:
+
+`water_cells` counts every WATER tile in the whole three-dimensional map --
+the sea, sealed caverns, and the aquifer soaked into the rock. Seed alpha
+breaches a magma pipe on day one and burns half the fortress; the dwarves who
+then died of thirst were reported as a defect in the game because 360 cells of
+water existed somewhere on the map. A fortress being destroyed is the game
+working.
+
+`_could_have_drunk` asks the question that was meant: could *that dwarf*,
+standing where it fell, have walked to a drink -- a barrel within
+`reach_from`, or open water `nearest_water` says it could get to. Both use the
+game's own reachability, so the alarm and the dwarf agree about what reachable
+means.
+
+It is asked at the moment of death, inside the day loop, rather than over the
+corpses at the end. The map does not hold still: magma spreads, water flows,
+and a corpse's surroundings an hour later are not the ones it died in.
+
+### 142.3. Two guards that could not fail
+
+The re-break pass caught both. `test_a_barrel_it_could_walk_to_counts` passed
+with the barrel half of the predicate deleted, because the embark has a brook
+and the water half answered instead. And `test_a_bare_corridor_does_not`
+passed with the reachability check deleted, because an empty floor returns
+False either way -- the drink has to be somewhere *unreachable* for the check
+to be the thing under test. Ten cases, no misses, after both were rebuilt.
+
+With both alarms asking the right question, the ritual is green end to end for
+the first time: 23 of 23, and the fortress numbers unchanged from v3.81 (85,
+109, 100 and 36 designated cells worked), because what changed is what gets
+reported and not what gets simulated.
+
+### 142.4. Measured and left
+
+- **The other invariants have not been audited this way.** `fort` has seven
+  more and `play` has eight; only these two were asked what they actually
+  measure. The rest were read and left, which is not the same as checked.
+- **`_could_have_drunk` is asked once, at death.** A dwarf that could reach a
+  barrel all week and is walled in an hour before it dies is recorded as
+  honestly stranded. That is the right answer to a different question than the
+  one v3.80 was hunting.
+
+## 143. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

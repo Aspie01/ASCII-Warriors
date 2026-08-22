@@ -1179,3 +1179,95 @@ class TestARunYouCanReplay(unittest.TestCase):
         self.assertTrue(seen, "the run never touched the save layer at all")
         self.assertNotIn(players, seen,
                          "the run read the player\'s own save folder")
+
+
+#: What `tools.play.play` hands back after a run that went well. The invariant
+#: tests replace the run itself: what is under test is which of these numbers
+#: the driver refuses to print OK over.
+_PLAY_RUN = {
+    "turns": 230, "ticks": 109921, "dead": True, "cause": "bled to death",
+    "peak": {"thirst": 22126, "hunger": 27447, "drowsy": 29075},
+    "water_nearby": False, "dry_land_beside": False, "nowhere": [],
+    "world_tiles": 4, "actions": {}, "ready_but_unpaid": 0,
+    "quests_taken": 1, "quests_done": 0, "furthest": 40, "work": {},
+}
+
+
+def _run_play(out, argv=("--seed", "t")):
+    """Run `tools.play.main` over a canned result and return (code, output)."""
+    from tools import play as driver
+
+    real = driver.play
+    driver.play = lambda *a, **k: out
+    buf = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(buf):
+            code = driver.main(list(argv))
+    finally:
+        driver.play = real
+    return code, buf.getvalue()
+
+
+class TestAnAlarmYouCanTrust(unittest.TestCase):
+    """Two driver invariants that were measuring a proxy.
+
+    `tools/play.py` asked whether peak thirst had passed 100 and called
+    anything less "the clock is not running". How many ticks a turn buys
+    depends on what the turn was: the world map moves in strides of a hundred,
+    a wolf fight moves it by one. Seed `play` is jumped on the road and dies
+    in 36 local turns, so 36 ticks pass and thirst reaches 36 -- and that seed
+    printed PLAY PROBLEM in every run of the ritual from v3.71 to v3.81.
+
+    `tools/fort.py` asked whether the *map* held any water when somebody died
+    of thirst, and a map holds water in the sea, in sealed caverns and inside
+    the rock as aquifer. Seed alpha breaches a magma pipe on day one; the
+    dwarves who then died of thirst were called a defect in the game because
+    360 cells of water existed somewhere on it.
+
+    Neither alarm was wrong to exist -- between them they found the errand bug
+    and the fleeing bug. They were asking the wrong question.
+    """
+
+    # -- the clock ----------------------------------------------------------- #
+
+    def test_a_short_violent_life_is_not_a_stopped_clock(self):
+        """Seed `play`, which the old floor failed in every ritual."""
+        code, text = _run_play(dict(_PLAY_RUN, turns=36, ticks=36,
+                                    peak={"thirst": 36, "hunger": 36,
+                                          "drowsy": 13}))
+        self.assertEqual(code, 0, text)
+        self.assertIn("PLAY OK", text)
+
+    def test_a_stopped_clock_is_still_caught(self):
+        """The alarm keeps its teeth: time passing with needs frozen."""
+        code, text = _run_play(dict(_PLAY_RUN, ticks=50000,
+                                    peak={"thirst": 3, "hunger": 0,
+                                          "drowsy": 0}))
+        self.assertEqual(code, 1, text)
+        self.assertIn("the clock is running and needs are not", text)
+
+    def test_a_clock_that_never_moved_is_caught(self):
+        code, text = _run_play(dict(_PLAY_RUN, ticks=0, turns=200))
+        self.assertEqual(code, 1, text)
+        self.assertIn("the clock never moved", text)
+
+    def test_it_does_not_ask_before_there_was_time_to_answer(self):
+        """Just under the threshold, thirst at a plausible one-a-tick."""
+        from tools import play as driver
+
+        ticks = driver.CLOCK_ENOUGH
+        code, text = _run_play(dict(_PLAY_RUN, ticks=ticks, turns=20,
+                                    peak={"thirst": 1, "hunger": 1,
+                                          "drowsy": 1}))
+        self.assertEqual(code, 0, text)
+
+    def test_the_floor_is_clear_by_the_time_it_is_asked(self):
+        """The two constants have to leave room for an honest run.
+
+        Thirst climbs about a point a tick before anybody drinks, so by
+        `CLOCK_ENOUGH` an honest run has that many points of it. The floor
+        must sit well under that or the alarm fires on good runs.
+        """
+        from tools import play as driver
+
+        self.assertLess(driver.CLOCK_FLOOR, driver.CLOCK_ENOUGH // 2)

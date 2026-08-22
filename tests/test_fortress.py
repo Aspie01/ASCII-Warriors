@@ -8842,6 +8842,7 @@ _DRIVER_RUN = {
     "done": {"dig": 62, "chop": 60}, "left": {}, "built": ["farm"],
     "unbuilt": [], "felled": 0, "furthest_build": 4, "orders": ["brew_ale"],
     "militia": {"squad": 1, "enlisted": 2, "barracks": True},
+    "thirst_in_reach": [],
     "water_cells": 0, "aquifer": 0, "started_with": 7, "alive": 7, "idle": 0,
     "deaths": {}, "food": 40, "drink": 40, "low_food": 40, "low_drink": 40,
     "wealth": 100, "beds": 7, "left_undug": 0, "lost": 0,
@@ -9454,3 +9455,120 @@ class TestTheBarrelItSetOutFor(unittest.TestCase):
         # Not serialised, like `path`: a reload re-decides, and re-deciding
         # once is not what did the damage.
         self.assertIsNone(back.fort.errand)
+
+
+class TestTheThirstAlarmAsksTheDwarf(unittest.TestCase):
+    """`tools/fort.py` asked the map, not the dwarf.
+
+    The invariant was `water_cells and "died of thirst" in deaths` -- and
+    `water_cells` counts every WATER tile in the whole three-dimensional map:
+    the sea, sealed caverns, and the aquifer soaked into the rock. Seed alpha
+    breaches a magma pipe on day one and burns half the fortress; the dwarves
+    who then died of thirst were reported as a defect in the game because 360
+    cells of water existed somewhere on the map.
+
+    A fortress being destroyed is the game working. The question worth asking
+    is whether *that dwarf*, where it fell, could have walked to a drink --
+    and it is asked at the moment of death, because magma spreads and water
+    flows and a corpse's surroundings an hour later are not the ones it died
+    in.
+    """
+
+    def _corridor(self, fort, dwarf, reach=8):
+        for dx in range(-reach, reach + 1):
+            fort.dig_out((dwarf.x + dx, dwarf.y, dwarf.z), "floor")
+        return dwarf.z
+
+    def test_a_barrel_it_could_walk_to_counts(self):
+        fort = embark("alarm")
+        fort.items_on_ground.clear()
+        dwarf = fort.dwarves()[0]
+        self._corridor(fort, dwarf)
+        # The brook is taken out of it, or this passes on the water whatever
+        # the barrel does -- which is how the first version of it passed with
+        # the barrel half of the predicate deleted.
+        self._no_open_water(fort)
+        cell = (dwarf.x - 5, dwarf.y, dwarf.z)
+        self.assertTrue(fort.local.walkable(*cell),
+                        "the corridor did not open the ground it cut")
+        fort.drop_item(Item("dwarven_ale", "water"), *cell)
+        self.assertTrue(driver_fort._could_have_drunk(fort, dwarf))
+
+    def _no_open_water(self, fort):
+        """Take the river out of the question.
+
+        The two tests below are about the half of the predicate that looks at
+        what is lying on the floor, and most embarks have a brook on them --
+        the first version of them skipped instead of running, which is the one
+        outcome a guard must never have.
+        """
+        fort.water_sources = lambda: []
+
+    def _out_of_reach(self, fort, dwarf):
+        """A cell this dwarf cannot get to, or the test says so."""
+        within = fort.reach_from((dwarf.x, dwarf.y, dwarf.z))
+        lm = fort.local
+        for z in range(lm.zmin, lm.zmax + 1):
+            for y in (1, lm.height - 2):
+                for x in (1, lm.width - 2):
+                    if (x, y, z) not in within:
+                        return (x, y, z)
+        self.fail("every corner of this map is reachable")
+
+    def test_a_bare_corridor_does_not(self):
+        """A barrel it cannot walk to is not a barrel it could have drunk.
+
+        The drink is put somewhere unreachable rather than left out
+        altogether: with an empty floor the predicate returns False whether it
+        checks reachability or not, and the guard could not fail.
+        """
+        fort = embark("alarm2")
+        fort.items_on_ground.clear()
+        dwarf = fort.dwarves()[0]
+        self._corridor(fort, dwarf)
+        self._no_open_water(fort)
+        far = self._out_of_reach(fort, dwarf)
+        fort.items_on_ground[far] = [Item("dwarven_ale", "water")]
+        self.assertFalse(driver_fort._could_have_drunk(fort, dwarf))
+
+    def test_food_on_the_floor_is_not_a_drink(self):
+        fort = embark("alarm3")
+        fort.items_on_ground.clear()
+        dwarf = fort.dwarves()[0]
+        z = self._corridor(fort, dwarf)
+        self._no_open_water(fort)
+        cell = (dwarf.x - 5, dwarf.y, z)
+        self.assertTrue(fort.local.walkable(*cell),
+                        "the corridor did not open the ground it cut")
+        fort.drop_item(Item("plump_helmet", "plant"), *cell)
+        self.assertFalse(driver_fort._could_have_drunk(fort, dwarf))
+
+    def test_water_it_could_reach_counts_too(self):
+        """A dwarf drinks from the brook when the barrels run out."""
+        fort = embark("alarm4")
+        fort.items_on_ground.clear()
+        dwarf = fort.dwarves()[0]
+        z = self._corridor(fort, dwarf)
+        here = (dwarf.x - 4, dwarf.y, z)
+        fort.water_sources = lambda: [here]
+        self.assertTrue(driver_fort._could_have_drunk(fort, dwarf))
+
+    # -- and what the driver does with the answer ---------------------------- #
+
+    def test_a_map_full_of_water_is_no_longer_the_question(self):
+        """The old alarm: any water anywhere plus any thirst death."""
+        out = dict(_DRIVER_RUN, water_cells=360,
+                   deaths={"died of thirst": 2, "burned to death": 3},
+                   thirst_in_reach=[])
+        code, text = _run_driver(out)
+        self.assertEqual(code, 0, text)
+        self.assertIn("FORT OK", text)
+
+    def test_a_drink_it_could_reach_still_fails_the_run(self):
+        out = dict(_DRIVER_RUN, water_cells=0,
+                   deaths={"died of thirst": 1},
+                   thirst_in_reach=["Urist McThirsty on day 64"])
+        code, text = _run_driver(out)
+        self.assertEqual(code, 1, text)
+        self.assertIn("died of thirst with a drink in reach", text)
+        self.assertIn("Urist McThirsty", text)

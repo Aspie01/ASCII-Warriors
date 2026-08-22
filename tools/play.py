@@ -47,6 +47,16 @@ from ascii_warriors.game.state import Game
 from ascii_warriors.world.worldgen import generate_world
 from tools import scratch_saves
 
+#: Ticks of game time below which "nobody got thirsty" says nothing, and the
+#: thirst a working clock has to have produced by then.
+#:
+#: Thirst climbs about a point a tick before anybody drinks, so six hundred
+#: ticks clears a floor of a hundred six times over -- wide enough that no
+#: honest run trips it, and short enough to still catch a clock that has
+#: stopped. The shortest life measured (36 ticks) is never asked the question.
+CLOCK_ENOUGH = 600
+CLOCK_FLOOR = 100
+
 #: Blood left, as a fraction, at which the driver stops fighting and sees to
 #: itself. A starting warrior who trades blows until the end dies on turn 51
 #: and measures nothing past it.
@@ -709,6 +719,7 @@ def play(seed: str, turns: int, *, size: str = "small",
     report("%s the %s, in %s" % (p.name, p.profession,
                                  world.tile(p.wx, p.wy).biome))
 
+    started_at = game.time.ticks
     why: collections.Counter = collections.Counter()
     taken: dict = {}
     seen_tiles = {(p.wx, p.wy)}
@@ -751,6 +762,7 @@ def play(seed: str, turns: int, *, size: str = "small",
     out = {
         "seed": seed,
         "turns": turn + 1,
+        "ticks": game.time.ticks - started_at,
         "seconds": time.perf_counter() - t0,
         "dead": p.body.dead,
         "cause": p.body.death_cause or "",
@@ -807,8 +819,30 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     # The invariants. A driver that only prints is a driver nobody reads.
     problems = []
-    if out["peak"]["thirst"] < 100:
-        problems.append("needs never moved: the clock is not running")
+    # A floor, but only once enough game time has passed to clear it.
+    #
+    # How many ticks a turn buys depends entirely on what the turn was:
+    # walking the world map moves the clock in strides of a hundred, trading
+    # blows with a wolf moves it by one. Seed `play` is jumped on the road and
+    # dies in 36 local turns, so 36 ticks pass and thirst reaches 36 -- and
+    # the bare floor of 100 called that a stopped clock in every run of the
+    # ritual. It is a short violent life, which is a thing that happens to
+    # adventurers, and the clock kept perfect time throughout.
+    #
+    # Measured against elapsed ticks rather than turns, and as a floor rather
+    # than a proportion, because thirst is not proportional to time: it climbs
+    # about a point a tick until the character drinks and then flattens out.
+    # Six seeds -- 36/36, 3586/4097, 11600/11600, then 109921/22126,
+    # 115506/16904, 118368/28797. The first three have not drunk yet and the
+    # last three have.
+    elapsed = out["ticks"]
+    if elapsed > CLOCK_ENOUGH and out["peak"]["thirst"] < CLOCK_FLOOR:
+        problems.append("%d ticks passed and thirst only reached %d: the "
+                        "clock is running and needs are not"
+                        % (elapsed, out["peak"]["thirst"]))
+    if elapsed <= 0 and out["turns"] > 1:
+        problems.append("%d turns and the clock never moved at all"
+                        % out["turns"])
     if out["cause"] == "died of thirst" and out["water_nearby"]:
         problems.append("died of thirst standing next to water")
     if out["cause"] == "drowned" and out["dry_land_beside"]:

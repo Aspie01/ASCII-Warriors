@@ -11,8 +11,8 @@ It does what a competent player does in the first year -- a stairway down,
 rooms cut out of the rock, a still and a farm and a carpenter, beds for
 everybody, orders standing at the workshops -- and then watches the season
 tick over. The invariants at the end are the interesting part: a fortress
-that starves beside a full field, or dies of thirst on a map with a river
-across it, exits non-zero and says so.
+that starves beside a full field, or whose dwarves die of thirst with a
+barrel they could have walked to, exits non-zero and says so.
 """
 
 from __future__ import annotations
@@ -404,6 +404,29 @@ class _Searches:
         }
 
 
+def _could_have_drunk(fort, dwarf) -> bool:
+    """Whether a drink was within this dwarf's reach where it fell.
+
+    The invariant this feeds used to ask a different question -- whether the
+    *map* held any water at all -- and a map holds water in the sea, in sealed
+    caverns and in the aquifer inside the rock. Seed alpha breaches a magma
+    pipe on day one and burns half the fortress; the dwarves who then died of
+    thirst were reported as a defect in the game because 360 cells of water
+    existed somewhere on the map. That is a fortress being destroyed, which is
+    the game working.
+
+    Asked of the dwarf, and asked where and when it died: both barrels on the
+    floor and open water it could have walked to, by the same `can_reach` the
+    game itself uses.
+    """
+    here = (dwarf.x, dwarf.y, dwarf.z)
+    within = fort.reach_from(here)
+    for cell, pile in fort.items_on_ground.items():
+        if cell in within and any(item.is_drink for item in pile):
+            return True
+    return fort.nearest_water(dwarf) is not None
+
+
 def play(seed: str, days: int, *, size: str = "small", history: int = 60,
          report=None) -> Dict[str, Any]:
     """Run one fortress for *days* and return what the year did to it."""
@@ -432,11 +455,23 @@ def play(seed: str, days: int, *, size: str = "small", history: int = 60,
         "started_with": start, "days": 0, "low_food": None, "low_drink": None,
     }
     low_food, low_drink = 1 << 30, 1 << 30
+    # Checked as they die rather than at the end, because the map does not
+    # hold still: magma spreads, water flows, and a corpse's surroundings an
+    # hour later are not the ones it died in.
+    counted, stranded = set(), []
     searches = _Searches()
     searches.__enter__()
     for day in range(days):
         sim.run(fort, STEPS_PER_DAY)
         out["days"] = day + 1
+        for c in list(fort.creatures.values()):
+            if c.id in counted or not c.body.dead:
+                continue
+            counted.add(c.id)
+            if (getattr(c.body, "death_cause", "") or "") != "died of thirst":
+                continue
+            if _could_have_drunk(fort, c):
+                stranded.append("%s on day %d" % (c.name, day + 1))
         low_food = min(low_food, fort.food_stock())
         low_drink = min(low_drink, fort.stock_count("dwarven_ale"))
         if report is not None and (day + 1) % 28 == 0:
@@ -469,6 +504,7 @@ def play(seed: str, days: int, *, size: str = "small", history: int = 60,
         "food": fort.food_stock(), "drink": fort.stock_count("dwarven_ale"),
         "left_undug": sum(1 for k in fort.designations.cells.values()
                           if k == "dig"),
+        "thirst_in_reach": stranded,
         "wealth": fort.wealth,
         "beds": sum(1 for b in fort.buildings if b.kind == "bed" and b.built),
         "lost": fort.lost,
@@ -493,7 +529,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if not args.quiet:
         for key in ("at", "painted", "done", "left", "built", "unbuilt",
                     "felled", "furthest_build", "orders", "militia",
-                    "water_cells", "aquifer",
+                    "water_cells", "aquifer", "thirst_in_reach",
                     "started_with", "alive", "idle", "deaths", "food", "drink",
                     "wealth", "beds", "days", "searches"):
             print("  %-13s %s" % (key, out[key]))
@@ -528,9 +564,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if done.get("gather", 0) == 0 and out["painted"].get("gather", 0) > 4:
         problems.append("%d shrubs marked and none gathered"
                         % out["painted"]["gather"])
-    if out["water_cells"] and "died of thirst" in out["deaths"]:
-        problems.append("died of thirst on a map with %d cells of water"
-                        % out["water_cells"])
+    if out["thirst_in_reach"]:
+        problems.append("died of thirst with a drink in reach: %s"
+                        % "; ".join(out["thirst_in_reach"]))
     if out["drink"] <= 0 and "brew_ale" in out["orders"]:
         problems.append("the still had a standing order and made nothing")
     for problem in problems:
