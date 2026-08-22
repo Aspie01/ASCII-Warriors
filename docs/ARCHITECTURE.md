@@ -9369,9 +9369,109 @@ forbids. It builds a scholar now instead of dressing one up.
   turns. What kills them now is worth its own measurement: the causes have
   changed shape, with a head severed and a throat destroyed among them where
   before it was almost uniformly bleeding.
-- **`smoke.py` makes its character the same way** and was not touched here.
+- **`smoke.py` does not make its character that way, and never did.** This
+  section said it might, on the strength of the two of them being drivers.
+  Checked: `tools/smoke.py` drives the real character-creation screen with a
+  scripted key sequence, so it has always gone through the path that passes
+  the skills -- measured, an axeman with `fighter 4` and `axe 5`, before this
+  milestone as well as after. `tools/play.py` was the only caller that took
+  the short way round, and there are only two callers.
 
-## 149. Style
+## 149. The rest you are never allowed (v3.89)
+
+§148.5 asked what is left once the warrior can use his sword. Re-measured over
+the same forty seeds: everything doubled and nothing was solved.
+
+| | before v3.88 | after |
+| --- | ---: | ---: |
+| turns lived, forty seeds | 13147 | 27182 |
+| swings per kill | 454 | 237 |
+| kills | 11 | 24 |
+| of which undead | 11 of 11 | 22 of 24 |
+| bled to death | 38 of 40 | 37 of 40 |
+
+He is twice the fighter and dies of the same thing. What he still cannot do is
+recover:
+
+```
+wanted to rest      2418
+something in sight  2299   (95%)
+actually rested      115   (4.8%)
+```
+
+### 149.1. Not a distant onlooker
+
+The obvious reading is that `hostiles_in_sight` is too coarse -- that a wolf
+across a field should not stop you binding a wound. It is not, twice over.
+Its own docstring already recorded the measurement: "nothing hostile ever
+being visible from further than six tiles anyway". And of the 1174 sampled
+moments the adventurer wanted to rest, the nearest hostile was **one tile
+away in 1073 of them**:
+
+```
+distance to the nearest hostile when it wanted to rest
+   1 tile   1073        4 tiles     7
+   2 tiles     6        5 tiles     6
+   3 tiles    13        6 tiles     7
+```
+
+He is not being watched from the treeline. He is in melee, being bitten, for
+almost every turn he is hurt. The rule is right -- you cannot bind a wound
+with a wolf on you -- and the failure is that he is never out of contact.
+
+Why he cannot get out of contact is half answered. Wounded wolves flee (4 of 6
+measured), which is why he cannot finish them. Wounded goblins do not: 12
+wounded, none fled, none died. And the things he *does* kill are the ones that
+neither flee nor bleed -- 22 of his 24 kills are zombies and ghouls.
+
+### 149.2. §148.3's question, answered
+
+§148.3 left it open whether v3.84's flee gate is still the right call for a
+warrior who can fight. Re-measured, forty seeds, paired:
+
+| | mean | median | reached 16000 |
+| --- | ---: | ---: | ---: |
+| flee anything | 1045.2 | 146.0 | 2 |
+| flee only the slower | 679.5 | **155.0** | 1 |
+
+Paired: **24 longer, 7 shorter, 9 unchanged** -- decisively for the gate. And
+the mean says the opposite, which is why it is quoted here next to the rest of
+it. The whole difference is one seed: 41806 turns against 27182 is 14624, and
+one extra adventurer reaching the sixteen-thousand cap is 15000 of them. Two
+survivors against one, in forty. That is not a difference forty samples can
+tell from luck, and the gate keeps its place on the paired count and the
+median.
+
+### 149.3. Two things the re-break found
+
+The duel test written to pin §148's gain was **removed before shipping**.
+Twelve duels at a win rate around a quarter is a coin flip: the same
+comparison gave 6 wins against 1 at twenty samples with one set of seeds, and
+0 against 1 at twelve with another. A guard whose verdict is a sample is worse
+than no guard. The gain is pinned deterministically instead, by
+`TestAWarriorWhoCanUseASword`, which asserts the skills rather than what they
+win.
+
+And `_rest_up`'s own `hostiles_in_sight()` check is redundant: `actions.rest`
+refuses on the same condition and returns `FREE`. Proved from both sides --
+deleting either copy alone changes nothing, and only deleting both lets the
+adventurer lie down with a wolf on him, which is what the re-break case does
+now. Left in place, because saying the condition where the decision is made is
+worth a duplicated call.
+
+### 149.4. Measured and left
+
+- **`smoke.py` never had §148's bug**, and §148.5 said it might. Corrected
+  there: it drives the real character-creation screen, so it has always taken
+  the path that passes the skills -- an axeman with `fighter 4`, `axe 5`,
+  before that milestone as well as after. The claim was made on the strength
+  of the two being drivers, which is not evidence.
+- **Nothing here changes the game.** The measurement says the driver is doing
+  the right thing in a situation it has no answer to. Whether a starting
+  adventurer *should* lose to a goblin 85% of the time is a balance question
+  this milestone does not settle.
+
+## 150. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

@@ -1588,3 +1588,106 @@ class TestRederivingWhatCannotChange(unittest.TestCase):
         driver._find_water(self.game, why)
         self.assertEqual(dict(why), first,
                          "the cached second call reached a different verdict")
+
+
+class TestWhatKillsAWarriorWhoCanFight(unittest.TestCase):
+    """§148.5 asked what is left once the warrior can use his sword.
+
+    Re-measured over the same forty seeds, everything doubled and nothing was
+    solved: 13147 turns became 27182, one kill per 454 swings became one per
+    237. But 22 of the 24 kills are still undead -- zombies and ghouls -- and
+    37 of 40 still bleed to death.
+
+    The reason is not the fighting. It is that there is never a moment to
+    recover:
+
+        wanted to rest        2418
+        something in sight    2299   (95%)
+        actually rested        115   (4.8%)
+
+    And "in sight" is not a distant onlooker. Of the 1174 sampled moments it
+    wanted to rest, the nearest hostile was **one tile away in 1073 of them**.
+    It is standing in melee, being bitten, for almost every turn it is hurt.
+    `hostiles_in_sight` is right to refuse -- you cannot bind a wound with a
+    wolf on you -- and its own docstring already measured that nothing hostile
+    is ever visible from further than six tiles anyway. The rule is not too
+    coarse. The adventurer is simply never out of contact.
+
+    These tests pin the rule rather than change it, because nothing here is
+    the driver doing the wrong thing.
+
+    One small thing the re-break turned up: `_rest_up`'s own
+    `hostiles_in_sight()` check is redundant. `actions.rest` refuses on the
+    same condition and returns `FREE`, so the driver's copy can be deleted
+    without changing any behaviour -- which is exactly what deleting it did.
+    Left in place, because saying the condition out loud where the decision is
+    made is worth a duplicated call, but the load-bearing one is in the
+    engine and that is where the guard bites.
+    """
+
+    def setUp(self):
+        self._old = os.environ.get("ASCII_WARRIORS_SAVE_DIR")
+        os.environ["ASCII_WARRIORS_SAVE_DIR"] = tempfile.mkdtemp()
+        rng = RNG("whatkills")
+        world = generate_world(rng.sub("w"), size="pocket", history_years=20)
+        self.game = Game.new_game(
+            world, {"race": "human", "profession": "warrior"}, rng)
+
+    def tearDown(self):
+        if self._old is None:
+            os.environ.pop("ASCII_WARRIORS_SAVE_DIR", None)
+        else:
+            os.environ["ASCII_WARRIORS_SAVE_DIR"] = self._old
+
+    def _wolf_at(self, dx, dy):
+        from ascii_warriors.game.entity import make_creature
+
+        p = self.game.player
+        foe = make_creature(self.game.rng, "wolf", faction="hostile")
+        foe.x, foe.y, foe.z = p.x + dx, p.y + dy, p.z
+        foe.wx, foe.wy = p.wx, p.wy
+        self.game.add_creature(foe)
+        self.game.update_fov()
+        return foe
+
+    def test_it_does_not_lie_down_with_a_wolf_on_it(self):
+        from tools import play as driver
+
+        p = self.game.player
+        p.body.blood = p.body.max_blood * 0.5
+        # Fed and watered, so the wolf is the only thing that can refuse it.
+        # Without this the test passed with the wolf check deleted, because
+        # `_rest_up` was declining over thirst instead.
+        p.needs.thirst = 0
+        p.needs.hunger = 0
+        self.assertIsNotNone(driver._rest_up(self.game, collections.Counter()),
+                             "the fixture cannot rest even with nothing near")
+        p.body.blood = p.body.max_blood * 0.5
+        p.needs.thirst = 0
+        p.needs.hunger = 0
+        self._wolf_at(1, 0)
+        why = collections.Counter()
+        self.assertIsNone(driver._rest_up(self.game, why),
+                          "it lay down to rest while being bitten")
+
+    def test_it_rests_once_there_is_nothing_watching(self):
+        from tools import play as driver
+
+        p = self.game.player
+        p.body.blood = p.body.max_blood * 0.5
+        p.needs.thirst = 0
+        p.needs.hunger = 0
+        self.game.update_fov()
+        why = collections.Counter()
+        self.assertIsNotNone(driver._rest_up(self.game, why),
+                             "it would not rest with the field empty")
+        self.assertEqual(why["rested"], 1)
+
+    # There was a third test here, duelling a trained warrior against a
+    # novice to pin §148's gain. It is gone on purpose. Twelve duels at a win
+    # rate around a quarter is a coin flip: the same comparison gave 6 wins
+    # against 1 at twenty samples with one set of seeds, and 0 against 1 at
+    # twelve with another. A guard whose verdict is a sample is worse than no
+    # guard, and the gain is already pinned deterministically by
+    # `TestAWarriorWhoCanUseASword` in `test_game.py`, which asserts the
+    # skills themselves rather than what they win.
