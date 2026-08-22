@@ -23,9 +23,11 @@ DAYS_PER_MONTH = 28
 MONTHS_PER_YEAR = 12
 DAYS_PER_YEAR = DAYS_PER_MONTH * MONTHS_PER_YEAR  # 336
 
-#: Six seconds per tick.
+#: Six seconds per tick. Load-bearing rather than decorative: the minute below
+#: is derived from it, so the "one tick is six seconds" the architecture keeps
+#: repeating is a fact about the code and not only about a comment.
 SECONDS_PER_TICK = 6
-TICKS_PER_MINUTE = 10
+TICKS_PER_MINUTE = 60 // SECONDS_PER_TICK       # 10
 TICKS_PER_HOUR = TICKS_PER_MINUTE * 60          # 600
 TICKS_PER_DAY = TICKS_PER_HOUR * 24             # 14400
 TICKS_PER_MONTH = TICKS_PER_DAY * DAYS_PER_MONTH

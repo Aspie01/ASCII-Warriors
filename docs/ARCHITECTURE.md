@@ -9131,7 +9131,75 @@ there is only one. It drops a decoy nearer than the booked one now.
   to re-derive a fact that cannot change while the adventurer stands still.
   Not fixed here; this milestone is about the fortress.
 
-## 146. Style
+## 146. The tables nobody reads (v3.86)
+
+The audit method's first item is dead constants, and it had not been run
+mechanically. Every module-level constant in the package, against every name
+read anywhere in the package, the tests and the tools:
+
+```
+module-level constants   740
+read by nothing           28
+```
+
+Twenty-two of the twenty-eight are the colour palette, which is a palette and
+is meant to be complete. `creatures.HOT` and `creatures.WATER` are unused
+shorthand for biome groups the creature table spells out longhand -- the
+desert biomes are referenced 27 to 45 times each, just not through that
+alias. Neither is a defect. The remaining ones are.
+
+### 146.1. Thirteen modes, and two of them impossible
+
+`ai.MODES` lists what a creature can be doing. Nothing read it, so nothing
+kept it true:
+
+| | |
+| --- | --- |
+| declared, no code path can produce | `talk`, `travel` |
+| produced by `take_turn`, not declared | `spin`, `stuck` |
+
+`spin` is a spider throwing a web and `stuck` is anything caught in one. Both
+lists were thirteen long, which is how the error stayed invisible.
+
+Measured in play as well as in the source -- three fortresses over seven days,
+four adventures -- the modes actually entered were idle 31207, wander 6794,
+follow 2000, flee 1200, guard 1199, hunt 800. The other seven never came up,
+but only `talk` and `travel` are *impossible*: `pick_mode` returns "sleep" for
+anything unconscious, "graze" and "forage" for a hungry herbivore and "lurk"
+for an ambusher, and none of those arose in the sample. Rare is not dead, and
+the difference is the whole point of checking rather than guessing.
+
+### 146.2. Two more of the same kind
+
+- **`medical.TREATMENTS`** was a third copy of a list that `TREATMENT_NAMES`
+  and `TREATMENT_SKILL` already hold, sitting beside them, read by nothing and
+  free to disagree with either. Derived from `TREATMENT_NAMES` now.
+- **`calendar.SECONDS_PER_TICK = 6`** was declared and read by nothing, while
+  `TICKS_PER_MINUTE = 10` sat under it as a bare number that happened to
+  agree. "One tick is six seconds" is repeated all through this document and
+  rested on a comment. The minute is derived from it now, so the claim is a
+  fact about the code. `TICKS_PER_DAY` is still 14400, so no world moved.
+
+### 146.3. The guard that makes an unread table safe
+
+A corrected list would drift again for exactly the reason the first one did.
+So the guard derives the truth from the source -- every string `pick_mode`
+returns, every literal assigned to `ai.mode` -- and fails when `MODES` and the
+code disagree in either direction. The constant is read by a test now, which
+is the only thing that keeps a constant honest.
+
+Five re-break cases, no misses.
+
+### 146.4. Measured and left
+
+- **`bodies.FLESH_SOFT` and `worldgen.MOUNTAIN_LEVEL` are still unread.** Both
+  look like documentation of a threshold used elsewhere by literal; neither
+  was chased down, and saying so is better than quietly dropping them.
+- **The sweep only covers module-level constants.** Class attributes, dict
+  entries and enum members were not looked at, and the same rot can grow in
+  any of them.
+
+## 147. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

@@ -1702,3 +1702,95 @@ class TestTheSkillNobodyCouldHave(unittest.TestCase):
         self.assertNotIn("swings ", text)
         self.assertNotIn("punches", text)
         self.assertNotIn("kicks", text)
+
+
+class TestTheModesNobodyEnters(unittest.TestCase):
+    """A table of AI modes that nothing read, and so nothing kept true.
+
+    A sweep of the package found 740 module-level constants, 28 of them read
+    by nothing. Most are the colour palette, which is a palette. `ai.MODES`
+    was not: it listed "travel" and "talk", which no code path can produce,
+    and omitted "spin" and "stuck", which `take_turn` assigns to a spider
+    throwing a web and to anything caught in one. Both lists were thirteen
+    long, which is how it went unnoticed.
+
+    Measured in play as well as in the source -- three fortresses over seven
+    days and four adventures -- the modes actually entered were idle 31207,
+    wander 6794, follow 2000, flee 1200, guard 1199, hunt 800. The rest are
+    rare rather than dead: `pick_mode` returns "sleep" for anything
+    unconscious, "graze" and "forage" for a hungry herbivore, "lurk" for an
+    ambusher, and none of those came up in the sample.
+
+    This test derives the truth from the source so the list cannot drift
+    again while nothing reads it.
+    """
+
+    @staticmethod
+    def _modes_the_code_can_produce():
+        """Every mode string `ai.py` can put on a creature."""
+        import ast
+        import inspect
+
+        from ascii_warriors.game import ai as ai_mod
+
+        tree = ast.parse(inspect.getsource(ai_mod))
+        out = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef) and node.name == "pick_mode":
+                for r in ast.walk(node):
+                    if isinstance(r, ast.Return) \
+                            and isinstance(r.value, ast.Constant) \
+                            and isinstance(r.value.value, str):
+                        out.add(r.value.value)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Assign) \
+                    and isinstance(node.value, ast.Constant) \
+                    and isinstance(node.value.value, str):
+                for tgt in node.targets:
+                    if isinstance(tgt, ast.Attribute) and tgt.attr == "mode" \
+                            and isinstance(tgt.value, ast.Name) \
+                            and tgt.value.id == "ai":
+                        out.add(node.value.value)
+        return out
+
+    def test_the_table_lists_exactly_what_the_code_produces(self):
+        from ascii_warriors.game import ai as ai_mod
+
+        real = self._modes_the_code_can_produce()
+        self.assertTrue(real, "the scan found no modes at all")
+        declared = set(ai_mod.MODES)
+        self.assertEqual(declared - real, set(),
+                         "listed but no code path produces it")
+        self.assertEqual(real - declared, set(),
+                         "produced but missing from MODES")
+
+    def test_the_web_modes_are_in_it(self):
+        """The two that were missing, named so the fix cannot silently undo."""
+        from ascii_warriors.game import ai as ai_mod
+
+        self.assertIn("spin", ai_mod.MODES)
+        self.assertIn("stuck", ai_mod.MODES)
+
+    def test_no_duplicates(self):
+        from ascii_warriors.game import ai as ai_mod
+
+        self.assertEqual(len(ai_mod.MODES), len(set(ai_mod.MODES)))
+
+    def test_the_treatment_list_cannot_drift_from_the_tables(self):
+        """`TREATMENTS` was a third copy that nothing consulted."""
+        from ascii_warriors.game import medical
+
+        self.assertEqual(set(medical.TREATMENTS), set(medical.TREATMENT_NAMES))
+        self.assertEqual(set(medical.TREATMENTS), set(medical.TREATMENT_SKILL))
+
+    def test_a_tick_really_is_six_seconds(self):
+        """The claim the architecture keeps repeating, made load-bearing.
+
+        `SECONDS_PER_TICK` was declared and read by nothing, so the minute
+        below it was a bare 10 that happened to agree.
+        """
+        from ascii_warriors.data import calendar
+
+        self.assertEqual(calendar.SECONDS_PER_TICK * calendar.TICKS_PER_MINUTE,
+                         60)
+        self.assertEqual(calendar.TICKS_PER_DAY, 14400)

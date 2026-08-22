@@ -17,9 +17,6 @@ from .body import PartState
 from .item import Item
 from . import skills as skills_mod
 
-#: Problems a body part can have that treatment can do something about.
-TREATMENTS = ("bandage", "splint", "suture")
-
 TREATMENT_NAMES = {
     "bandage": "Bind the wound",
     "splint": "Set the bone",
@@ -31,6 +28,14 @@ TREATMENT_SKILL = {
     "splint": "bone_setting",
     "suture": "suturing",
 }
+
+#: Problems a body part can have that treatment can do something about.
+#:
+#: Derived rather than written out. It used to be a tuple of its own that
+#: nothing read, sitting beside the two dicts that actually drive treatment --
+#: free to disagree with them and with nothing to notice if it did.
+TREATMENTS = tuple(TREATMENT_NAMES)
+
 
 #: Which item each treatment consumes, if any.
 TREATMENT_ITEM = {

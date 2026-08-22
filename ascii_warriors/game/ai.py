@@ -14,11 +14,22 @@ from ..engine.pathfind import astar
 from ..engine.scheduler import ACTION_COST
 from . import combat
 
+#: Every mode a creature can be in, and the whole of it.
+#:
+#: Nothing read this tuple, so nothing kept it true. It listed "travel" and
+#: "talk", which no code path can produce, and omitted "spin" and "stuck",
+#: which `take_turn` assigns to a spider throwing a web and to anything caught
+#: in one. Both lists were thirteen long, which is how it went unnoticed.
+#:
+#: `TestTheModesNobodyEnters` now derives this set from the source -- every
+#: string `pick_mode` returns and every literal assigned to `ai.mode` -- and
+#: fails when the two disagree, so the list cannot drift again while nothing
+#: reads it.
 MODES = (
     "idle", "wander", "hunt", "flee", "follow", "sleep", "guard", "graze",
-    "forage",
-    "lurk",
-    "travel", "talk", "raise",
+    "forage", "lurk", "raise",
+    # Set by `take_turn` rather than chosen by `pick_mode`.
+    "spin", "stuck",
 )
 
 
