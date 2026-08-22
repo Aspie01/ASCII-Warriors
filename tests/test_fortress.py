@@ -9786,3 +9786,81 @@ class TestTheShapeThatDidNotRecur(unittest.TestCase):
                 break
         self.assertLess(dwarf.needs.thirst, was,
                         "sixty steps with a river in reach and no drink")
+
+
+class TestTheYearItNeverPlayed(unittest.TestCase):
+    """`tools/fort.py` opens "Play a fortress for a year" and plays seven days.
+
+    A dwarf year is 336 days, the default is `--days 7`, and the ritual runs
+    the default -- so 98% of what the driver claims to do had never been done
+    by anything. Run it, and the fortress goes quiet after a month:
+
+        day  28: 7 alive, 37 food,   895 drink, 4 jobs
+        day 336: 12 alive, 28 food, 11571 drink, 2 jobs
+        left {'chop': 37}, idle 12 of 12 alive
+
+    Thirty-seven trees marked and standing all year with every dwarf idle
+    looks exactly like a job board that has stopped working. It is not. All
+    thirty-seven still held a tree, none of them was reachable from any
+    dwarf, and the board had correctly set every one aside. The dwarves were
+    right; the driver had marked timber on the far side of water.
+
+    Twenty tiles as the crow flies is not twenty tiles on foot. A player
+    marking a stand of trees can see the river. So does this now, and seed
+    `year1` goes from 109 designated cells worked to 146 with nothing left
+    over.
+    """
+
+    def test_it_marks_only_what_can_be_walked_to(self):
+        fort = embark("reach")
+        driver_fort._dig_out_the_fortress(fort)
+        somebody = fort.dwarves()[0]
+        painted = list(fort.designations.cells)
+        self.assertTrue(painted, "it marked nothing at all")
+        # Only the outdoor work. `dig` and `stairs` are marked *into* solid
+        # rock and are unreachable on purpose -- that is what digging is.
+        outdoor = [c for c, kind in fort.designations.cells.items()
+                   if kind in ("chop", "gather")]
+        self.assertTrue(outdoor, "it marked no timber or plants at all")
+        unreachable = [c for c in outdoor
+                       if not fort.can_reach(somebody, c)]
+        self.assertEqual(unreachable, [],
+                         "%d trees or shrubs marked that nobody can get to"
+                         % len(unreachable))
+
+    def test_it_says_how_much_it_left_alone(self):
+        """The count is reported, not silently dropped."""
+        fort = embark("reach2")
+        counts = driver_fort._dig_out_the_fortress(fort)
+        self.assertIn("chop", counts)
+        somebody = fort.dwarves()[0]
+        for cell, kind in fort.designations.cells.items():
+            if kind in ("chop", "gather"):
+                self.assertTrue(fort.can_reach(somebody, cell),
+                                "%s marked at %s, out of reach" % (kind, cell))
+
+    def test_a_river_between_you_and_the_wood_is_noticed(self):
+        """Wall the trees off and the driver must stop marking them."""
+        fort = embark("reach3")
+        somebody = fort.dwarves()[0]
+        lm = fort.local
+        # Seal the dwarf into a small room: nothing outside it is reachable.
+        z = somebody.z
+        for dx in range(-2, 3):
+            for dy in range(-2, 3):
+                fort.dig_out((somebody.x + dx, somebody.y + dy, z), "floor")
+        for dx in range(-3, 4):
+            for dy in (-3, 3):
+                lm.set_tile(somebody.x + dx, somebody.y + dy, z, "wall")
+        for dy in range(-3, 4):
+            for dx in (-3, 3):
+                lm.set_tile(somebody.x + dx, somebody.y + dy, z, "wall")
+        fort._reach = {}
+        fort._reach_deep = None
+        fort.designations.cells.clear()
+        driver_fort._dig_out_the_fortress(fort)
+        outside = [c for c, kind in fort.designations.cells.items()
+                   if kind in ("chop", "gather")
+                   and not fort.can_reach(somebody, c)]
+        self.assertEqual(outside, [],
+                         "it marked %d trees through a wall" % len(outside))

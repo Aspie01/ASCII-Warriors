@@ -157,6 +157,16 @@ def _dig_out_the_fortress(fort) -> Dict[str, int]:
     # the wagon rather than every tree on the map, because a player marks what
     # is walking distance from the fortress and a thousand designations is a
     # benchmark rather than a game.
+    #
+    # Walking distance, and only what can be walked to. Twenty tiles as the
+    # crow flies is not twenty tiles on foot, and a player marking a stand of
+    # trees can see the river between him and half of it. Measured over a
+    # full year of `year1` before this check existed: sixty trees painted,
+    # twenty-three cut, and **thirty-seven left standing all year with every
+    # dwarf idle** -- none of the thirty-seven reachable, all of them
+    # correctly set aside by the job board, and the driver reporting
+    # `left {'chop': 37}` as though the fortress had shirked.
+    somebody = fort.dwarves()[0] if fort.dwarves() else None
     for r in range(1, 20):
         if counts["chop"] >= WOOD_WANTED and counts["gather"] >= PLANTS_WANTED:
             break
@@ -168,13 +178,20 @@ def _dig_out_the_fortress(fort) -> Dict[str, int]:
                 if not lm.in_bounds(xx, yy, z):
                     continue
                 tid = lm.tile(xx, yy, z)
+                want = None
                 if tid == "shrub" and counts["gather"] < PLANTS_WANTED:
-                    if fort.designations.set(lm, xx, yy, z, "gather"):
-                        counts["gather"] += 1
+                    want = "gather"
                 elif (tile_data.get(tid).has("TREE")
                       and counts["chop"] < WOOD_WANTED):
-                    if fort.designations.set(lm, xx, yy, z, "chop"):
-                        counts["chop"] += 1
+                    want = "chop"
+                if want is None:
+                    continue
+                if somebody is not None \
+                        and not fort.can_reach(somebody, (xx, yy, z)):
+                    counts["out of reach"] += 1
+                    continue
+                if fort.designations.set(lm, xx, yy, z, want):
+                    counts[want] += 1
     return dict(counts)
 
 

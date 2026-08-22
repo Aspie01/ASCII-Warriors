@@ -9471,7 +9471,112 @@ worth a duplicated call.
   adventurer *should* lose to a goblin 85% of the time is a balance question
   this milestone does not settle.
 
-## 150. Style
+## 150. The year it never played (v3.90)
+
+`tools/fort.py` opens with this:
+
+> Play a fortress for a year and report what happened to it.
+
+Its default is `--days 7`. A dwarf year is 336 days, so the driver plays two
+per cent of what it claims, and the ritual runs the default -- nothing had
+ever played the other ninety-eight. This is the fortress-side twin of §148,
+where the adventure driver asked for 16000 turns and never once exceeded 4214.
+
+### 150.1. What a year looks like
+
+```
+day  28:  7 alive, 37 food,   895 drink, 4 jobs
+day 168:  8 alive, 35 food,  4829 drink, 3 jobs
+day 336: 12 alive, 28 food, 11571 drink, 2 jobs
+
+left  {'chop': 37}      idle 12 of 12 alive
+made  {'still': 9507}   food 28, low_food 19
+```
+
+The fortress goes quiet after a month and stays quiet for eleven more. Thirty-
+seven trees marked and still standing at the end of the year, with every dwarf
+idle, looks exactly like a job board that has stopped handing out work.
+
+### 150.2. It was not the job board
+
+Measured at day 40, where the symptom is already fully formed:
+
+```
+37 chop designations left
+   still holding a tree:               37 of 37
+   reachable from a dwarf:              0 of 37
+   correctly set aside as unreachable: 37 of 37
+```
+
+The dwarves were right. Every one of those cells was across water, the job
+board had filed each of them exactly as §"the job nobody could reach" intends,
+and the only thing at fault was the driver marking timber it could never walk
+to. Twenty tiles as the crow flies is not twenty tiles on foot, and a player
+marking a stand of trees can see the river.
+
+`_dig_out_the_fortress` asks `can_reach` before it paints now, and counts what
+it passed over. Over the same full year:
+
+| year1, 336 days | before | after |
+| --- | ---: | ---: |
+| designated cells worked | 109 | **146** |
+| left outstanding | `{'chop': 37}` | **`{}`** |
+| jobs on the board at year end | 2 | 4 |
+| alive | 12 | 15 |
+| deaths | 9 bled to death | none |
+
+The first three rows are the fix. The last two are **one sample and are not
+claimed as an effect**: moving the designations moves every dwarf, every path
+and every moment a siege catches somebody, so the two years diverge completely
+after day one. A year where nobody died is a nice thing to see in the log and
+no evidence of anything. Wealth went the other way, 161776 to 128966, which
+says the same.
+
+At seven days -- the length the ritual actually runs -- `year1` goes from 109
+cells worked to 146 and `fort` from 85 to 94. `alpha` and `delta` do not move:
+their timber was all reachable already.
+
+### 150.3. Why the invariant said nothing
+
+§119's guard is `done.get("chop", 0) == 0 and painted > 20` -- it fires only
+when *not one* tree was cut. Twenty-three of sixty were, so it passed. This is
+the "threshold at exactly zero" weakness the v3.83 audit noticed and left:
+a fortress that does 38% of the work looks identical to one that does all of
+it. Left alone again here, deliberately -- with the painting fixed there is no
+longer a gap for it to miss, and tightening a threshold to catch a case that
+can no longer arise is how tests come to measure nothing.
+
+### 150.4. A sweep that found nothing
+
+§146.4 asked for the dead-table sweep to be widened past module-level
+constants. Widened, to the data tables themselves:
+
+| | |
+| --- | --- |
+| skills | 69, every one granted by a profession or named by a recipe or job |
+| recipes | 16, every output a real item |
+| creature kinds | 81, of which 7 are named only in their own table -- normal, they are placed by biome rather than by name |
+
+Nothing rotten. Worth the hour to know, and worth recording so the next pass
+does not spend it again. One near miss: the first version of that sweep
+reported `CLOTH` as an input no item satisfies, which would have been a fine
+false finding to publish. `_satisfies` matches a recipe input against the
+*material's* flags and an item category, not against item tags -- and sixty-two
+shirts torn into bandages over forty seeds had already proved it works.
+
+### 150.5. Measured and left
+
+- **The still brewed 9507 times.** Eleven thousand five hundred units of ale
+  for twelve dwarves, while food ran down to nineteen. The standing order
+  never stops and the driver never cancels it, which is a driver playing badly
+  rather than a game misbehaving -- but a year of it is most of what those
+  dwarves did.
+- **The driver still only designates once.** It sets the fortress up on the
+  morning of day one and then watches for eleven months. A player keeps
+  marking. That is why the board is down to two jobs by day 336, and it is the
+  next thing worth fixing about this driver.
+
+## 151. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).
