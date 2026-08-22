@@ -1466,3 +1466,125 @@ class TestYouCannotOutrunAWolf(unittest.TestCase):
         self.assertIsNotNone(driver._run_away(game, why),
                              "it would not leave something it can outpace")
         self.assertEqual(why["ran"], 1)
+
+
+class TestRederivingWhatCannotChange(unittest.TestCase):
+    """The adventurer walked the whole map every turn to ask where water was.
+
+    `_water_cells` visits every tile of every level -- 33792 of them on a
+    small world's local map, 64 by 48 over eleven levels -- and where the
+    water is is a fact about the terrain. §144.3 and §145.4 both recorded it
+    and left it:
+
+        5.41 ms a call, 1318 calls over forty seeds, 7.66 seconds
+        1261 of those calls were on maps with no water at all
+        seed s28 did it 1059 times in a life of 1107 turns
+
+    `dwarf.py` learned this in `TAVERN_UNREACHABLE_BACKOFF`: one dwarf finding
+    out the tavern is cut off is enough information for the whole fortress.
+    """
+
+    def setUp(self):
+        self._old = os.environ.get("ASCII_WARRIORS_SAVE_DIR")
+        os.environ["ASCII_WARRIORS_SAVE_DIR"] = tempfile.mkdtemp()
+        rng = RNG("rederive")
+        world = generate_world(rng.sub("w"), size="pocket", history_years=20)
+        self.game = Game.new_game(
+            world, {"race": "human", "profession": "warrior"}, rng)
+
+    def tearDown(self):
+        if self._old is None:
+            os.environ.pop("ASCII_WARRIORS_SAVE_DIR", None)
+        else:
+            os.environ["ASCII_WARRIORS_SAVE_DIR"] = self._old
+
+    def _count_scans(self, fn):
+        """How many tiles the scan actually looks at while `fn` runs."""
+        from ascii_warriors.world import tiles as tile_data
+
+        seen = collections.Counter()
+        real = tile_data.get
+
+        def counting(tid):
+            seen["tiles"] += 1
+            return real(tid)
+
+        tile_data.get = counting
+        try:
+            fn()
+        finally:
+            tile_data.get = real
+        return seen["tiles"]
+
+    def test_the_map_is_walked_once_not_once_a_turn(self):
+        from tools import play as driver
+
+        first = self._count_scans(lambda: driver._water_cells(self.game))
+        self.assertGreater(first, 1000,
+                           "the first scan did not walk the map at all")
+        again = self._count_scans(lambda: driver._water_cells(self.game))
+        self.assertLess(again, first // 10,
+                        "it walked the map again: %d tiles" % again)
+
+    def test_the_answer_is_the_same_answer(self):
+        """Cheaper is only worth having if it is still right.
+
+        On a map with known water in it, and comparing a cache *hit* against a
+        fresh scan: the first version compared the first call -- which is a
+        miss, and so never runs the line that answers from the cache at all --
+        on a map that happened to have no water, where two empty lists agree
+        whatever the code does.
+        """
+        from tools import play as driver
+
+        class Pond:
+            width, height = 4, 2
+            levels = {0: ["floor", "water", "floor", "well",
+                          "floor", "floor", "shallow_water", "floor"]}
+
+        self.game.local = Pond()
+        first = list(driver._water_cells(self.game))
+        self.assertEqual(len(first), 3,
+                         "the fixture did not put water on the map")
+        hit = list(driver._water_cells(self.game))
+        self.game._play_water_cells = None
+        fresh = list(driver._water_cells(self.game))
+        self.assertEqual(hit, fresh)
+        self.assertEqual(hit, first)
+
+    def test_walking_to_another_world_square_asks_again(self):
+        from tools import play as driver
+
+        driver._water_cells(self.game)
+        self.game.player.wx += 1
+        again = self._count_scans(lambda: driver._water_cells(self.game))
+        self.assertGreater(again, 1000,
+                           "it answered a new square from the old map")
+
+    def test_a_freshly_generated_map_asks_again(self):
+        """Same square, new map object: the cache must not answer for it."""
+        from tools import play as driver
+
+        driver._water_cells(self.game)
+
+        class Elsewhere:
+            width = 4
+            height = 4
+            levels = {0: ["floor"] * 16}
+
+        self.game.local = Elsewhere()
+        again = self._count_scans(lambda: driver._water_cells(self.game))
+        self.assertGreater(again, 0,
+                           "a new map was answered from the old one's scan")
+
+    def test_finding_a_drink_still_works(self):
+        """End to end, through the function the driver actually calls."""
+        from tools import play as driver
+
+        why = collections.Counter()
+        driver._find_water(self.game, why)
+        first = dict(why)
+        why.clear()
+        driver._find_water(self.game, why)
+        self.assertEqual(dict(why), first,
+                         "the cached second call reached a different verdict")

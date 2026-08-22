@@ -9199,7 +9199,69 @@ Five re-break cases, no misses.
   entries and enum members were not looked at, and the same rot can grow in
   any of them.
 
-## 147. Style
+## 147. Re-deriving what cannot change (v3.87)
+
+Recorded and left twice -- §144.3 and §145.4 -- so this closes it.
+
+`tools/play.py` asked where the water was by walking every tile of every
+level, on every turn it was thirsty. On a small world's local map that is 64
+by 48 over eleven levels: **33792 cells**, 5.41 ms, to answer a question about
+terrain that does not move while the adventurer stands on it.
+
+```
+1318 calls over forty seeds          7.66 s
+of those, on maps with no water      1261
+seed s28                             1059 calls in a life of 1107 turns
+```
+
+Twelve hundred and sixty-one times it walked the whole map to say "none"
+again.
+
+### 147.1. The lesson the fortress already learned
+
+`dwarf.py` has carried it since the walled-off tavern cost 76 ms a step:
+
+> Nobody else try either. One dwarf finding out the tavern is cut off is
+> enough information for the whole fortress, and it is the only thing that
+> keeps the cost of a walled-off tavern bounded.
+
+`_water_cells` remembers its scan the same way, keyed on the world square
+**and on the map object itself** -- so a square revisited with a freshly
+generated map is scanned again rather than answered from the last visit.
+
+```
+one map, repeated calls    5.41 ms  ->  0.03 ms a call
+the whole forty-seed run   7.66 s   ->  0.22 s over the same 1318 calls
+```
+
+The two numbers differ because the run-wide figure still pays for the first
+scan of every map the adventurer walks onto, which is the scan that has to
+happen. A hundred and eighty times cheaper once warm, thirty-five times
+cheaper across a real run, and the same answer: the guard compares a cache hit
+against a fresh scan on a map with known water in it.
+
+### 147.2. A guard that could not fail, again
+
+The first version of that comparison passed with the cache deliberately
+returning the wrong list. Two reasons, both worth naming. It compared the
+*first* call, which is a miss and so never runs the line that answers from the
+cache at all; and it ran on a map that happened to have no water, where two
+empty lists agree whatever the code does. It builds a pond of its own now and
+compares a hit.
+
+That is the fifth guard this run of five milestones has had to rebuild --
+§142.3 twice, §143's plan test, §145.3's single log, and this one. The
+re-break pass is the only thing that finds them.
+
+### 147.3. Measured and left
+
+- **Nothing else in `play.py` was swept for the same shape.** This was the
+  one the counters happened to expose; the question "what else does this
+  recompute every turn" was not asked of the rest of the file.
+- **The adventurer still dies every time.** 0 of 40 reach the 16000 turns the
+  driver asks for (§144.4), and none of these five milestones changed that.
+
+## 148. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).
