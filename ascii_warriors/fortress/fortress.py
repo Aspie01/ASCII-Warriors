@@ -650,6 +650,18 @@ class Fortress:
             gravity.settle_items(self, spot)
         self._water_cache = None
 
+    def item_on_ground(self, item_id: int) -> Optional[Item]:
+        """An item lying on the floor, by id, or ``None`` if it is gone.
+
+        For the things a dwarf sets out towards and has to keep in mind for
+        more than one step: see `DwarfState.errand`.
+        """
+        for pile in self.items_on_ground.values():
+            for item in pile:
+                if item.id == item_id:
+                    return item
+        return None
+
     def item_cell(self, item: Item) -> Optional[Cell]:
         """Where an item is lying, or ``None`` if it is carried."""
         for cell, pile in self.items_on_ground.items():

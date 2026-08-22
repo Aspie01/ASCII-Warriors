@@ -50,7 +50,7 @@ class DwarfState:
 
     __slots__ = ("labors", "job", "path", "path_goal", "nickname", "bed",
                  "mood", "mood_ticks", "idle_ticks", "praying", "squad",
-                 "carrying",
+                 "carrying", "errand",
                  "workshop", "blocked", "sleeping", "lonely")
 
     def __init__(self, labors: Optional[LaborSet] = None) -> None:
@@ -75,6 +75,17 @@ class DwarfState:
         #: debugging aid and is now marked as one rather than left looking
         #: like state that a save ought to be keeping.
         self.carrying: Optional[int] = None
+        #: The id of the food or drink this dwarf set out for.
+        #:
+        #: A dwarf used to choose the nearest one every step, and "nearest"
+        #: is measured from where it happens to be standing. Two barrels on
+        #: either side of a ramp is a trap: measured on a hundred-day
+        #: fortress, a dwarf stepped up the ramp towards the ale, found the
+        #: milk on the level above nearer, turned round, found the ale nearer
+        #: again, and did that until it died of thirst with fourteen hundred
+        #: units of drink in the stores. What it set out for is a decision,
+        #: and a decision has to be remembered to be one.
+        self.errand: Optional[int] = None
         self.workshop: Optional[int] = None
         #: Ticks since this dwarf last spoke to anybody.
         self.lonely = 0
@@ -628,12 +639,32 @@ def _flee_water(fort, dwarf) -> bool:
 
     Pathing already refuses to route through either, but that does not help a
     dwarf standing in a room that is filling up around it.
+
+    Fleeing takes the whole turn even when there is nowhere better to go and
+    it moves nowhere at all -- and `_magma_near` is true of a cell and the
+    eight around it. So on a map with magma actually running about in it, a
+    dwarf can spend every turn it has fleeing and never reach its needs.
+    Measured on seed alpha, which breaches a magma pipe on day one and has
+    nine thousand cells of it loose by evening: thirty consecutive turns, one
+    distinct cell, thirst frozen at 18304 against an urgent threshold of 9000,
+    and it died of thirst standing next to ale it could reach. The same thirty
+    steps taken through `_handle_needs` walked it fourteen cells and drank.
+
+    So once a need is desperate it wins, exactly as it does in
+    `_hold_position`, which has taken this position since it was written. Not
+    while the danger is in the dwarf's own cell, though -- that is the case
+    fleeing exists for, and no thirst is worth standing in magma over. The
+    route planner refuses magma and deep water outright, so letting the needs
+    run cannot walk anybody into either.
     """
     from ..world.fluids import SWIM_DEPTH
 
     here = (dwarf.x, dwarf.y, dwarf.z)
     burning = _magma_near(fort, here)
     if fort.water.at(*here) < SWIM_DEPTH - 1 and not burning:
+        return False
+    if _desperate(dwarf) and fort.magma.at(*here) <= 0 \
+            and fort.water.at(*here) < SWIM_DEPTH - 1:
         return False
     release_job(fort, dwarf)
 
@@ -791,9 +822,30 @@ def _handle_needs(fort, dwarf, ticks: int) -> bool:
     return False
 
 
+def _errand_item(fort, dwarf, *, drink: bool):
+    """What this dwarf is going to eat or drink, chosen once.
+
+    Keeps the choice while it is still there and still reachable, because
+    re-choosing every step means choosing from wherever the last step landed
+    -- see `DwarfState.errand`.
+    """
+    state = dwarf.fort
+    if state.errand is not None:
+        item = fort.item_on_ground(state.errand)
+        cell = fort.item_cell(item) if item is not None else None
+        if item is not None and cell is not None \
+                and bool(item.is_drink) == bool(drink) \
+                and fort.can_reach(dwarf, cell):
+            return item
+        state.errand = None
+    item = fort.find_consumable(dwarf, drink=drink)
+    state.errand = getattr(item, "id", None) if item is not None else None
+    return item
+
+
 def _go_drink(fort, dwarf, ticks: int) -> bool:
     """Find something to drink and get to it."""
-    item = fort.find_consumable(dwarf, drink=True)
+    item = _errand_item(fort, dwarf, drink=True)
     if item is not None:
         cell = fort.item_cell(item)
         if cell is None or at_or_beside(dwarf, cell, vertical=False):
@@ -812,7 +864,7 @@ def _go_drink(fort, dwarf, ticks: int) -> bool:
 
 def _go_eat(fort, dwarf, ticks: int) -> bool:
     """Find something to eat and get to it."""
-    item = fort.find_consumable(dwarf, drink=False)
+    item = _errand_item(fort, dwarf, drink=False)
     if item is not None:
         cell = fort.item_cell(item)
         if cell is None or at_or_beside(dwarf, cell, vertical=False):

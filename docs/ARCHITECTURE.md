@@ -8525,7 +8525,184 @@ down when you find a sword.
   one went at the skill table instead. Three passes have taken twenty-three
   claims and found six wrong.
 
-## 140. Style
+## 140. The barrel it set out for (v3.80)
+
+Since §131 the hundred-day fortress had ended the same way every time: seven
+alive on day fifty-six, none on day eighty-four, every one of them bled to
+death. v3.71 made the driver report that honestly (`FORT LOST`) and left the
+question open — was that the game, or the script?
+
+It was the script. `tools/fort.py` plays what a competent player does in a
+first year, and a competent player raises a militia; the manual's own DEFENCE
+section says so, and §137 measured that a siege is on you forty steps after it
+lands. The driver had no soldiers at all.
+
+`_raise_the_militia` builds a barracks, forms a squad and enlists the last two
+dwarves on the list — the last two because the first few are the miners, and a
+fortress that puts its only miner under arms never finishes its stairway.
+
+| year1, a hundred days | before | with a militia |
+| --- | ---: | ---: |
+| outcome | LOST on day 84 | ran the full hundred |
+| alive | 0 of 7 | 3 of 7 |
+| wealth | 22633 | 31210 |
+
+### 140.1. And then it found this
+
+The first defended run did not report OK. It reported the driver's own
+invariant, the one written in §119 for exactly this:
+
+```
+FORT PROBLEM: died of thirst on a map with 360 cells of water
+drink in store: 1474
+```
+
+A dwarf died of thirst on day sixty-four with fourteen hundred units of ale in
+the fortress. Not trapped: it could reach 14629 cells, including everybody
+else, and `find_consumable` handed it a barrel every time it was asked. It
+simply never arrived. Forty steps of it:
+
+```
+(36,21,-2), (36,20,-3), (36,21,-2), (36,20,-3), ...
+2 distinct cells over 40 steps
+```
+
+### 140.2. Three wrong answers first
+
+Worth writing down, because each was plausible and each was measured away.
+
+1. **"It is walled in."** No — 14629 reachable cells, and the other dwarves
+   among them.
+2. **"`vertical=False` stops it changing level."** No — that flag restricts
+   which cell you may *stand on* to reach a thing, so you cannot pick a barrel
+   up through the ceiling. The route may still use ramps, and
+   `path_to(vertical=False)` returned True.
+3. **"A\* gives inconsistent first steps."** No — planned from either cell,
+   the route was correct and forward:
+
+   ```
+   from (36,20,-3) -> [(36,20,-3), (36,21,-2), (36,22,-2), (36,23,-2), ...]
+   from (36,21,-2) -> [(36,21,-2), (36,22,-2), (36,23,-2), (36,24,-3), ...]
+   ```
+
+### 140.3. What it actually was
+
+`find_consumable` measures from where the dwarf is standing, and the dwarf
+asked again every single step:
+
+```
+standing at (36,20,-3) -> ale  at (36,33,-3)
+standing at (36,21,-2) -> milk at (40,8,-2)
+```
+
+The z-term in that distance is three tiles a level. Stepping up the ramp put
+the ale three further off and the milk three nearer; stepping back down did
+the reverse. Two drinks either side of one ramp is a trap with no way out of
+it, and the dwarf walked up and down until it died.
+
+`DwarfState.errand` remembers what it set out for. `_errand_item` keeps that
+choice while the item is still there, still the right kind and still
+reachable, and picks again only when one of those stops being true. Choosing
+the nearest was never wrong; choosing it *again from the new cell* was.
+
+```
+before: died of thirst on day 64, 1474 units in store
+after : nobody got thirsty in a hundred days
+```
+
+| year1, a hundred days | before | militia | militia + errand |
+| --- | ---: | ---: | ---: |
+| outcome | LOST day 84 | PROBLEM | **OK, ran the hundred** |
+| alive | 0 of 7 | 3 of 7 | **6 of 7** |
+| wealth | 22633 | 31210 | **36311** |
+
+More than seven have died in that last run and six are alive, which is what a
+fortress that survives long enough to take migrants looks like.
+
+### 140.4. And the driver found a third one
+
+Adding seed `alpha` to the driver ritual turned up the same invariant again,
+on a seed that breaches a magma pipe on day one:
+
+```
+FORT PROBLEM: died of thirst on a map with 360 cells of water
+```
+
+Not a regression -- v3.79 fails the same seed harder. And not the errand
+either: with `_errand_item` reverted the run is identical, the fill and A\*
+agree here, a fresh fill changes nothing, and stepping `_handle_needs` by hand
+walks the dwarf straight at the ale. The stale-`reach_from` theory was wrong.
+
+It is one line further up. `take_turn` asks `_flee_water` first, and fleeing
+takes the whole turn -- including when it finds nowhere better and moves
+nowhere at all. `_magma_near` is true of a cell and the eight around it, so
+with nine thousand cells of loose magma the dwarf is permanently *near* it
+while standing on safe ground:
+
+```
+take_turn    : 30 turns,  1 distinct cell,  thirst 18304 throughout
+_handle_needs: 30 steps, 14 distinct cells, thirst 18304 -> 5504
+```
+
+Its own cell held no magma, and `_desperate` was already true of it.
+`_hold_position` has consulted that predicate since it was written; this had
+never asked. It does now -- but only while the danger is next door rather than
+underfoot, because no thirst is worth a turn spent standing in magma. Pathing
+refuses magma and deep water outright, so letting the needs run cannot walk
+anybody into either.
+
+`_magma_near`'s own docstring predicted this failure exactly -- "a dwarf that
+runs from that runs for ever, back and forth, until it dies of thirst beside a
+barrel of ale" -- and fixed it for the sealed pipe and the magma sea. Loose
+magma was the case left over.
+
+| seed alpha, seven days | v3.79 | militia + errand | + the floor |
+| --- | ---: | ---: | ---: |
+| outcome | PROBLEM | PROBLEM | **FORT OK** |
+| alive | 0 of 7 | 2 of 7 | **4 of 7** |
+| died of thirst | 3 | 2 | **0** |
+| burned to death | 4 | 3 | 3 |
+| days survived | 4 | 7 | 7 |
+
+The three who still burn are the ones the magma actually reaches, which is the
+game working. Nobody dies of thirst on that map any more.
+
+### 140.5. Measured and left
+
+- **The fixture skipped five times out of five** on the first attempt, because
+  it looked for open ground either side of a dwarf and an embark is a
+  hillside. A skipped test is more dangerous than a red one; it cuts its own
+  corridor now.
+- **`errand` is not serialised**, like `path` and `path_goal`. A reload
+  re-decides once, and re-deciding once is not what did the damage.
+- **The same shape may be elsewhere.** Anything that picks "the nearest" every
+  step and moves one tile between picks can oscillate. `_go_pray`, the job
+  board's `_claim_job` and the hauling destination all choose by distance; none
+  of them were measured here.
+- **The thirst invariant is a proxy.** `tools/fort.py` reports a defect when
+  anybody dies of thirst on a map with any water cell anywhere on it. It has
+  now caught two real bugs, so it earns its place -- but what it measures is
+  the map, not whether that dwarf could have drunk, and a fortress being
+  destroyed is not a defect in the game. Sharpening it is its own milestone.
+- **The fuzz driver does not replay.** `tools/fuzz.py` says "each run is
+  seeded, so a failure can be replayed exactly". It is not: six runs of
+  `--mode adventure --seed 11` on identical source gave 447 keys three times
+  and 835 three times. Strictly two values, so one binary decision is
+  flipping rather than the whole run drifting. It is not hash randomisation
+  (`PYTHONHASHSEED=0` gives both) and not the worldgen screen's clock-derived
+  seed at `ui/worldgen_screen.py:143` (pinning it gives both). The suspect
+  left standing -- iteration over a container of objects hashed by identity,
+  whose order moves with the allocator between processes -- is unconfirmed.
+  Two consequences: a fuzz failure may not replay, and fuzz key counts are not
+  comparable between runs, which is how this was found. Fortress-mode seeds
+  gave identical counts across two rituals; only adventure varied.
+- **`tools/play.py --seed play` reports a defect that is not one.** The
+  adventurer is killed by a wolf on turn 36, so thirst reaches 36 of the 100
+  the check wants and it prints "needs never moved: the clock is not running".
+  Identical output on v3.79, byte for byte; the same proxy problem as above,
+  at the other end of the game. Left for the same milestone.
+
+## 141. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

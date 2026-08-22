@@ -8644,17 +8644,31 @@ class TestGroundYouCanBuildOn(unittest.TestCase):
                             "tree")
 
     def test_the_driver_puts_up_everything_it_plans(self):
-        """Two farms, a still, a carpenter and seven beds, or it says why not.
+        """Whatever is in the plan goes up, or it says why not.
 
-        The plan is the point: a driver that quietly builds nine of eleven has
+        The plan is the point: a driver that quietly builds ten of twelve has
         not played a fortress, it has played a smaller one, and the missing
-        two were the farms.
+        two were the farms. Measured against `PLAN` itself rather than a copy
+        of it, so that a plan which grows is still held to all of it.
         """
         fort = embark("plan")
         built, missed, _felled, _far = driver_fort._put_up_the_workshops(fort)
         self.assertEqual(missed, [])
-        self.assertEqual(sorted(built), sorted(
-            ["bed"] * 7 + ["carpenter", "farm", "farm", "still"]))
+        self.assertEqual(sorted(built), sorted(driver_fort.PLAN))
+
+    def test_the_plan_still_has_what_a_fortress_needs(self):
+        """And the plan itself is not allowed to quietly shrink.
+
+        The test above compares the buildings against the plan, so a plan that
+        lost its farms would still pass it. These are the four things the rest
+        of the driver's report depends on: food, drink, beds, and somewhere
+        for the militia to train.
+        """
+        plan = driver_fort.PLAN
+        self.assertGreaterEqual(plan.count("farm"), 2, plan)
+        self.assertIn("still", plan)
+        self.assertIn("barracks", plan)
+        self.assertGreaterEqual(plan.count("bed"), 7, plan)
 
     def test_the_driver_finds_ground_off_the_wagons_level(self):
         """The search runs on the ground, not on one plane through it.
@@ -8760,6 +8774,38 @@ class TestGroundYouCanBuildOn(unittest.TestCase):
         self.assertEqual(code, 0, text)
         self.assertIn("FORT OK", text)
 
+    def test_the_driver_raises_a_militia(self):
+        """A first year with nobody under arms is not a first year.
+
+        The manual says to raise a squad before you are worth robbing, and
+        §137 measured that a siege is on the dwarves forty steps after it
+        lands. Without one this driver was wiped on day eighty-four on every
+        seed it was run against, and every number it printed past day
+        fifty-six was measured on a fortress playing badly.
+        """
+        fort = embark("militia")
+        driver_fort._dig_out_the_fortress(fort)
+        driver_fort._put_up_the_workshops(fort)
+        info = driver_fort._raise_the_militia(fort)
+        self.assertGreaterEqual(info["enlisted"], 2, info)
+        self.assertTrue(info["barracks"], "no barracks to train at")
+        squad = fort.military.squad(info["squad"])
+        self.assertIsNotNone(squad)
+        self.assertEqual(len(squad.members), info["enlisted"])
+        self.assertEqual(squad.order, "train")
+        self.assertTrue(fort.military.soldiers())
+
+    def test_the_militia_does_not_take_the_miners(self):
+        """A fortress that arms its only miner never cuts its stairway."""
+        fort = embark("militia2")
+        driver_fort._dig_out_the_fortress(fort)
+        driver_fort._put_up_the_workshops(fort)
+        first_two = [d.id for d in fort.dwarves()[:2]]
+        info = driver_fort._raise_the_militia(fort)
+        squad = fort.military.squad(info["squad"])
+        for dwarf_id in first_two:
+            self.assertNotIn(dwarf_id, squad.members)
+
     def test_a_fortress_that_fell_is_not_ok(self):
         """`FORT OK: year1, 84 days, 0 alive of 7` was a real line.
 
@@ -8795,6 +8841,7 @@ _DRIVER_RUN = {
     "seed": "t", "at": (1, 2), "days": 7, "painted": {"dig": 62, "chop": 60},
     "done": {"dig": 62, "chop": 60}, "left": {}, "built": ["farm"],
     "unbuilt": [], "felled": 0, "furthest_build": 4, "orders": ["brew_ale"],
+    "militia": {"squad": 1, "enlisted": 2, "barracks": True},
     "water_cells": 0, "aquifer": 0, "started_with": 7, "alive": 7, "idle": 0,
     "deaths": {}, "food": 40, "drink": 40, "low_food": 40, "low_drink": 40,
     "wealth": 100, "beds": 7, "left_undug": 0, "lost": 0,
@@ -9107,3 +9154,303 @@ class TestTheFortressLogNamesThem(unittest.TestCase):
         self.assertFalse(beast.known_by_name())
         self.assertEqual(beast.subject_name(), "The cow")
         self.assertEqual(beast.object_name(), "the cow")
+
+
+class TestFleeingIsNotAnExcuseToDieOfThirst(unittest.TestCase):
+    """A dwarf beside magma spent every turn fleeing and never drank.
+
+    `_flee_water` is the first thing `take_turn` asks, and it takes the whole
+    turn when it answers yes -- even when it cannot find anywhere better and
+    moves nowhere at all. `_magma_near` answers yes for a cell and the eight
+    around it, so on seed alpha, which breaches a magma pipe on day one and
+    has nine thousand cells of it loose by evening, a dwarf standing on safe
+    ground with ale it could reach did this:
+
+        take_turn    : 30 turns, 1 distinct cell, thirst 18304 throughout
+        _handle_needs: 30 steps, 14 distinct cells, thirst 18304 -> 5504
+
+    It was not standing in magma -- its own cell held none -- and `_desperate`
+    was already true of it. The predicate `_hold_position` uses to let needs
+    through was simply never asked here.
+    """
+
+    def _fort_with_magma(self, seed="flee"):
+        fort = embark(seed)
+        dwarf = fort.dwarves()[0]
+        for dx in range(-8, 9):
+            fort.dig_out((dwarf.x + dx, dwarf.y, dwarf.z), "floor")
+        return fort, dwarf
+
+    def _magma_beside(self, fort, dwarf, dist=1):
+        """Loose magma near enough that `_magma_near` fires, not on the dwarf."""
+        cell = (dwarf.x + dist, dwarf.y, dwarf.z)
+        fort.magma.depth[cell] = 4
+        return cell
+
+    def _parched(self, dwarf):
+        dwarf.needs.thirst = dwarf_mod.THIRST_URGENT * 2
+        return dwarf
+
+    def test_a_desperate_dwarf_stops_fleeing_and_goes_for_a_drink(self):
+        fort, dwarf = self._fort_with_magma()
+        self._magma_beside(fort, dwarf)
+        self._parched(dwarf)
+        self.assertTrue(dwarf_mod._magma_near(fort, (dwarf.x, dwarf.y, dwarf.z)),
+                        "the fixture put the magma out of range")
+        self.assertTrue(dwarf_mod._desperate(dwarf))
+        self.assertFalse(dwarf_mod._flee_water(fort, dwarf),
+                         "it fled instead of drinking, which is how it died")
+
+    def test_a_dwarf_that_is_not_desperate_still_runs(self):
+        """The fleeing itself is not what was wrong with it."""
+        fort, dwarf = self._fort_with_magma("flee2")
+        self._magma_beside(fort, dwarf)
+        dwarf.needs.thirst = 0
+        dwarf.needs.hunger = 0
+        dwarf.needs.drowsy = 0
+        self.assertFalse(dwarf_mod._desperate(dwarf))
+        self.assertTrue(dwarf_mod._flee_water(fort, dwarf),
+                        "it stood next to the magma and did nothing")
+
+    def test_standing_in_the_magma_beats_any_thirst(self):
+        """No drink is worth a turn spent standing in it."""
+        fort, dwarf = self._fort_with_magma("flee3")
+        fort.magma.depth[(dwarf.x, dwarf.y, dwarf.z)] = 4
+        self._parched(dwarf)
+        self.assertTrue(dwarf_mod._desperate(dwarf))
+        self.assertTrue(dwarf_mod._flee_water(fort, dwarf),
+                        "it stayed in the magma because it was thirsty")
+
+    def test_standing_in_deep_water_beats_any_thirst(self):
+        """And the other half of what this function is for."""
+        from ascii_warriors.world.fluids import SWIM_DEPTH
+
+        fort, dwarf = self._fort_with_magma("flee4")
+        fort.water.depth[(dwarf.x, dwarf.y, dwarf.z)] = SWIM_DEPTH
+        self._parched(dwarf)
+        self.assertTrue(dwarf_mod._flee_water(fort, dwarf),
+                        "it trod water because it was thirsty")
+
+    def test_the_turn_reaches_the_needs_once_it_is_desperate(self):
+        """End to end: the whole turn, not just the branch."""
+        fort, dwarf = self._fort_with_magma("flee5")
+        self._magma_beside(fort, dwarf)
+        self._parched(dwarf)
+        far = (dwarf.x - 6, dwarf.y, dwarf.z)
+        if not fort.local.walkable(*far):
+            self.skipTest("no open ground beside the dwarf")
+        fort.items_on_ground.clear()
+        fort.drop_item(Item("dwarven_ale", "water"), *far)
+        was = dwarf.needs.thirst
+        seen = []
+        for _ in range(30):
+            dwarf_mod.take_turn(fort, dwarf, sim.STEP_TICKS)
+            seen.append((dwarf.x, dwarf.y, dwarf.z))
+        self.assertGreater(len(set(seen)), 1,
+                           "thirty turns and it never moved: %s" % (seen[:4],))
+        self.assertLess(dwarf.needs.thirst, was,
+                        "thirty turns beside the magma and it never drank")
+
+
+class TestTheBarrelItSetOutFor(unittest.TestCase):
+    """A dwarf that died of thirst with fourteen hundred barrels in the store.
+
+    Found by teaching `tools/fort.py` to raise a militia, which let a fortress
+    live past day eighty-four for the first time and turned up this on day
+    sixty-four instead:
+
+        FORT PROBLEM: died of thirst on a map with 360 cells of water
+        drink in store: 1474
+
+    The dwarf was not trapped -- it could reach 14629 cells, including
+    everybody else -- and `find_consumable` handed it a barrel of ale every
+    time it asked. It simply never got there:
+
+        (36,21,-2), (36,20,-3), (36,21,-2), (36,20,-3), ...
+
+    Two cells, for ever. `find_consumable` measures distance from wherever the
+    dwarf is standing, and the dwarf re-asked every step:
+
+        standing at (36,20,-3) -> ale  at (36,33,-3)
+        standing at (36,21,-2) -> milk at (40,8,-2)
+
+    The z-penalty is three tiles, so stepping up a ramp put the ale three
+    further away and the milk three nearer, and stepping back down did the
+    reverse. It walked up and down that ramp until it died.
+    """
+
+    def _fortress(self, seed="errand"):
+        fort = embark(seed)
+        # Nothing on the floor but what this test puts there.
+        fort.items_on_ground.clear()
+        return fort
+
+    def _drop(self, fort, def_id, cell, material="water"):
+        item = Item(def_id, material)
+        fort.drop_item(item, *cell)
+        return item
+
+    def _thirsty(self, fort):
+        dwarf = fort.dwarves()[0]
+        dwarf.needs.thirst = dwarf_mod.THIRST_URGENT * 2
+        dwarf.fort.errand = None
+        return dwarf
+
+    def _corridor(self, fort, dwarf, reach=8):
+        """Cut flat floor either side of the dwarf and return the extent.
+
+        The embark is a hillside, so nothing either side of a dwarf is
+        reliably walkable and a fixture that only *looks* for open ground
+        skips instead of testing -- which is what the first version of this
+        class did, five times out of five.
+        """
+        z = dwarf.z
+        for dx in range(-reach, reach + 1):
+            fort.dig_out((dwarf.x + dx, dwarf.y, z), "floor")
+        return z
+
+    def _walkable_near(self, fort, dwarf, dx, dy):
+        """A cell that far away on the dwarf's own level, if it is open."""
+        cell = (dwarf.x + dx, dwarf.y + dy, dwarf.z)
+        return cell if fort.local.walkable(*cell) else None
+
+    # -- the decision ------------------------------------------------------- #
+
+    def test_it_keeps_the_barrel_it_set_out_for(self):
+        """The whole defect: the choice has to survive one step."""
+        fort = self._fortress()
+        dwarf = self._thirsty(fort)
+        self._corridor(fort, dwarf)
+        near = self._walkable_near(fort, dwarf, 2, 0)
+        far = self._walkable_near(fort, dwarf, -6, 0)
+        if near is None or far is None:
+            self.skipTest("no open ground either side of the dwarf")
+        self._drop(fort, "dwarven_ale", far)
+        first = dwarf_mod._errand_item(fort, dwarf, drink=True)
+        self.assertIsNotNone(first)
+        # Now put a closer one in front of it, exactly as a step up a ramp
+        # used to do, and ask again.
+        self._drop(fort, "dwarven_ale", near)
+        again = dwarf_mod._errand_item(fort, dwarf, drink=True)
+        self.assertIs(again, first,
+                      "it changed its mind about which barrel to walk to")
+
+    def test_it_forgets_one_that_is_gone(self):
+        fort = self._fortress()
+        dwarf = self._thirsty(fort)
+        self._corridor(fort, dwarf)
+        far = self._walkable_near(fort, dwarf, -6, 0)
+        near = self._walkable_near(fort, dwarf, 2, 0)
+        if near is None or far is None:
+            self.skipTest("no open ground either side of the dwarf")
+        gone = self._drop(fort, "dwarven_ale", far)
+        self.assertIs(dwarf_mod._errand_item(fort, dwarf, drink=True), gone)
+        self.assertTrue(fort.take_item(gone))
+        kept = self._drop(fort, "dwarven_ale", near)
+        self.assertIs(dwarf_mod._errand_item(fort, dwarf, drink=True), kept,
+                      "it kept walking towards a barrel that is not there")
+
+    def test_food_and_drink_do_not_share_an_errand(self):
+        """One field, two questions: it must not eat its way to the beer."""
+        fort = self._fortress()
+        dwarf = self._thirsty(fort)
+        dwarf.needs.hunger = dwarf_mod.HUNGER_URGENT * 2
+        self._corridor(fort, dwarf)
+        here = self._walkable_near(fort, dwarf, 2, 0)
+        there = self._walkable_near(fort, dwarf, -3, 0)
+        if here is None or there is None:
+            self.skipTest("no open ground either side of the dwarf")
+        ale = self._drop(fort, "dwarven_ale", here)
+        food = self._drop(fort, "plump_helmet", there, material="plant")
+        got_drink = dwarf_mod._errand_item(fort, dwarf, drink=True)
+        got_food = dwarf_mod._errand_item(fort, dwarf, drink=False)
+        self.assertIs(got_drink, ale)
+        self.assertIs(got_food, food)
+        self.assertIs(dwarf_mod._errand_item(fort, dwarf, drink=True), ale,
+                      "asking for food lost the drink it was walking to")
+
+    def test_going_for_a_drink_records_the_errand(self):
+        """`_go_drink` has to go through the errand, not around it.
+
+        The end-to-end walk below arrives whether or not the choice is kept,
+        because a flat corridor cannot oscillate: the trap needs the z-penalty
+        to make the far barrel look nearer from one cell and further from the
+        next, and a fixture that carves its own level floor has no ramp in it.
+        So this is the guard that fails when `_go_drink` goes back to asking
+        `find_consumable` directly -- the end-to-end test is not.
+        """
+        fort = self._fortress()
+        dwarf = self._thirsty(fort)
+        self._corridor(fort, dwarf)
+        far = self._walkable_near(fort, dwarf, -6, 0)
+        if far is None:
+            self.skipTest("no open ground beside the dwarf")
+        self._drop(fort, "dwarven_ale", far)
+        self.assertIsNone(dwarf.fort.errand)
+        self.assertTrue(dwarf_mod._go_drink(fort, dwarf, sim.STEP_TICKS))
+        self.assertIsNotNone(dwarf.fort.errand,
+                             "it set out without deciding where to")
+
+    def test_going_for_a_meal_records_the_errand(self):
+        """And the same for the other half of it."""
+        fort = self._fortress()
+        dwarf = self._thirsty(fort)
+        dwarf.needs.hunger = dwarf_mod.HUNGER_URGENT * 2
+        self._corridor(fort, dwarf)
+        far = self._walkable_near(fort, dwarf, -6, 0)
+        if far is None:
+            self.skipTest("no open ground beside the dwarf")
+        self._drop(fort, "plump_helmet", far, material="plant")
+        self.assertIsNone(dwarf.fort.errand)
+        self.assertTrue(dwarf_mod._go_eat(fort, dwarf, sim.STEP_TICKS))
+        self.assertIsNotNone(dwarf.fort.errand,
+                             "it set out without deciding where to")
+
+    # -- and it gets there --------------------------------------------------- #
+
+    def test_a_thirsty_dwarf_reaches_the_barrel(self):
+        """End to end, through the needs step the simulation calls.
+
+        Not the guard on the cache -- see the errand tests above for why a
+        flat corridor cannot reproduce the oscillation. This one holds the
+        plainer promise: a thirsty dwarf with a reachable barrel drinks.
+        """
+        fort = self._fortress()
+        dwarf = self._thirsty(fort)
+        self._corridor(fort, dwarf)
+        far = self._walkable_near(fort, dwarf, -7, 0)
+        near = self._walkable_near(fort, dwarf, 3, 0)
+        if near is None or far is None:
+            self.skipTest("no open ground either side of the dwarf")
+        self._drop(fort, "dwarven_ale", far)
+        was = dwarf.needs.thirst
+        for _ in range(40):
+            dwarf_mod._handle_needs(fort, dwarf, sim.STEP_TICKS)
+            # A second barrel appears beside it every step, which is what
+            # walking past a stockpile amounts to.
+            self._drop(fort, "dwarven_ale", near)
+            if dwarf.needs.thirst < was:
+                break
+        self.assertLess(dwarf.needs.thirst, was,
+                        "forty steps and it never had a drink")
+
+    def test_the_errand_survives_a_save(self):
+        fort = self._fortress()
+        dwarf = self._thirsty(fort)
+        self._corridor(fort, dwarf)
+        far = self._walkable_near(fort, dwarf, -6, 0)
+        if far is None:
+            self.skipTest("no open ground beside the dwarf")
+        self._drop(fort, "dwarven_ale", far)
+        dwarf_mod._errand_item(fort, dwarf, drink=True)
+        self.assertIsNotNone(dwarf.fort.errand)
+        # Asserted on the written state as well as the round trip: a key
+        # written but never read back still reloads as None, so the round
+        # trip alone passes whatever `to_dict` does.
+        self.assertNotIn("errand", dwarf.fort.to_dict(),
+                         "the errand was written into the save")
+        again = Fortress.from_dict(fort.to_dict())
+        back = again.creatures[dwarf.id]
+        # Not serialised, like `path`: a reload re-decides, and re-deciding
+        # once is not what did the damage.
+        self.assertIsNone(back.fort.errand)

@@ -234,8 +234,15 @@ def _clear_spot(fort, x, y, w, h, taken, *, soil=False):
     return None
 
 
+#: What the driver builds on the morning of day one. Two farms and a still
+#: feed the fortress, the carpenter turns the felled trees into the beds, and
+#: the barracks is where the militia trains -- a squad with nowhere to train
+#: never picks up a weapon.
+PLAN = ["farm", "farm", "still", "carpenter", "barracks"] + ["bed"] * 7
+
+
 def _put_up_the_workshops(fort) -> Tuple[List[str], List[str], int, int]:
-    """A still, two farms, a carpenter and beds, out by the stairway.
+    """Everything in `PLAN`, out by the stairway.
 
     Built rather than queued as construction jobs: this driver is about what
     the fortress does with its workshops over a year, and a first season spent
@@ -257,7 +264,7 @@ def _put_up_the_workshops(fort) -> Tuple[List[str], List[str], int, int]:
     missed: List[str] = []
     felled = 0
     furthest = 0
-    plan = ["farm", "farm", "still", "carpenter"] + ["bed"] * 7
+    plan = list(PLAN)
     for kind in plan:
         k = buildings.KINDS[kind]
         spot = _clear_spot(fort, x, y, k.width, k.height, taken,
@@ -301,6 +308,41 @@ def _queue_the_orders(fort) -> List[str]:
             b.orders.append({"recipe": "wood_bed", "count": 4, "repeat": False})
             queued.append("wood_bed")
     return queued
+
+
+def _raise_the_militia(fort) -> Dict[str, Any]:
+    """Put two dwarves under arms and set them to train.
+
+    The manual's DEFENCE section is unambiguous about when to do this:
+    "Goblins come once you have something worth taking. Raise a squad with m,
+    pick a uniform, and enlist somebody; they will find their own weapons and
+    armour out of your stockpiles and then train at a barracks until they are
+    dangerous." A siege lands twenty-three tiles out and is on the dwarves
+    forty steps later -- 2.8% of a day -- so raising one when it arrives is not
+    a plan, and this driver had no militia at all.
+
+    Two of seven, because that is what a fortress of seven can spare: a squad
+    ordered to train is a squad off the labour force, and the run still has to
+    dig, farm and brew.
+    """
+    dwarves = fort.dwarves()
+    if len(dwarves) < 4:
+        return {"squad": 0, "enlisted": 0, "barracks": False}
+    squad = fort.military.add_squad("The Militia", "axe")
+    barracks = next((b for b in fort.buildings
+                     if b.kind == "barracks" and b.built), None)
+    if barracks is not None:
+        squad.barracks = barracks.id
+    squad.order = "train"
+    # The last two on the list: the first few are whoever the embark made its
+    # miners, and a fortress that puts its only miner in the militia never
+    # finishes its stairway.
+    enlisted = 0
+    for dwarf in dwarves[-2:]:
+        if fort.military.enlist(squad, dwarf.id):
+            enlisted += 1
+    return {"squad": squad.id, "enlisted": enlisted,
+            "barracks": barracks is not None}
 
 
 class _Searches:
@@ -376,6 +418,7 @@ def play(seed: str, days: int, *, size: str = "small", history: int = 60,
     painted = dict(collections.Counter(fort.designations.cells.values()))
     built, unbuilt, felled, furthest = _put_up_the_workshops(fort)
     orders = _queue_the_orders(fort)
+    militia = _raise_the_militia(fort)
     water = sum(1 for z in range(lm.zmin, lm.zmax + 1)
                 for y in range(lm.height) for x in range(lm.width)
                 if tile_data.get(lm.tile(x, y, z)).has("WATER"))
@@ -386,6 +429,7 @@ def play(seed: str, days: int, *, size: str = "small", history: int = 60,
         "built": built, "unbuilt": unbuilt, "felled": felled,
         "furthest_build": furthest,
         "orders": orders, "water_cells": water, "aquifer": len(fort.aquifer),
+        "militia": militia,
         "started_with": start, "days": 0, "low_food": None, "low_drink": None,
     }
     low_food, low_drink = 1 << 30, 1 << 30
@@ -449,8 +493,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                report=report)
     if not args.quiet:
         for key in ("at", "painted", "done", "left", "built", "unbuilt",
-                    "felled", "furthest_build", "orders", "water_cells",
-                    "aquifer",
+                    "felled", "furthest_build", "orders", "militia",
+                    "water_cells", "aquifer",
                     "started_with", "alive", "idle", "deaths", "food", "drink",
                     "wealth", "beds", "days", "searches"):
             print("  %-13s %s" % (key, out[key]))
