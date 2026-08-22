@@ -236,6 +236,35 @@ def _rest_up(game, why) -> Optional[int]:
     return cost
 
 
+def _can_outrun(game, foes) -> bool:
+    """Whether backing away from these gains ground, or donates it.
+
+    A retreat is only a retreat from something slower than you. Fifty of the
+    eighty-one creature kinds are quicker than a man -- `Game._pace_of` says
+    so on the look screen, "It is much faster than you", and a wolf is 160 to
+    a starting warrior's 102, which is 1.57 actions to your one. Every step
+    away from one is a free attack handed over, and the driver had been taking
+    that trade since it was written.
+
+    Measured over forty seeds run both ways. The retreats drop from 482 to
+    88 -- the 88 being the surrounded cases below and the genuinely slower
+    quarry -- and survival barely moves: paired by seed, 20 longer, 9 shorter,
+    11 unchanged, a mean of 328.7 turns against 311.9. So this is not a fix
+    for the dying. It removes 394 steps that could not gain ground, which is
+    reason enough on its own.
+
+    Relative, and asked fresh every turn, because both numbers move: pain and
+    a broken leg multiply into `effective_speed`, so the wolf you outpaced
+    this morning is the wolf that runs you down this afternoon.
+
+    Only consulted when one thing is on you. With two or more in contact a
+    step is worth taking whatever their speed, because it is fewer of them
+    that can reach you next turn -- see `_run_away`.
+    """
+    mine = max(1, game.player.effective_speed())
+    return all(c.effective_speed() <= mine for c in foes)
+
+
 def _run_away(game, why) -> Optional[int]:
     """Back off from whatever is hitting you, when you are losing.
 
@@ -253,6 +282,16 @@ def _run_away(game, why) -> Optional[int]:
             if not c.body.dead and not c.is_player and c.is_hostile_to(p)
             and max(abs(c.x - p.x), abs(c.y - p.y)) <= 2 and c.z == p.z]
     if not foes or game.local is None:
+        return None
+    # Surrounded is the exception, and it is a measured one: §"knowing when
+    # to run" established that stepping diagonally out of a cross of four
+    # puts two of them behind you. That gain does not depend on outpacing
+    # anybody -- it is fewer things able to reach you this turn -- so the
+    # speed gate only governs the case it was measured on, which is being
+    # chased by something you cannot shake.
+    touching = [c for c in foes
+                if max(abs(c.x - p.x), abs(c.y - p.y)) <= 1]
+    if len(touching) < 2 and not _can_outrun(game, foes):
         return None
 
     def room(x, y):

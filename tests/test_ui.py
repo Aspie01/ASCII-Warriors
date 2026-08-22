@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import collections
 import contextlib
 import io
 import os
@@ -1325,3 +1326,143 @@ class TestTheGatesThatNeverOpened(unittest.TestCase):
 
         self.assertGreater(driver.TRAVEL_ENOUGH, 70)
         self.assertLess(driver.TRAVEL_ENOUGH, 189)
+
+
+class TestYouCannotOutrunAWolf(unittest.TestCase):
+    """The driver backed away from things it could not possibly outrun.
+
+    `Game._pace_of` has told the player since v3.73 that "it is much faster
+    than you", and named the number in its own docstring: fifty of the
+    eighty-one creature kinds are quicker than a man, and a wolf is 160 to a
+    starting warrior's 102. At 1.57 actions to your one, every step of a
+    retreat is a free attack handed over. `_run_away` had never asked.
+
+    Measured over forty seeds, the same seeds both ways: the flee actions drop
+    from 482 to 88, because almost nothing in the wilderness is slower than a
+    man. Survival barely moves -- paired, 20 seeds longer, 9 shorter, 11
+    unchanged, a mean of 328.7 turns against 311.9 -- so the hypothesis this
+    started from, that fleeing was what killed the adventurer, is refuted.
+    What is left is narrower and still true: 394 of those steps could not gain
+    any ground, and a driver should not spend turns on a move that cannot
+    work.
+    """
+
+    def setUp(self):
+        self._old = os.environ.get("ASCII_WARRIORS_SAVE_DIR")
+        os.environ["ASCII_WARRIORS_SAVE_DIR"] = tempfile.mkdtemp()
+
+    def tearDown(self):
+        if self._old is None:
+            os.environ.pop("ASCII_WARRIORS_SAVE_DIR", None)
+        else:
+            os.environ["ASCII_WARRIORS_SAVE_DIR"] = self._old
+
+    def _game_and_foe(self, foe_id, seed="outrun"):
+        from ascii_warriors.game.entity import make_creature
+
+        rng = RNG(seed)
+        world = generate_world(rng.sub("w"), size="pocket", history_years=20)
+        game = Game.new_game(
+            world, {"race": "human", "profession": "warrior"}, rng)
+        p = game.player
+        foe = make_creature(rng, foe_id, faction="hostile")
+        foe.x, foe.y, foe.z = p.x + 1, p.y, p.z
+        game.add_creature(foe)
+        return game, foe
+
+    def test_a_wolf_cannot_be_outrun(self):
+        from tools import play as driver
+
+        game, foe = self._game_and_foe("wolf")
+        self.assertGreater(foe.effective_speed(),
+                           game.player.effective_speed(),
+                           "the fixture picked something that is not faster")
+        self.assertFalse(driver._can_outrun(game, [foe]))
+
+    def test_something_slower_can_be(self):
+        """A zombie is 70 to a warrior's 102, and shambling is what it does."""
+        from tools import play as driver
+
+        game, foe = self._game_and_foe("zombie", seed="slow")
+        self.assertLess(foe.effective_speed(),
+                        game.player.effective_speed(),
+                        "the fixture picked something that is not slower")
+        self.assertTrue(driver._can_outrun(game, [foe]))
+
+    def test_thirty_one_of_eighty_one_are_slow_enough_to_leave(self):
+        """The gate must not be a gate that never opens -- see §143.
+
+        Fifty of the eighty-one creature kinds are quicker than a man, which
+        is the whole point; but thirty-one are not, so backing away is still a
+        move the driver can make.
+        """
+        from ascii_warriors.data import creatures as cdata
+
+        speeds = [d.speed for d in cdata.CREATURES.values()
+                  if getattr(d, "speed", None)]
+        self.assertEqual(len(speeds), 81)
+        self.assertGreaterEqual(sum(1 for s in speeds if s < 102), 20)
+
+    def test_one_fast_foe_in_a_crowd_is_enough(self):
+        """Backing away from four only works if all four are slower."""
+        from tools import play as driver
+
+        game, wolf = self._game_and_foe("wolf")
+
+        class Slow:
+            @staticmethod
+            def effective_speed():
+                return 1
+
+        self.assertFalse(driver._can_outrun(game, [Slow, Slow, wolf]))
+        self.assertTrue(driver._can_outrun(game, [Slow, Slow]))
+
+    def test_the_driver_does_not_back_away_from_a_wolf(self):
+        """End to end: `_run_away` declines, so the turn goes to fighting."""
+        from tools import play as driver
+
+        game, foe = self._game_and_foe("wolf")
+        p = game.player
+        # Bleeding badly enough that the old rule would certainly have run.
+        p.body.blood = p.body.max_blood * 0.3
+        self.assertLess(p.body.blood_fraction(), driver.RUN_AWAY_AT)
+        why = collections.Counter()
+        self.assertIsNone(driver._run_away(game, why))
+        self.assertEqual(why["ran"], 0)
+
+    def test_surrounded_beats_the_speed_gate(self):
+        """Two on you is a step worth taking whatever their speed.
+
+        The blanket version of this gate broke a measured result: stepping
+        diagonally out of a cross of four puts two of them behind you, and
+        that gain has nothing to do with outpacing anybody. The full suite
+        caught it -- `TestKnowingWhenToRun` in `test_systems` -- which is what
+        the full suite is for.
+        """
+        from ascii_warriors.game.entity import make_creature
+        from tools import play as driver
+
+        game, first = self._game_and_foe("wolf", seed="crowd")
+        p = game.player
+        p.body.blood = p.body.max_blood * 0.3
+        second = make_creature(game.rng, "wolf", faction="hostile")
+        second.x, second.y, second.z = p.x - 1, p.y, p.z
+        game.add_creature(second)
+        self.assertFalse(driver._can_outrun(game, [first, second]))
+        why = collections.Counter()
+        self.assertIsNotNone(driver._run_away(game, why),
+                             "it stood between two wolves rather than move")
+        self.assertEqual(why["ran"], 1)
+
+    def test_it_still_backs_away_from_something_slower(self):
+        from tools import play as driver
+
+        game, foe = self._game_and_foe("wolf", seed="slowfoe")
+        p = game.player
+        p.body.blood = p.body.max_blood * 0.3
+        # Same wolf, made slower than the player rather than faster.
+        foe.effective_speed = lambda: 1
+        why = collections.Counter()
+        self.assertIsNotNone(driver._run_away(game, why),
+                             "it would not leave something it can outpace")
+        self.assertEqual(why["ran"], 1)

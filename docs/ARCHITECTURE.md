@@ -8960,7 +8960,106 @@ badly is not a defect in the game.
   and shows none of them.** The same shape as §143.3 on the other side of the
   game, left for whoever needs one of those numbers.
 
-## 144. Style
+## 144. You cannot outrun a wolf (v3.84)
+
+§143.4 left this: every adventurer bleeds to death, twelve of twelve, and the
+driver runs away below 62% blood from creatures it cannot possibly outrun.
+
+`Game._pace_of` has told the *player* since v3.73, in its own docstring:
+"Fifty of the eighty-one creature kinds are quicker than a man -- a wolf is
+160 to your 100 -- and until now the only way to find that out was to try to
+leave." The driver never asked. A wolf at 160 against a starting warrior's 102
+takes 1.57 actions to your one, so every step of a retreat is a free attack
+handed over.
+
+### 144.1. The hypothesis, and its refutation
+
+The correlation looked damning. Over twelve seeds, the runs that ran most died
+soonest and the runs that stood and fought lived longest:
+
+```
+iota   ran 27, fought   0 ->  43 turns
+play   ran 25, fought   5 ->  36 turns
+theta  ran 20, fought   3 ->  69 turns
+beta   ran 53, fought  72 -> 230 turns
+eta    ran 11, fought 176 -> 288 turns
+zeta   ran 27, fought 366 -> 645 turns
+```
+
+It is the wrong way round. Twelve seeds cannot separate an effect from noise
+when survival ranges from 23 to 653 turns, and forty seeds run both ways say
+so:
+
+| | mean | median | max | flee actions | survived |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| flee anything | 311.9 | 123.0 | 4207 | 482 | 0 of 40 |
+| flee only the slower | 328.7 | 138.5 | 4214 | 88 | 0 of 40 |
+
+Paired by seed: 20 longer, 9 shorter, 11 unchanged, mean +16.8 turns on a mean
+of 312. That is not a fix for anything. **Adventurers that are losing run
+more, and adventurers that are losing die** -- the running was a symptom.
+
+### 144.2. What is left, and is still true
+
+394 of those 482 retreats were from something faster with nothing else on
+them, and a step that cannot gain ground is a turn spent on a move that cannot
+work. The gate stays on those grounds rather than on a survival claim it does
+not support. Thirty-one of the eighty-one kinds are slower than a man, so it
+is not a gate that never opens -- the mistake §143 was written about.
+
+### 144.2.1. And the suite caught the blanket version
+
+The first cut applied the gate to every retreat, and the full suite failed:
+`TestKnowingWhenToRun.test_surrounded_is_the_one_time_it_must_leave`, from the
+milestone that fixed the flee vector, asserts that four foes on four sides
+must still produce a step. That earlier milestone had *measured* it -- moving
+diagonally out of a cross puts two of them behind you -- and the gain has
+nothing to do with outpacing anybody. It is fewer things able to reach you.
+
+So the gate governs only the case it was measured on: one thing chasing you,
+which you cannot shake. With two or more in contact the step is worth taking
+whatever their speed. The refined rule is also the better one -- 9 seeds
+shorter rather than 12, and a mean of 328.7 rather than 324.7.
+
+### 144.3. Where the turns actually go
+
+Forty seeds, 12987 turns:
+
+| | turns | share |
+| --- | ---: | ---: |
+| fought | 5090 | 39.2% |
+| working | 3090 | 23.8% |
+| nothing to drink | 1318 | 10.1% |
+| no water on this map | 1261 | 9.7% |
+| patched itself up | 485 | 3.7% |
+| bleeding, nothing to bind it with | 216 | 1.7% |
+
+Those two water lines look like a fifth of everything the adventurer does, and
+that reading is wrong -- they are counter increments, not turns, and they are
+concentrated rather than typical. Measured again for the shape rather than the
+total: **two seeds of the forty** ever report a waterless map, and seed `s28`
+supplies 1059 of the 1318 by itself, one for almost every turn of its 1107.
+Nobody dies of thirst at all; the forty deaths are 38 bled to death and 2 with
+the upper body destroyed.
+
+What is real is the cost. `_find_water` scans the whole local map on each of
+those 1318 calls to re-derive a fact that cannot change while the adventurer
+stays on that world square: 7.66 seconds across the run. `_look_after`'s own
+docstring was written about the half of this that consumed the turn; the half
+that keeps re-deriving the answer is still there, and it is the same shape as
+`TAVERN_UNREACHABLE_BACKOFF` in `dwarf.py` -- one actor finding out is enough
+information for the rest of the run.
+
+### 144.4. Measured and left
+
+- **Nothing survives.** 0 of 40 reach the 16000 turns the driver asks for, and
+  the longest life measured is 4207. Three quarters of the run this driver
+  requests has never been exercised by anything.
+- **The gate is neutral-to-slightly-positive and is not claimed as more.**
+  Twelve of forty seeds get shorter. Shipped because the move it removes
+  cannot work, not because the numbers went up.
+
+## 145. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).
