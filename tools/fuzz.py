@@ -17,6 +17,7 @@ from typing import List, Optional, Sequence
 
 from ascii_warriors.engine.terminal import HeadlessTerminal, QuitSignal
 from ascii_warriors.ui.app import App
+from tools import scratch_saves
 
 #: The keys a confused player might actually press.
 POOL: List[str] = (
@@ -55,6 +56,7 @@ def build_parser() -> argparse.ArgumentParser:
 def run(argv: Optional[Sequence[str]] = None) -> int:
     """Fuzz one session; returns a process exit code."""
     args = build_parser().parse_args(list(argv) if argv is not None else None)
+    scratch_saves()
     rng = random.Random(args.seed)
     script = list(PREFIX[args.mode])
     script += [rng.choice(POOL) for _ in range(args.keys)]

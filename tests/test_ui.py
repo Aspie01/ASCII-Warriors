@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import contextlib
+import io
 import os
 import tempfile
 import unittest
+from pathlib import Path
 
 from ascii_warriors.engine import keys
 from ascii_warriors.engine.rng import RNG
@@ -954,3 +957,225 @@ class TestTheManualOnWeapons(unittest.TestCase):
     def _says(self, phrase):
         self.assertIn(phrase, self._text(),
                       "the manual no longer says %r" % phrase)
+
+
+class TestARunYouCanReplay(unittest.TestCase):
+    """`tools/fuzz.py` promised a replay it was not delivering.
+
+    Its docstring says "Every run is seeded, so a failure can be replayed
+    exactly". It was not: the run was a function of the seed *and* of the
+    player's save folder, which the run itself wrote a world into. Measured on
+    the same seed and the same source, adventure mode, 1500 keys:
+
+        save folder empty                 -> 459 keys, four runs of four
+        save folder held at 144 files     -> 447 keys, four runs of four
+        save folder as the ritual left it -> 447 and 835, alternating
+
+    One saved fortress is enough to do it -- 459 becomes 835 -- because a
+    fortress on disk puts another entry on the title screen, and the fuzzer
+    navigates that screen by counting keystrokes. So a `fuzz --mode fortress`
+    run changed what the next `fuzz --mode adventure` run measured, and a
+    failure could not be reproduced from the seed it was reported with.
+
+    `tools.scratch_saves` is the one funnel every driver goes through now.
+    """
+
+    def setUp(self):
+        self._old_save = os.environ.get("ASCII_WARRIORS_SAVE_DIR")
+        self._old_xdg = os.environ.get("XDG_DATA_HOME")
+        self._old_appdata = os.environ.get("APPDATA")
+        # A "player's folder" of our own, and no override pointing away from
+        # it: this is the state a driver runs in on somebody's machine.
+        self._home = tempfile.mkdtemp()
+        os.environ.pop("ASCII_WARRIORS_SAVE_DIR", None)
+        os.environ["XDG_DATA_HOME"] = self._home
+        os.environ["APPDATA"] = self._home
+
+    def tearDown(self):
+        for name, old in (("ASCII_WARRIORS_SAVE_DIR", self._old_save),
+                          ("XDG_DATA_HOME", self._old_xdg),
+                          ("APPDATA", self._old_appdata)):
+            if old is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = old
+
+    def _players_folder(self):
+        """Where saves would land if a driver did not redirect them."""
+        from ascii_warriors.game import save as save_mod
+
+        old = os.environ.pop("ASCII_WARRIORS_SAVE_DIR", None)
+        try:
+            return save_mod.save_dir()
+        finally:
+            if old is not None:
+                os.environ["ASCII_WARRIORS_SAVE_DIR"] = old
+
+    def _files_in(self, path):
+        return sorted(p.name for p in path.iterdir()) if path.exists() else []
+
+    # -- the funnel ---------------------------------------------------------- #
+
+    def test_it_redirects_the_save_directory(self):
+        from ascii_warriors.game import save as save_mod
+        import tools
+
+        where = tools.scratch_saves()
+        self.assertEqual(str(save_mod.save_dir()), where)
+        self.assertNotEqual(save_mod.save_dir(), self._players_folder())
+
+    def test_it_keeps_a_directory_somebody_already_chose(self):
+        """Replaying a failure against a saved world has to stay possible."""
+        import tools
+
+        mine = tempfile.mkdtemp()
+        os.environ["ASCII_WARRIORS_SAVE_DIR"] = mine
+        self.assertEqual(tools.scratch_saves(), mine)
+
+    # -- and every driver goes through it ------------------------------------ #
+
+    def _run_driver_untouched(self, run, argv):
+        """Run a driver with no override set; return what it left behind."""
+        folder = self._players_folder()
+        before = self._files_in(folder)
+        os.environ.pop("ASCII_WARRIORS_SAVE_DIR", None)
+        buf = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(buf):
+                code = run(argv)
+        finally:
+            os.environ.pop("ASCII_WARRIORS_SAVE_DIR", None)
+        return code, before, self._files_in(folder)
+
+    def test_the_fuzzer_does_not_write_to_the_players_folder(self):
+        from tools import fuzz
+
+        code, before, after = self._run_driver_untouched(
+            fuzz.run, ["--mode", "fortress", "--seed", "q", "--keys", "40",
+                       "--size", "pocket", "--history", "5"])
+        self.assertEqual(code, 0)
+        self.assertEqual(before, after,
+                         "the fuzzer saved into the player's own folder")
+
+    def test_the_smoke_driver_does_not_write_to_the_players_folder(self):
+        from tools import smoke
+
+        code, before, after = self._run_driver_untouched(
+            smoke.run, ["--mode", "fortress", "--quiet", "--size", "pocket",
+                        "--history", "5"])
+        self.assertEqual(code, 0)
+        self.assertEqual(before, after,
+                         "the smoke driver saved into the player's own folder")
+
+    # -- the promise itself -------------------------------------------------- #
+
+    def _stub_fortress_save(self, folder):
+        """The smallest file `list_fortresses` will agree to list."""
+        import gzip
+        import json
+
+        folder.mkdir(parents=True, exist_ok=True)
+        path = folder / "Stubhold.awf"
+        payload = {"version": 1, "saved_at": 1,
+                   "meta": {"name": "Stubhold", "world": "w", "dwarves": 7}}
+        with gzip.open(str(path), "wt", encoding="utf-8") as fh:
+            json.dump(payload, fh)
+        return path
+
+    def test_the_fortress_driver_redirects_before_it_plays(self):
+        """`tools/fort.py` had no guard on this at all.
+
+        Its own tests set a save directory in `setUp`, so removing the
+        redirect from the driver left every one of them green -- which is how
+        `fuzz` and `smoke` came to be missing it in the first place.
+        """
+        from tools import fort as driver
+
+        self._assert_redirects_before_playing(driver, ["--seed", "t",
+                                                       "--quiet"])
+
+    def test_the_adventure_driver_redirects_before_it_plays(self):
+        from tools import play as driver
+
+        self._assert_redirects_before_playing(driver, ["--seed", "t"])
+
+    def _assert_redirects_before_playing(self, driver, argv):
+        """Stop the driver the moment it starts playing and see where it saves.
+
+        Checked at that instant rather than by running the driver, because a
+        seven-day fortress is a minute and a half and this needs to be a test
+        somebody will keep running. What matters is the ordering: by the time
+        there is a game to save, the saves already point somewhere else.
+        """
+        class Stop(Exception):
+            pass
+
+        seen = []
+        real = driver.play
+
+        def spy(*args, **kwargs):
+            seen.append(os.environ.get("ASCII_WARRIORS_SAVE_DIR"))
+            raise Stop
+
+        players = self._players_folder()
+        os.environ.pop("ASCII_WARRIORS_SAVE_DIR", None)
+        driver.play = spy
+        buf = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(buf):
+                with self.assertRaises(Stop):
+                    driver.main(argv)
+        finally:
+            driver.play = real
+            os.environ.pop("ASCII_WARRIORS_SAVE_DIR", None)
+
+        self.assertEqual(len(seen), 1)
+        where = seen[0]
+        self.assertIsNotNone(where, "it started playing with the player\'s "
+                                    "own folder still selected")
+        self.assertNotEqual(Path(where), players)
+
+    def test_the_run_never_resolves_the_players_folder(self):
+        """The promise, stated as the thing that has to be true for it.
+
+        A run replays from its seed exactly when nothing outside the seed can
+        reach it, and the only way the folder reached it was `save_dir()`. So
+        this watches every call the run makes and asserts the player's folder
+        is never among the answers.
+
+        Asserted this way rather than by running the same seed twice and
+        diffing the screens, because that comparison is not sensitive enough
+        to be a guard: measured with the funnel removed, a saved fortress in
+        the folder left the frames identical at 120, 300 and 600 keys and only
+        told them apart over the full 1500-key run -- 459 keys against 835.
+        A guard that needs a minute and a half to notice is one that gets
+        turned off.
+        """
+        from ascii_warriors.game import save as save_mod
+        from tools import fuzz
+
+        players = self._players_folder()
+        self._stub_fortress_save(players)
+        seen = []
+        real = save_mod.save_dir
+
+        def spy():
+            got = real()
+            seen.append(got)
+            return got
+
+        os.environ.pop("ASCII_WARRIORS_SAVE_DIR", None)
+        save_mod.save_dir = spy
+        buf = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(buf):
+                fuzz.run(["--mode", "adventure", "--seed", "11",
+                          "--keys", "120", "--size", "pocket",
+                          "--history", "5"])
+        finally:
+            save_mod.save_dir = real
+            os.environ.pop("ASCII_WARRIORS_SAVE_DIR", None)
+
+        self.assertTrue(seen, "the run never touched the save layer at all")
+        self.assertNotIn(players, seen,
+                         "the run read the player\'s own save folder")

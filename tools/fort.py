@@ -19,9 +19,7 @@ from __future__ import annotations
 
 import argparse
 import collections
-import os
 import sys
-import tempfile
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from ascii_warriors.data.calendar import TICKS_PER_DAY
@@ -32,6 +30,7 @@ from ascii_warriors.fortress.fortress import Fortress
 from ascii_warriors.ui.fort.embark import suggest_site
 from ascii_warriors.world import tiles as tile_data
 from ascii_warriors.world.worldgen import generate_world
+from tools import scratch_saves
 
 #: One simulation step is `sim.STEP_TICKS`; a day is this many steps.
 STEPS_PER_DAY = TICKS_PER_DAY // sim.STEP_TICKS
@@ -487,7 +486,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     ap.add_argument("--quiet", action="store_true")
     args = ap.parse_args(argv)
 
-    os.environ.setdefault("ASCII_WARRIORS_SAVE_DIR", tempfile.mkdtemp())
+    scratch_saves()
     report = None if args.quiet else (lambda line: print(line, flush=True))
     out = play(args.seed, args.days, size=args.size, history=args.history,
                report=report)

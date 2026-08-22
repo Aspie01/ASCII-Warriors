@@ -8702,7 +8702,103 @@ game working. Nobody dies of thirst on that map any more.
   Identical output on v3.79, byte for byte; the same proxy problem as above,
   at the other end of the game. Left for the same milestone.
 
-## 141. Style
+## 141. A run you cannot replay (v3.81)
+
+`tools/fuzz.py` has said this since it was written:
+
+> Every run is seeded, so a failure can be replayed exactly.
+
+It was not true. Six runs, same source, same seed, same key count:
+
+```
+835, 447, 835, 835, 447, 835
+```
+
+Strictly two answers, so one binary decision was flipping. That is worse than
+an ordinary bug: the fuzzer is the thing that finds crashes nobody thought of,
+and a crash it reports against seed 11 has to still be there when you run
+seed 11.
+
+### 141.1. Two wrong answers first
+
+- **String hash randomisation.** `PYTHONHASHSEED=0`, six more runs: still
+  bimodal. Not it.
+- **The clock-derived seed.** `ui/worldgen_screen.py` falls back to
+  `int(time.time() * 1000)` when the seed box is empty, and random keys can
+  empty it. Spying on `_generate` showed the seed it actually used was `'11'`
+  every time. Never taken.
+
+### 141.2. What it was
+
+The spy that ruled out the clock also, accidentally, made the run
+deterministic -- because it set `ASCII_WARRIORS_SAVE_DIR` to a scratch
+directory, which the plain command line did not.
+
+`tools/fort.py` and `tools/play.py` both redirect their saves. `tools/fuzz.py`
+and `tools/smoke.py` did not. So a fuzz run read, and wrote, the player's own
+save folder:
+
+| the folder the run started with | keys consumed |
+| --- | ---: |
+| empty | 459, four runs of four |
+| held at 144 files | 447, four runs of four |
+| left as the ritual left it | 447 and 835, alternating |
+
+Hold the directory still and the run is perfectly repeatable. It was never the
+game that was random.
+
+One saved fortress is the whole of it -- 459 becomes 835. A fortress on disk
+puts another entry on the title screen, and the fuzzer navigates that screen
+by counting keystrokes, so every key after it lands somewhere else. Ninety
+saved *worlds* change nothing; one `.awf` changes everything. That is why the
+ritual saw it: it runs `fuzz --mode fortress` and `fuzz --mode adventure`
+alternately, and the fortress run writes the `.awf` the adventure run then
+trips over.
+
+### 141.3. The part that is not about testing
+
+The drivers were writing into the player's real save folder. This repository's
+had accumulated 144 files -- 69 worlds, 48 fortresses, 27 characters -- every
+one of them litter from a verification run. Anybody who ran the fuzzer once
+got a world they never made in their save list.
+
+`tools.scratch_saves()` is one funnel that all four drivers call first. It
+uses `setdefault`, so replaying a failure against a chosen directory still
+works, and it lives in `tools/__init__.py` where the next driver cannot avoid
+finding it.
+
+### 141.4. A guard that had to be rewritten to be one
+
+The obvious end-to-end guard is to run the same seed twice with the folder
+dirtied in between and diff the screens. Measured with the funnel removed,
+that comparison passed: identical frames at 120 keys, at 300, and at 600. The
+two runs only tell each other apart over the full 1500-key run. A guard that
+needs ninety seconds to notice is a guard that gets turned off.
+
+What replaced it asserts the condition the promise rests on: the run never
+resolves the player's folder at all. Every `save_dir()` call the run makes is
+watched, and the player's folder must not be among the answers. That fails
+immediately with the funnel removed, and it says what is actually meant.
+
+The re-break pass then found that `fort` and `play` had no guard on this
+either -- their own tests set a save directory in `setUp`, so taking the
+redirect out left all of them green. Both are covered now by stopping the
+driver at the instant it starts playing and asking where its saves point: a
+seven-day fortress is a minute and a half, and what matters is the ordering,
+not the run. Eight cases, no misses.
+
+### 141.5. Measured and left
+
+- **The two proxy invariants from §140.5 are still proxies.** `tools/fort.py`
+  reports a thirst defect from the map rather than from whether that dwarf
+  could have drunk, and `tools/play.py --seed play` still reports "the clock is
+  not running" for an adventurer a wolf kills on turn 36.
+- **Nothing else was audited for the same shape.** "What does this run depend
+  on besides its seed" was asked of the four drivers and of nothing else. The
+  test suite sets its own save directory in `setUp`, which is exactly why it
+  never saw any of this: the harness was insulated and the drivers were not.
+
+## 142. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

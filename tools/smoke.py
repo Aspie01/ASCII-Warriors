@@ -16,6 +16,7 @@ from typing import List, Optional, Sequence
 
 from ascii_warriors.engine.terminal import HeadlessTerminal, QuitSignal
 from ascii_warriors.ui.app import App
+from tools import scratch_saves
 
 #: Walk into the world, poke every screen, then quit.
 DEFAULT_SCRIPT: List[str] = (
@@ -119,6 +120,7 @@ def build_parser() -> argparse.ArgumentParser:
 def run(argv: Optional[Sequence[str]] = None) -> int:
     """Play a scripted game and report success or failure."""
     args = build_parser().parse_args(list(argv) if argv is not None else None)
+    scratch_saves()
     default = (FORTRESS_SCRIPT if args.mode == "fortress" else DEFAULT_SCRIPT)
     script = (
         [k for k in args.keys.split(",") if k] if args.keys else list(default)

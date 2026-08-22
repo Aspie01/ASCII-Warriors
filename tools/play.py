@@ -34,9 +34,7 @@ from __future__ import annotations
 
 import argparse
 import collections
-import os
 import sys
-import tempfile
 import time
 from typing import Optional, Sequence
 
@@ -47,6 +45,7 @@ from ascii_warriors.game import actions
 from ascii_warriors.game import conversation as conv
 from ascii_warriors.game.state import Game
 from ascii_warriors.world.worldgen import generate_world
+from tools import scratch_saves
 
 #: Blood left, as a fraction, at which the driver stops fighting and sees to
 #: itself. A starting warrior who trades blows until the end dies on turn 51
@@ -803,7 +802,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     ap.add_argument("--history", type=int, default=120)
     args = ap.parse_args(argv)
 
-    os.environ.setdefault("ASCII_WARRIORS_SAVE_DIR", tempfile.mkdtemp())
+    scratch_saves()
     out = play(args.seed, args.turns, size=args.size, history=args.history)
 
     # The invariants. A driver that only prints is a driver nobody reads.
