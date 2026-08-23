@@ -780,7 +780,7 @@ def melee_attack(
                        % ("You have" if defender.is_player
                           else "%s has" % _subject(defender)),
                        colors.UI["danger"])
-        if night.on_bite(attacker, defender, rng, log):
+        if night.on_bite(attacker, defender, rng, log, ground=world):
             result.add("%s been bitten by something unclean."
                        % ("You have" if defender.is_player
                           else "%s has" % _subject(defender)),

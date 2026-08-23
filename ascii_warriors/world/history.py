@@ -25,6 +25,12 @@ from ..engine.rng import RNG
 #: A tavern_founded was here too and nothing has ever written one. Unquoted,
 #: because the test that keeps this list honest counts string literals.
 #:
+#: A `migration` was here too, and went the same way in v3.94. Nothing in the
+#: world moves a population from one site to another -- sites grow, shrink,
+#: are conquered and are destroyed, and people are born and die where they
+#: are. Declaring the kind did not make the world do it. Implementing
+#: migration would be a feature; leaving the word here was a promise.
+#:
 #: `founded_site` and `site_founded` are both here and both real, which is a
 #: wart rather than a typo. Worldgen and the living world write the first and
 #: `art.py` and `artforms.py` match engraving phrases against it; the fortress
@@ -37,7 +43,7 @@ EVENT_KINDS: Tuple[str, ...] = (
     "resettled",
     "artifact_created", "artifact_stolen", "beast_attack", "beast_slain",
     "hero_rose", "became_necromancer", "tower_built", "curse", "banditry",
-    "marriage", "migration", "plague", "performance",
+    "marriage", "plague", "performance",
 )
 
 

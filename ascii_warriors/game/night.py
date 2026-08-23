@@ -189,17 +189,56 @@ def cursed_with(creature) -> str:
     return getattr(creature, "curse", "")
 
 
-def afflict(creature, kind: str, log=None) -> bool:
-    """Lay a curse. False if it was already carrying one."""
+def afflict(creature, kind: str, log=None, ground=None) -> bool:
+    """Lay a curse. False if it was already carrying one.
+
+    *ground* is the fortress or game the curse is being laid in, and is what
+    lets the world remember it. `"curse"` has been a declared event kind for
+    as long as there have been curses and nothing ever wrote one, so the
+    "worship" purpose in `artforms.about` -- which offers a form a choice of
+    `artifact_created`, `curse` and `tower_built` to be about -- has never had
+    the middle one to pick from.
+
+    The player and figures the world already knows get an entry; a nameless
+    bitten guard does not, which is the same rule the rest of history follows.
+    The player is in because the player has no `hf_id` until they retire and
+    is nonetheless the one person whose story this is.
+
+    The vampire that arrives with the migrants deliberately passes no ground
+    and so writes nothing. What makes that one work is that nothing gives it
+    away, and a line in the legends screen would give it away.
+    """
     if kind not in CURSES or cursed_with(creature):
         return False
     creature.curse = kind
     if log is not None:
         log.bad(CURSES[kind]["text"])
+    _remember(ground, creature, kind)
     return True
 
 
-def on_bite(attacker, defender, rng, log=None) -> bool:
+def _remember(ground, creature, kind: str) -> None:
+    """Write a curse into the world's history, if the world knows the victim."""
+    world = getattr(ground, "world", None)
+    if world is None:
+        return
+    if getattr(creature, "hf_id", None) is None \
+            and not getattr(creature, "is_player", False):
+        return
+    from ..world import history as history_mod
+
+    time = getattr(ground, "time", None)
+    year = int(getattr(time, "year", 0) or getattr(world, "year", 0) or 0)
+    hf = getattr(creature, "hf_id", None)
+    history_mod.record(
+        world, year, "curse",
+        "%s was cursed to walk as a %s."
+        % (creature.display_name(), CURSES[kind]["beast"]),
+        [hf] if hf is not None else (),
+    )
+
+
+def on_bite(attacker, defender, rng, log=None, ground=None) -> bool:
     """A bite from something cursed may pass the curse on.
 
     Called from the combat resolver when a natural attack lands. The odds are
@@ -215,7 +254,8 @@ def on_bite(attacker, defender, rng, log=None) -> bool:
         return False
     if not rng.chance(CURSES[kind]["odds"]):
         return False
-    return afflict(defender, kind, log if defender.is_player else None)
+    return afflict(defender, kind, log if defender.is_player else None,
+                   ground=ground)
 
 
 def moon_is_full(time) -> bool:

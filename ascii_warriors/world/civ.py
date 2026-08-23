@@ -389,6 +389,21 @@ def place_civilizations(world, rng: RNG, progress=None) -> None:
             world.civs.remove(civ)
             continue
         civ.capital = capital.id
+        # The founding of a civilization is the first thing that happens in a
+        # world and was the one thing its history did not contain.
+        # `founded_civ` has been a declared event kind since the beginning and
+        # nothing ever wrote one, so `artforms.about` -- which offers a form
+        # with the "history" purpose a choice of `founded_civ`, `founded_site`
+        # and `became_leader` -- has never had the first of the three to pick
+        # from. Recorded after the capital, because a civilization that could
+        # not put one anywhere is removed again and never existed.
+        from . import history as history_mod
+
+        history_mod.record(
+            world, 1, "founded_civ",
+            "%s was founded by the %s." % (civ.name, race),
+            (), [capital.id], [civ.id],
+        )
         n_extra = rng.randint(1, 3)
         for _ in range(n_extra):
             found_site(world, civ, rng, site_kind_for(race, "minor"), 1)

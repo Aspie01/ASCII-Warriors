@@ -8472,35 +8472,74 @@ class TestThingsThatSaidSoAndDidNot(GameFixture):
 
     def test_every_event_kind_is_one_the_world_records(self):
         """It was missing the three a fortress ending or a reclaim writes and
-        the one the living world writes when a ruin is moved back into."""
+        the one the living world writes when a ruin is moved back into.
+
+        The rule used to be `src.count('"kind"') > 1` over the whole package:
+        the kind's own entry in `EVENT_KINDS` is one, so *any* second mention
+        anywhere passed it. A comment counted. A tuple in another module
+        counted. Three kinds sat behind that for a long time with nothing
+        anywhere writing them:
+
+            founded_civ     named in `artforms.about`'s "history" purpose
+            curse           named in `artforms.about`'s "worship" purpose
+            migration       named in `residents.COMMON_DEEDS`
+
+        Every one of those is a *reader*. The test was asking "is this word
+        used twice", and the claim it was making was "does the world record
+        this". A form with the "history" purpose has been offered
+        `founded_civ` to be about since art forms existed, and no world has
+        ever contained one.
+
+        The rule now is per function: some function has to both name the kind
+        and build a historical event. That is still source analysis rather
+        than a run -- rare kinds like `site_reclaimed` need a reclaimed
+        fortress and `resettled` needs the living world to move somebody into
+        a ruin, neither of which a unit test conjures cheaply -- but it cannot
+        be satisfied from a comment or from another module's lookup table.
+        `TestTheHistoryAWorldActuallyWrites` runs a world for the main paths.
+        """
+        import ast
         import os
-        import re
 
         from ascii_warriors.world.history import EVENT_KINDS
 
-        # Counted as string literals, the way the wound-kind check is. Matching
-        # the argument out of the call needs a regex, and a
-        # `HistoricalEvent(world.next_id("event"), year, "site_founded", ...)`
-        # defeats any regex that stops at the first bracket -- which is how an
-        # earlier version of this test concluded the fortress records nothing.
-        src = ""
-        for d, _dirs, files in os.walk("ascii_warriors"):
-            if "__pycache__" in d:
-                continue
-            for f in files:
-                if f.endswith(".py"):
-                    with open(os.path.join(d, f)) as fh:
-                        src += fh.read()
+        declared = set(EVENT_KINDS)
+        writes = {}
+        for d, dirs, files in os.walk("ascii_warriors"):
+            dirs[:] = [x for x in dirs if x != "__pycache__"]
+            for f in sorted(files):
+                if not f.endswith(".py"):
+                    continue
+                with open(os.path.join(d, f)) as fh:
+                    tree = ast.parse(fh.read())
+                for fn in [n for n in ast.walk(tree)
+                           if isinstance(n, (ast.FunctionDef,
+                                             ast.AsyncFunctionDef))]:
+                    builds = any(
+                        isinstance(n, ast.Call)
+                        and (getattr(n.func, "attr", None)
+                             or getattr(n.func, "id", None))
+                        in ("record", "HistoricalEvent")
+                        for n in ast.walk(fn))
+                    if not builds:
+                        continue
+                    for n in ast.walk(fn):
+                        if isinstance(n, ast.Constant) and n.value in declared:
+                            writes.setdefault(n.value, []).append(
+                                "%s.%s" % (f, fn.name))
+
         # The four a fortress writes, and the one the living world writes when
         # somebody moves back into a ruin. All five were missing.
         for kind in ("site_founded", "site_abandoned", "site_destroyed",
                      "site_reclaimed", "founded_site", "resettled"):
             self.assertIn(kind, EVENT_KINDS,
                           "%s is recorded and not declared" % kind)
-        for kind in EVENT_KINDS:
-            self.assertGreater(
-                src.count('"%s"' % kind), 1,
-                "%r is a declared event kind nothing records" % kind)
+        orphans = sorted(declared - set(writes))
+        self.assertEqual(
+            orphans, [],
+            "declared event kinds that no function both names and writes: %s "
+            "-- being mentioned in a comment or a lookup table is not being "
+            "recorded" % orphans)
 
     def test_the_hospital_asks_for_bandages_before_it_needs_them(self):
         """`BANDAGE_PER_DWARF` said the hospital keeps a stock and nothing
@@ -8517,6 +8556,160 @@ class TestThingsThatSaidSoAndDidNot(GameFixture):
         said = " ".join(getattr(m, "text", str(m)) for m in fort.log.recent(80))
         self.assertIn("bandage", said.lower())
         self.assertGreater(hospital.BANDAGE_PER_DWARF, 0)
+
+
+class TestTheHistoryAWorldActuallyWrites(unittest.TestCase):
+    """Run the world and count, rather than reading the source about it.
+
+    The static check next door can only say that some function names a kind
+    and builds an event in the same body. That is a great deal stronger than
+    counting the word, and it is still not a run. These are the paths cheap
+    enough to actually take.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        from ascii_warriors.engine.rng import RNG
+        from ascii_warriors.world.worldgen import generate_world
+
+        cls.world = generate_world(RNG("wrote").sub("w"), size="small",
+                                   history_years=120)
+        cls.kinds = collections.Counter(e.kind for e in cls.world.events)
+
+    def test_a_world_records_the_founding_of_its_civilizations(self):
+        """`founded_civ` was declared from the beginning and never written.
+
+        `artforms.about` offers a form with the "history" purpose a choice of
+        `founded_civ`, `founded_site` and `became_leader` to be about, so for
+        as long as there have been art forms the first of the three has been
+        a subject no song could have.
+        """
+        civs = len(self.world.civs)
+        self.assertGreater(civs, 0, "the fixture world has no civilizations")
+        self.assertEqual(
+            self.kinds.get("founded_civ", 0), civs,
+            "%d civilizations and %d founding events"
+            % (civs, self.kinds.get("founded_civ", 0)))
+
+    def test_the_founding_names_the_civilization_and_its_capital(self):
+        """An event nothing can be looked up from is not history."""
+        found = [e for e in self.world.events if e.kind == "founded_civ"]
+        self.assertTrue(found)
+        for ev in found:
+            self.assertTrue(ev.civs, "%r names no civilization" % ev.text)
+            self.assertTrue(ev.sites, "%r names no site" % ev.text)
+
+    def test_a_world_writes_the_kinds_its_main_paths_promise(self):
+        """A floor, not a ceiling. These need no rare conditions at all."""
+        for kind in ("founded_civ", "founded_site", "birth", "death",
+                     "marriage", "battle", "war_declared", "became_leader"):
+            self.assertGreater(self.kinds.get(kind, 0), 0,
+                               "no %s in 120 years of a small world" % kind)
+
+    def test_a_fortress_that_is_abandoned_says_so_and_one_that_falls_does_not(self):
+        from tests.test_fortress import embark
+        from ascii_warriors.fortress import sim
+
+        def kinds_after(abandoned):
+            fort = embark("legacy-%s" % abandoned)
+            before = {id(e) for e in fort.world.events}
+            sim.record_fall(fort, abandoned=abandoned)
+            return {e.kind for e in fort.world.events if id(e) not in before}
+
+        self.assertIn("site_abandoned", kinds_after(True))
+        self.assertIn("site_destroyed", kinds_after(False))
+
+
+class TestTheCurseTheWorldRemembers(unittest.TestCase):
+    """`curse` was declared for as long as there have been curses.
+
+    Nothing wrote one. It passed the old word-count guard because
+    `artforms.about` lists it under the "worship" purpose -- a *reader*, which
+    is exactly backwards: songs could be about curses in a world where nobody
+    had ever been cursed.
+    """
+
+    def setUp(self):
+        from ascii_warriors.engine.rng import RNG
+        from ascii_warriors.game.state import Game
+        from ascii_warriors.world.worldgen import generate_world
+
+        self._tmp = tempfile.mkdtemp()
+        self._old = os.environ.get("ASCII_WARRIORS_SAVE_DIR")
+        os.environ["ASCII_WARRIORS_SAVE_DIR"] = self._tmp
+        rng = RNG("cursed")
+        world = generate_world(rng.sub("w"), size="pocket", history_years=25)
+        self.game = Game.new_game(
+            world, {"race": "dwarf", "profession": "warrior"}, rng)
+
+    def tearDown(self):
+        if self._old is None:
+            os.environ.pop("ASCII_WARRIORS_SAVE_DIR", None)
+        else:
+            os.environ["ASCII_WARRIORS_SAVE_DIR"] = self._old
+
+    def _curses(self):
+        return [e for e in self.game.world.events if e.kind == "curse"]
+
+    def test_the_world_remembers_cursing_the_player(self):
+        from ascii_warriors.game import night
+
+        self.assertEqual(self._curses(), [])
+        self.assertTrue(night.afflict(self.game.player, "werebeast",
+                                      ground=self.game))
+        got = self._curses()
+        self.assertEqual(len(got), 1, "the world forgot")
+        self.assertIn(self.game.player.display_name(), got[0].text)
+
+    def test_a_curse_laid_with_no_ground_is_not_history(self):
+        """`afflict` is called from places that have no world to write to."""
+        from ascii_warriors.game import night
+
+        self.assertTrue(night.afflict(self.game.player, "werebeast"))
+        self.assertEqual(self._curses(), [])
+
+    def test_nobody_the_world_has_never_heard_of_makes_the_legends(self):
+        """Otherwise every bitten guard in a tavern brawl is a chronicle."""
+        from ascii_warriors.data.creatures import CREATURES
+        from ascii_warriors.game import night
+        from ascii_warriors.game.entity import make_creature
+
+        nobody = make_creature(self.game.rng, "human")
+        self.assertIsNone(getattr(nobody, "hf_id", None))
+        self.assertFalse(nobody.is_player)
+        self.assertTrue(night.afflict(nobody, "werebeast", ground=self.game))
+        self.assertEqual(self._curses(), [],
+                         "a passer-by was written into the world's history")
+
+    def test_the_vampire_among_the_migrants_stays_a_secret(self):
+        """The one curse that must not be recorded.
+
+        A vampire arrives hidden among a wave of migrants and nothing on the
+        units screen gives it away -- what gives it away is the corpse. A line
+        in the legends screen would hand the player the answer for free, so
+        that call deliberately passes no ground.
+
+        The victim is given an `hf_id` here on purpose. Written the obvious
+        way this test could not fail: an ordinary migrant is nobody the world
+        has heard of, so it is filtered out by the passer-by rule above and
+        the withholding never has to do any work. The re-break pass caught
+        that -- passing `ground=fort` from `_maybe_vampire` left every test
+        green. A migrant with a name in the world's history is the case where
+        the withholding is the only thing standing between the player and the
+        answer.
+        """
+        from tests.test_fortress import embark
+        from ascii_warriors.fortress import sim
+
+        fort = embark("secret")
+        before = len([e for e in fort.world.events if e.kind == "curse"])
+        victim = list(fort.dwarves())[0]
+        victim.hf_id = 1
+        for _ in range(40):
+            sim._maybe_vampire(fort, [victim])
+        after = [e for e in fort.world.events if e.kind == "curse"]
+        self.assertEqual(len(after), before,
+                         "the legends screen just named the vampire")
 
 
 class TestTheSlabInTheTower(unittest.TestCase):

@@ -9870,7 +9870,106 @@ defect, so cases 2 through 5 were run against v3.92 and reported six red tests
 each. Four convincing passes that measured nothing. A re-break of uncommitted
 work has to restore from a snapshot of the working tree, never from git.
 
-## 154. Style
+## 154. The guard that counted words (v3.94)
+
+§153 ended on a rule: *an enumeration nothing validates is documentation, and
+documentation drifts.* `history.EVENT_KINDS` has been validated for a long
+time. The validation was this:
+
+```python
+for kind in EVENT_KINDS:
+    self.assertGreater(src.count('"%s"' % kind), 1,
+                       "%r is a declared event kind nothing records" % kind)
+```
+
+`src` is every `.py` file in the package concatenated. The kind's own entry in
+`EVENT_KINDS` is the first occurrence, so **any** second mention anywhere at
+all satisfies it. A comment satisfies it. A lookup table in another module
+satisfies it. The assertion message says "nothing records", and what is
+measured is "this word appears twice".
+
+Three kinds had been sitting behind it:
+
+| kind | its second mention | what that is |
+| --- | --- | --- |
+| `founded_civ` | `artforms.about`, "history" purpose | a **reader** |
+| `curse` | `artforms.about`, "worship" purpose | a **reader** |
+| `migration` | `residents.COMMON_DEEDS` | a **reader** |
+
+Every one is somewhere that *consumes* the kind. `artforms.about` offers a
+form with the "history" purpose a choice of `founded_civ`, `founded_site` and
+`became_leader` to be about; for as long as art forms have existed, the first
+of the three has been a subject no song could have, because no world has ever
+contained one. The same for songs about curses in a world where nobody has
+ever been cursed.
+
+### Getting to that number took four wrong measurements
+
+Worth recording, because each was a different way to mismeasure the same
+claim.
+
+1. **Counting `record()` calls only.** Six kinds looked dead. But
+   `legacy.record` writes history through `HistoricalEvent(...)` directly.
+2. **Counting `record()` and `HistoricalEvent(...)` with a literal argument.**
+   Four looked dead. But `legacy.record` does `kind = "site_abandoned"` first
+   and passes the *variable*.
+3. **Running worlds and tallying.** Eight looked dead — but that only
+   exercises worldgen. The fortress and the living world write kinds a world
+   alone never produces.
+4. **Running a fortress fall too, and slicing `world.events[before:]`.**
+   `site_founded` still looked dead: it is inserted with
+   `world.events.insert(0, founding)`, at the *front*, so a tail slice
+   misses it.
+
+The measurement that survived is per function: some function has to both name
+the kind and build a historical event in the same body. That cannot be
+satisfied from a comment or from another module's table, and it does not care
+whether the kind arrives as a literal or through a variable.
+
+It is still source analysis rather than a run, and that is a deliberate limit:
+`site_reclaimed` needs a reclaimed fortress and `resettled` needs the living
+world to move somebody into a ruin, neither of which a unit test conjures
+cheaply. `TestTheHistoryAWorldActuallyWrites` runs a real world for the paths
+that are cheap, as a floor under the static check.
+
+### What the three became
+
+- **`founded_civ` is now written.** Five civilizations are founded in every
+  world and it was the one thing their history did not contain. Recorded in
+  `place_civilizations`, after the capital — a civilization that could not
+  place one is removed again and never existed. `record()` draws no RNG, so
+  no world changed shape.
+- **`curse` is now written**, through `night.afflict`, the single place a
+  curse is laid. The player and figures the world already knows get an entry;
+  a bitten guard in a tavern brawl does not, which is the rule the rest of
+  history follows.
+- **`migration` is gone.** Nothing in the world moves a population from one
+  site to another. Sites grow, shrink, are conquered and are destroyed, and
+  people are born and die where they are. Implementing migration would be a
+  feature; leaving the word in the tuple was a promise.
+
+### The vampire that must not be recorded
+
+One curse is deliberately *not* history. A vampire arrives hidden among a wave
+of migrants, and nothing on the units screen gives it away — what gives it
+away is the corpse, and whether anybody was in the room. A line in the legends
+screen hands the player the answer for free, so `_maybe_vampire` passes no
+ground and writes nothing.
+
+The guard for that could not fail as first written. An ordinary migrant has no
+`hf_id`, so it is filtered out by the passer-by rule and the withholding never
+has to do any work — passing `ground=fort` from `_maybe_vampire` left every
+test green. The guard gives the victim an `hf_id` now, which is the only case
+where the withholding is the thing standing between the player and the answer.
+
+That is the second milestone running whose re-break pass found a guard of mine
+that could not fail (§153 had the one counting a log that deduplicates). Both
+were green, both looked reasonable, and neither was measuring what its name
+said. **Writing the guard is not the work; proving it can fail is the work.**
+
+Re-break: five defects put back, five caught, 0 misses.
+
+## 155. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

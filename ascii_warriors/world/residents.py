@@ -40,7 +40,7 @@ RETIRED_WORTH = 25
 #: Events every figure has, which distinguish nobody. Every one of the 377
 #: living residents had "events about them", so counting events flatly would
 #: have ranked them all equal.
-COMMON_DEEDS = frozenset({"birth", "death", "migration"})
+COMMON_DEEDS = frozenset({"birth", "death"})
 
 #: How much notability buys a level of skill, and the ceiling. A figure with a
 #: title and a few kills should be worth being careful around; nobody becomes
