@@ -311,6 +311,47 @@ def _put_up_the_workshops(fort) -> Tuple[List[str], List[str], int, int]:
     return put, missed, felled, furthest
 
 
+def _more_beds(fort) -> int:
+    """Put up beds for anybody who has not got one. Returns how many.
+
+    `PLAN` builds seven on the morning of day one and the carpenter is told
+    `count 4, repeat False` -- four beds, once, for ever. A fortress that
+    grows does not grow any beds: measured over a full year of `year1`, seven
+    beds and fifteen dwarves at the end of it, with eight of them sleeping on
+    the floor for a "slept on the floor" thought worth three unhappiness
+    apiece, every night.
+
+    Beds are *built*, not designated, so unlike the seasonal digging §151
+    measured and threw away this costs the pathfinder nothing at all: no job
+    goes on the board, and nobody walks anywhere they could not already.
+    """
+    want = len(fort.dwarves())
+    have = sum(1 for b in fort.buildings if b.kind == "bed" and b.built)
+    if have >= want:
+        return 0
+    x, y, _z = _home(fort)
+    taken = set()
+    for b in fort.buildings:
+        taken.update(b.cells())
+    k = buildings.KINDS["bed"]
+    put = 0
+    for _ in range(want - have):
+        spot = _clear_spot(fort, x, y, k.width, k.height, taken)
+        if spot is None:
+            break
+        sx, sy, sz = spot
+        ok, _why = buildings.can_place(fort.local, "bed", sx, sy, sz,
+                                       fort.buildings)
+        if not ok:
+            break
+        b = Building("bed", sx, sy, sz)
+        b.built = True
+        fort.buildings.append(b)
+        taken.update(b.cells())
+        put += 1
+    return put
+
+
 def _queue_the_orders(fort) -> List[str]:
     """Standing orders at whatever got built."""
     queued = []
@@ -506,9 +547,14 @@ def play(seed: str, days: int, *, size: str = "small", history: int = 60,
     made = _watch_the_workshops(fort)
     searches = _Searches()
     searches.__enter__()
+    #: Days between the driver looking round for anybody without a bed.
+    season = 28
+    made_beds = 0
     for day in range(days):
         sim.run(fort, STEPS_PER_DAY)
         out["days"] = day + 1
+        if (day + 1) % season == 0:
+            made_beds += _more_beds(fort)
         for c in list(fort.creatures.values()):
             if c.id in counted or not c.body.dead:
                 continue
@@ -553,6 +599,7 @@ def play(seed: str, days: int, *, size: str = "small", history: int = 60,
         "made": dict(made),
         "wealth": fort.wealth,
         "beds": sum(1 for b in fort.buildings if b.kind == "bed" and b.built),
+        "beds_added": made_beds,
         "lost": fort.lost,
     })
     return out
@@ -578,7 +625,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                     "water_cells", "aquifer", "thirst_in_reach", "made",
                     "started_with", "alive", "idle", "deaths", "food", "drink",
                     "low_food", "low_drink", "left_undug", "lost",
-                    "wealth", "beds", "days", "searches"):
+                    "wealth", "beds", "beds_added", "days", "searches"):
             print("  %-13s %s" % (key, out[key]))
 
     # What this driver can honestly assert is about the *job board*: a

@@ -9576,7 +9576,94 @@ shirts torn into bandages over forty seeds had already proved it works.
   marking. That is why the board is down to two jobs by day 336, and it is the
   next thing worth fixing about this driver.
 
-## 151. Style
+## 151. The work it cannot get to (v3.91)
+
+§150.5 left two things about the fortress driver. Both were chased. Two of
+the three plausible fixes turned out to be wrong, and saying so with the
+numbers is most of what this milestone is.
+
+### 151.1. Marking more work does not make a finished fortress busy
+
+The obvious answer to "the average dwarf is idle 81% of the time" is that a
+player keeps marking, so the driver should too: another floor of rooms each
+season, and the timber that has grown back. Written, and measured over 56 days
+of `year1`, the same seed both ways:
+
+| | wall | idle | reach fills | fill cells | left over |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| set up and watch | 492s | 78% | 7 | 101941 | none |
+| keep marking | 913s | 79% | 719 | 8959259 | 99 cells |
+
+Idleness did not move. The cost did: **eighty-eight times the flood-fill
+work** and nearly twice the wall clock. A room marked on the floor below is a
+room behind a one-tile stairway nobody has cut yet, so every dwarf spends its
+step failing to path to work it cannot reach -- the exact cost §120 was
+written about, arriving by a new road. Three days is enough to see it: 7 fills
+becomes 22.
+
+The fortress is idle because it has *finished*. More designations do not
+change that, and this one is reverted.
+
+A guard was written for it -- an ordinary fortnight must stay cheap in flood
+fills -- and then **deleted**. The threshold had to be tuned per fixture (the
+same seed gave 12 fills through the test helper and 21 through the probe,
+because `embark()` builds a different world), it cost ten to forty seconds,
+and a guard that needs its number nursed is the kind §149.3 threw out.
+
+### 151.2. The still is wasteful, not dangerous
+
+The other half of §150.5: 9507 brews in a year, 11571 units of ale for twelve
+dwarves, while food fell to 19. The standing order is
+`{"recipe": "brew_ale", "count": 1, "repeat": True}` and nothing ever stops
+it. `brew_ale` eats three plump helmets, and plump helmets are the fortress's
+only food -- `food_stock()` and the plump count are the same number at every
+sample -- so the still ought to be drinking the larder.
+
+It is not. Measured over 56 days:
+
+```
+day 14   food 27   ale  648   brews  356
+day 56   food 55   ale 1374   brews 1365
+```
+
+Food **rises** while the still runs flat out. The farms out-produce it four
+times over. The order is wasteful and it is not what is thinning the larder,
+so it is left alone.
+
+### 151.3. Beds for whoever turns up
+
+What was real: `PLAN` puts up seven beds on the morning of day one, the
+carpenter is told `count 4, repeat False`, and nothing ever builds an eighth.
+A fortress that grows does not grow any beds.
+
+```
+year1, 168 days   before: 9 alive, 7 beds, 2 sleeping on the floor
+                  after : 9 alive, 9 beds, none
+```
+
+Over a full year it was fifteen alive and seven beds. Each dwarf without one
+takes a "slept on the floor" thought worth three unhappiness, every night.
+
+`_more_beds` runs each season and puts up what is missing. Beds are *built*
+rather than designated, so unlike §151.1 this costs the pathfinder nothing:
+no job goes on the board and nobody walks anywhere they could not already.
+
+Four re-break cases, no misses -- after one of them turned out to be guarding
+a rule enforced twice, an early return and the loop bound under it, so
+breaking either alone changed nothing. Same shape as §149.3's rest guard.
+
+### 151.4. Measured and left
+
+- **The idleness is not solved and may not be a problem.** A seven-dwarf
+  fortress with its stairway cut, its farms planted and its still running has
+  little left to do, and §151.1 says the cure is worse. Whether the *game*
+  should offer more for a settled fortress to do is a design question this
+  driver cannot answer.
+- **The fill-budget guard is gone but the number is worth keeping**: three
+  ordinary days cost 7 flood fills on `year1`, 2 on `fort`, 4 on `delta`.
+  Anything that turns those into hundreds is doing what §151.1 did.
+
+## 152. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

@@ -8846,7 +8846,7 @@ _DRIVER_RUN = {
     "low_food": 18, "low_drink": 317, "left_undug": 0, "lost": False,
     "water_cells": 0, "aquifer": 0, "started_with": 7, "alive": 7, "idle": 0,
     "deaths": {}, "food": 40, "drink": 40, "low_food": 40, "low_drink": 40,
-    "wealth": 100, "beds": 7, "left_undug": 0, "lost": 0,
+    "wealth": 100, "beds": 7, "beds_added": 0, "left_undug": 0, "lost": 0,
     "searches": {"found": 1, "failed": 0, "nodes_per_success": 1,
                  "nodes_per_failure": 0, "nodes_total": 1, "fills": 0,
                  "fill_cells": 0, "nodes_and_fills": 1},
@@ -9864,3 +9864,69 @@ class TestTheYearItNeverPlayed(unittest.TestCase):
                    and not fort.can_reach(somebody, c)]
         self.assertEqual(outside, [],
                          "it marked %d trees through a wall" % len(outside))
+
+
+
+class TestBedsForWhoeverTurnsUp(unittest.TestCase):
+    """`PLAN` builds seven beds on day one and nothing ever builds an eighth.
+
+    The carpenter's standing order is `count 4, repeat False` -- four beds,
+    once, for ever -- and the seven in `PLAN` go up on the morning of the
+    first day. A fortress that grows does not grow any beds. Measured over
+    168 days of `year1`: nine alive, seven beds, two of them sleeping on the
+    floor for a "slept on the floor" thought worth three unhappiness apiece,
+    every night. Over a full year it was fifteen alive and seven beds.
+
+    Beds are *built* rather than designated, so unlike the seasonal digging
+    §151 measured and rejected this costs the pathfinder nothing: no job goes
+    on the board and nobody walks anywhere they could not already.
+
+    "Enough is enough" is enforced twice over -- an early return and the loop
+    bound below it -- so breaking either alone changes nothing and the
+    re-break case has to remove both to show the guard bites.
+    """
+
+    def _fortress(self, seed="beds"):
+        fort = embark(seed)
+        driver_fort._dig_out_the_fortress(fort)
+        driver_fort._put_up_the_workshops(fort)
+        return fort
+
+    @staticmethod
+    def _beds(fort):
+        return sum(1 for b in fort.buildings if b.kind == "bed" and b.built)
+
+    def test_it_builds_one_for_everybody_who_has_not_got_one(self):
+        fort = self._fortress()
+        # Two migrants turn up.
+        for b in list(fort.buildings):
+            if b.kind == "bed":
+                fort.buildings.remove(b)
+        before = self._beds(fort)
+        self.assertEqual(before, 0, "the fixture left beds behind")
+        made = driver_fort._more_beds(fort)
+        self.assertGreater(made, 0, "nobody got a bed")
+        self.assertGreaterEqual(self._beds(fort), len(fort.dwarves()),
+                                "%d dwarves and %d beds"
+                                % (len(fort.dwarves()), self._beds(fort)))
+
+    def test_it_does_nothing_when_everybody_has_a_bed(self):
+        fort = self._fortress("beds2")
+        while self._beds(fort) < len(fort.dwarves()):
+            if driver_fort._more_beds(fort) == 0:
+                self.skipTest("nowhere left to put a bed on this embark")
+        settled = self._beds(fort)
+        self.assertEqual(driver_fort._more_beds(fort), 0,
+                         "it kept building beds nobody needs")
+        self.assertEqual(self._beds(fort), settled)
+
+    def test_it_puts_nothing_on_the_job_board(self):
+        """The point of building rather than designating -- see §151."""
+        fort = self._fortress("beds3")
+        for b in list(fort.buildings):
+            if b.kind == "bed":
+                fort.buildings.remove(b)
+        before = len(fort.jobs.jobs)
+        driver_fort._more_beds(fort)
+        self.assertEqual(len(fort.jobs.jobs), before,
+                         "putting up beds queued work for somebody")
