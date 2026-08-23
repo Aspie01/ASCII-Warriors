@@ -605,6 +605,25 @@ def play(seed: str, days: int, *, size: str = "small", history: int = 60,
     return out
 
 
+#: What a run prints, in the order it prints it.
+#:
+#: Named rather than inline because the reporting tests replay a canned
+#: result through `main`, and that canned copy is a hand-written version of a
+#: shape this module owns. It drifted twice -- v3.80 added `militia`, v3.91
+#: added `beds_added` -- and each time five reporting tests died on a
+#: `KeyError` and six more followed, discovered by the twenty-five-minute full
+#: suite rather than by anything quick. `TestTheStubThatDriftedTwice` compares
+#: the two in milliseconds now.
+REPORT_KEYS = (
+    "at", "painted", "done", "left", "built", "unbuilt",
+    "felled", "furthest_build", "orders", "militia",
+    "water_cells", "aquifer", "thirst_in_reach", "made",
+    "started_with", "alive", "idle", "deaths", "food", "drink",
+    "low_food", "low_drink", "left_undug", "lost",
+    "wealth", "beds", "beds_added", "days", "searches",
+)
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
     """Entry point."""
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
@@ -620,12 +639,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     out = play(args.seed, args.days, size=args.size, history=args.history,
                report=report)
     if not args.quiet:
-        for key in ("at", "painted", "done", "left", "built", "unbuilt",
-                    "felled", "furthest_build", "orders", "militia",
-                    "water_cells", "aquifer", "thirst_in_reach", "made",
-                    "started_with", "alive", "idle", "deaths", "food", "drink",
-                    "low_food", "low_drink", "left_undug", "lost",
-                    "wealth", "beds", "beds_added", "days", "searches"):
+        for key in REPORT_KEYS:
             print("  %-13s %s" % (key, out[key]))
 
     # What this driver can honestly assert is about the *job board*: a

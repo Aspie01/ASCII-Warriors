@@ -8843,10 +8843,10 @@ _DRIVER_RUN = {
     "unbuilt": [], "felled": 0, "furthest_build": 4, "orders": ["brew_ale"],
     "militia": {"squad": 1, "enlisted": 2, "barracks": True},
     "thirst_in_reach": [], "made": {"still": 162, "carpenter": 4},
-    "low_food": 18, "low_drink": 317, "left_undug": 0, "lost": False,
     "water_cells": 0, "aquifer": 0, "started_with": 7, "alive": 7, "idle": 0,
     "deaths": {}, "food": 40, "drink": 40, "low_food": 40, "low_drink": 40,
-    "wealth": 100, "beds": 7, "beds_added": 0, "left_undug": 0, "lost": 0,
+    "left_undug": 0, "lost": False,
+    "wealth": 100, "beds": 7, "beds_added": 0,
     "searches": {"found": 1, "failed": 0, "nodes_per_success": 1,
                  "nodes_per_failure": 0, "nodes_total": 1, "fills": 0,
                  "fill_cells": 0, "nodes_and_fills": 1},
@@ -9930,3 +9930,61 @@ class TestBedsForWhoeverTurnsUp(unittest.TestCase):
         driver_fort._more_beds(fort)
         self.assertEqual(len(fort.jobs.jobs), before,
                          "putting up beds queued work for somebody")
+
+
+class TestTheStubThatDriftedTwice(unittest.TestCase):
+    """`_DRIVER_RUN` is a hand-written copy of a shape `tools/fort.py` owns.
+
+    The reporting tests replay a canned result through `main` to check which
+    numbers the driver refuses to print OK over. That canned copy has to carry
+    every key `main` prints, and nothing checked it, so it drifted twice:
+
+        v3.80 added `militia`      -> 5 errors, and 6 more behind them
+        v3.91 added `beds_added`   -> the same eleven
+
+    Both times the failure was `KeyError` from inside `print`, and both times
+    it was found by the twenty-five-minute full suite rather than by anything
+    quick. This compares the two in milliseconds.
+
+    It also found the copy disagreeing with itself. Four keys were written
+    twice over -- `low_food` as 18 and again as 40, `low_drink` as 317 and 40,
+    `left_undug` and `lost` twice each -- and Python keeps the last quietly.
+    Half the numbers in the stub were dead the moment they were typed.
+    """
+
+    def test_the_stub_carries_every_key_the_driver_prints(self):
+        missing = [k for k in driver_fort.REPORT_KEYS if k not in _DRIVER_RUN]
+        self.assertEqual(missing, [],
+                         "the canned result is missing %s, so every reporting "
+                         "test will die on KeyError" % missing)
+
+    def test_the_driver_produces_every_key_it_prints(self):
+        """The other direction: `play` must supply what `main` asks for."""
+        import inspect
+
+        source = inspect.getsource(driver_fort.play)
+        for key in driver_fort.REPORT_KEYS:
+            self.assertIn('"%s"' % key, source,
+                          "`main` prints %r and `play` never sets it" % key)
+
+    def test_the_stub_does_not_say_anything_twice(self):
+        """Python keeps the last of a repeated key without a word about it."""
+        import ast
+        import collections
+
+        with open(__file__) as fh:
+            tree = ast.parse(fh.read())
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Assign):
+                continue
+            names = [t.id for t in node.targets if isinstance(t, ast.Name)]
+            if "_DRIVER_RUN" not in names:
+                continue
+            keys = [k.value for k in node.value.keys
+                    if isinstance(k, ast.Constant)]
+            twice = [k for k, n in collections.Counter(keys).items() if n > 1]
+            self.assertEqual(twice, [],
+                             "%s written more than once; Python keeps the "
+                             "last and drops the rest" % twice)
+            return
+        self.fail("could not find the _DRIVER_RUN literal to check")

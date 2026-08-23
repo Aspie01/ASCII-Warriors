@@ -9663,7 +9663,58 @@ breaking either alone changed nothing. Same shape as §149.3's rest guard.
   ordinary days cost 7 flood fills on `year1`, 2 on `fort`, 4 on `delta`.
   Anything that turns those into hundreds is doing what §151.1 did.
 
-## 152. Style
+## 152. The stub that drifted twice (v3.92)
+
+`_DRIVER_RUN` in `tests/test_fortress.py` is a hand-written copy of the shape
+`tools/fort.py`'s `play()` returns. The reporting tests replay it through
+`main` to check which numbers the driver refuses to print OK over, so it has
+to carry every key `main` prints. Nothing checked that, and it drifted twice:
+
+| | added | cost |
+| --- | --- | --- |
+| v3.80 | `militia` | 5 errors, 6 more behind them |
+| v3.91 | `beds_added` | the same eleven |
+
+Both times the failure was a `KeyError` raised from inside a `print`, and both
+times it surfaced in the twenty-five-minute full suite rather than anywhere
+quick. The same mistake twice, eleven months of commits apart, is a sign the
+arrangement is wrong rather than that somebody was careless.
+
+The driver owns the list now -- `REPORT_KEYS`, named rather than inline -- and
+`TestTheStubThatDriftedTwice` compares the two in a tenth of a second. It
+checks both directions: every key the driver prints must be in the stub, and
+every key it prints must be one `play` actually sets, so a printed key with no
+producer is caught before it reaches a run.
+
+### 152.1. And the copy disagreed with itself
+
+Writing that test turned up something nobody had looked for. Four keys were
+written twice in the same literal:
+
+```
+"low_food": 18,  ... "low_food": 40,
+"low_drink": 317, ... "low_drink": 40,
+"left_undug": 0,  ... "left_undug": 0,
+"lost": False,    ... "lost": 0,
+```
+
+Python keeps the last and says nothing. Half those numbers were dead the
+moment they were typed -- the 18 and the 317 that §143 measured and put there
+never took part in any test. A third guard reads the literal back with `ast`
+and fails on a repeated key, the same technique §146.3 used to keep `MODES`
+honest, because this is the same disease: a copy nothing compares.
+
+### 152.2. Measured and left
+
+- **The stub is still a copy.** Deriving it from a real run would end the
+  drift for good, but a real run is minutes and these tests are milliseconds;
+  a fast guard on a hand-written copy is the trade made here, and it is worth
+  writing down that it *is* a trade.
+- **`tools/play.py` has no such stub and no such guard.** Its invariants are
+  tested through `_run_play` and `_PLAY_RUN` in `test_ui.py`, which has the
+  same shape and has not drifted yet. It was not swept here.
+
+## 153. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).
