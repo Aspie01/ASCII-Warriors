@@ -497,22 +497,12 @@ class Game:
             return
         max_tier = 3 if tile.savagery < 60 else 5
         options = creature_data.spawnable(
-            tile.biome, underground=underground, max_tier=max_tier,
-            flags_none=self.WILD_NEVER,
+            tile.biome, underground=underground, river=bool(tile.river),
+            max_tier=max_tier, flags_none=self.WILD_NEVER,
         )
-        # `river` is a biome in the table, five species live in it, and
-        # `biomes.classify` cannot return it: no world tile has ever been one.
-        # Carp and pike list nowhere else and so had never once existed, in a
-        # game that draws a river across half its maps. The tile knows it has
-        # a river; that is enough to ask for the things that live in one.
-        if tile.river and not underground:
-            have = {c.id for c in options}
-            options = options + [
-                c for c in creature_data.spawnable(
-                    "river", underground=underground, max_tier=max_tier,
-                    flags_none=self.WILD_NEVER)
-                if c.id not in have
-            ]
+        # `river` used to be folded in right here, and only here. It is the
+        # lookup's job now -- see `creatures.spawnable` -- because the same
+        # river on a fortress map had nothing living in it.
         options = [c for c in options if not c.intelligent or c.has("EVIL")]
         if not options:
             return

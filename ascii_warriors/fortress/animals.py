@@ -199,8 +199,14 @@ def spawn_wildlife(fort, rng, count: Optional[int] = None) -> List:
     """
     from ..data import creatures as creature_data
 
+    # The river the map was cut with is on the world tile, not in the biome:
+    # `_carve_river` reads it from there, and so does this. Without it a
+    # fortress on a river had eighteen to twenty-three animals on the map and
+    # not one of the five species that live in water.
+    here = fort.world.tile(fort.wx, fort.wy)
     kinds = creature_data.spawnable(
-        fort.local.biome, max_tier=2, flags_none=WILD_NEVER)
+        fort.local.biome, max_tier=2, river=bool(here.river),
+        flags_none=WILD_NEVER)
     if not kinds:
         return []
     out = []

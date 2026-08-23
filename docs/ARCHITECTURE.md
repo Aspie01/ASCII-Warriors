@@ -10056,7 +10056,89 @@ Re-break: five defects put back, five caught, 0 misses — after a first run
 that found two of my own guards unable to fail. That is the third milestone in
 a row where the re-break pass caught a green, plausible, meaningless test.
 
-## 156. Style
+## 156. The river only one map knew about (v3.96)
+
+`river` is an entry in the biome table, and `biomes.classify` cannot return
+it. No world tile is ever classified one — which is correct, because a river
+runs *through* a forest or a grassland rather than replacing it. The tile
+carries `t.river` as a flag instead.
+
+Five species name a river as home, and two of them name nothing else:
+
+| species | lives in |
+| --- | --- |
+| carp | lake, **river** |
+| pike | lake, **river** |
+| alligator | marsh, swamp, **river** |
+| duck | lake, marsh, swamp, **river** |
+| hippopotamus | lake, marsh, swamp, **river** |
+
+Since `spawnable(tile.biome)` matches the biome and nothing else, folding the
+river species back in was left to the caller. **Exactly one of the three
+callers did it.** `game/state.py` — the adventure map — had a careful block
+for it, comment and all. `fortress/animals.py` and `game/quests.py` did not.
+
+Measured on six fortresses embarked on a river square, each carrying eighteen
+to twenty-three wild animals:
+
+| | river species on the map |
+| --- | --- |
+| six river fortresses, before | **0, every one** |
+
+Lake tiles are 0.05% of a world, so on the fortress side carp and pike had
+never once existed. You embark on a river and there is nothing living in it,
+while the same river on the adventure map is full of fish.
+
+### It was the default embark, not an edge case
+
+`embark.site_score` gives a river **+20.0**, and every other term on the scale
+is worth single digits — "Running water outweighs everything else. A fortress
+with a river survives running out of ale; a fortress without one simply dies
+of it." So `suggest_site` steers the player onto a river essentially always.
+All four seeds `tools/fort.py` runs land on one:
+
+| seed | site | river | wildlife pool |
+| --- | --- | --- | --- |
+| `fort` | tropical forest | 1 | 31 → 34 |
+| `alpha` | taiga | 2 | 32 → 35 |
+| `beta` | tropical forest | 3 | 31 → 34 |
+| `gamma` | taiga | 1 | 32 → 35 |
+
+The game recommends the one kind of square where the water was empty. That
+also means this milestone moves every fortress seed: three more species in the
+pool is a different `rng.choice`, and the run diverges from there. The driver
+still reports OK on all four.
+
+### The point is not that one caller was wrong
+
+It is that being right was each caller's job. The adventure map's block was
+correct, well commented, and load-bearing — and it was the reason nobody
+noticed, because the species did exist somewhere. Two of three callers did not
+know they had a job to do, and a fourth would not know either.
+
+`spawnable` takes `river=` now and does the folding itself, and the callers
+pass what their tile says. `fortress/animals.py` reads it from
+`fort.world.tile(fort.wx, fort.wy)` — the same place `_carve_river` reads it
+from when it cuts the river into the map in the first place.
+
+`test_every_caller_says_whether_there_is_a_river` walks the package with `ast`
+and fails on any `spawnable()` call that passes neither `river=` nor
+`underground=True`. The exemption is real: a cavern is asked about by flag
+rather than by biome, and there is no river down there.
+
+### On the seven creatures that looked homeless
+
+The sweep that found this also reported seven species — cave spider, gremlin,
+forgotten beast, demon and three others — whose only listed biome is `cave`,
+which no tile is either. That one is **not** a bug: subterranean creatures are
+asked for with `underground=True`, which matches on the `SUBTERRANEAN` flag
+and never looks at the biome at all. Worth writing down because the two look
+identical in a table of "habitats that never occur", and only one of them is a
+defect.
+
+Re-break: four defects put back, four caught, 0 misses.
+
+## 157. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

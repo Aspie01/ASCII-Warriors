@@ -439,6 +439,7 @@ def _quest_bounty(rng: RNG, game, giver) -> Optional[Quest]:
     world = game.world
     here = world.tile(game.player.wx, game.player.wy)
     options = creature_data.spawnable(here.biome, max_tier=3,
+                                      river=bool(here.river),
                                       flags_any=("SAVAGE", "EVIL"))
     options = [c for c in options if not c.intelligent or c.has("EVIL")]
     # Nothing that lives underground. The complaint is that they are taking
@@ -489,9 +490,9 @@ def _hunting_ground(rng: RNG, game, defn):
                 continue
             if (wx, wy) == (px, py):
                 continue
-            if not creature_data.spawnable(tile.biome, max_tier=5):
-                continue
-            if defn not in creature_data.spawnable(tile.biome, max_tier=5):
+            here_can = creature_data.spawnable(tile.biome, max_tier=5,
+                                               river=bool(tile.river))
+            if not here_can or defn not in here_can:
                 continue
             found.append((wx, wy))
     if not found:

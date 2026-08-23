@@ -627,11 +627,26 @@ def spawnable(
     biome: str,
     *,
     underground: bool = False,
+    river: bool = False,
     max_tier: int = 5,
     flags_any: Sequence[str] = (),
     flags_none: Sequence[str] = (),
 ) -> List[CreatureDef]:
-    """Every creature that can appear in a biome, filtered by tier and flags."""
+    """Every creature that can appear in a biome, filtered by tier and flags.
+
+    *river* is whether the place being asked about has a river running through
+    it. It has to be asked separately because a river is not a biome: no world
+    tile is ever classified `"river"` -- `biomes.classify` cannot return it --
+    and a river runs *through* a forest or a grassland rather than replacing
+    one. The tile carries it as a flag instead.
+
+    Five species name a river as home and two of them, carp and pike, name
+    nothing else. Folding them in used to be the caller's job, and exactly one
+    of the three callers did it: the adventure map. A fortress embarked on a
+    river carried eighteen to twenty-three wild animals and not one thing that
+    lives in water, on a map with a river cut across it. It is the lookup's
+    job now, so a fourth caller cannot forget.
+    """
     out: List[CreatureDef] = []
     for c in CREATURES.values():
         if c.frequency <= 0 or c.tier > max_tier:
@@ -642,7 +657,7 @@ def spawnable(
             if "SUBTERRANEAN" not in c.flags:
                 continue
         else:
-            if biome not in c.biomes:
+            if biome not in c.biomes and not (river and "river" in c.biomes):
                 continue
         if flags_any and not any(f in c.flags for f in flags_any):
             continue

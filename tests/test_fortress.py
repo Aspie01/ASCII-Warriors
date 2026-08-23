@@ -4028,6 +4028,110 @@ class TestMilitary(unittest.TestCase):
         self.assertEqual(again.military.burrow, (5, 5, fort.z, 4, 4))
 
 
+class TestTheRiverOnlyOneMapKnewAbout(unittest.TestCase):
+    """Five species live in rivers. A fortress on a river had none of them.
+
+    `river` is in the biome table and `biomes.classify` cannot return it: no
+    world tile is ever classified one, because a river runs *through* a forest
+    or a grassland rather than replacing it. The tile carries a flag instead.
+
+    So `spawnable(tile.biome)` never offers anything that lives in water, and
+    folding the river species back in was left to the caller. Exactly one of
+    the three callers did it -- the adventure map. Measured on six fortresses
+    embarked on a river square, each with eighteen to twenty-three wild
+    animals on the map:
+
+        alligator carp duck hippopotamus pike        0 of them, every time
+
+    Carp and pike list nowhere else at all, so on the fortress side they had
+    never once existed. The lookup asks about the river itself now, and the
+    three callers pass what their tile says.
+    """
+
+    def test_a_river_offers_the_things_that_live_in_one(self):
+        from ascii_warriors.data import creatures as creature_data
+
+        dry = {c.id for c in creature_data.spawnable("grassland")}
+        wet = {c.id for c in creature_data.spawnable("grassland", river=True)}
+        self.assertTrue(dry < wet, "asking about a river offered nothing extra")
+        self.assertIn("carp", wet - dry)
+        self.assertIn("pike", wet - dry)
+
+    def test_somewhere_without_a_river_still_has_none_of_them(self):
+        """Otherwise carp turn up in the desert."""
+        from ascii_warriors.data import creatures as creature_data
+
+        for cid in ("carp", "pike"):
+            self.assertNotIn(
+                cid, {c.id for c in creature_data.spawnable("desert")})
+
+    def test_a_fortress_on_a_river_has_something_living_in_it(self):
+        """The measurement that started this, as a test.
+
+        Aggregated over six seeds rather than asserted per seed: which species
+        the wildlife roll picks is chance, and one map with no fish in it is
+        not a defect. Six maps with no fish in them was.
+        """
+        from ascii_warriors.data import creatures as creature_data
+
+        river_kind = {cid for cid, d in creature_data.CREATURES.items()
+                      if "river" in d.biomes}
+        self.assertTrue(river_kind, "no species lists a river as home")
+        total = 0
+        for seed in ("fort", "alpha", "beta", "gamma", "water", "river"):
+            fort = embark(seed, water=True)
+            here = fort.world.tile(fort.wx, fort.wy)
+            self.assertTrue(here.river, "the %s fixture has no river" % seed)
+            total += sum(1 for c in fort.creatures.values()
+                         if c.def_id in river_kind)
+        self.assertGreater(total, 0,
+                           "six fortresses on rivers and nothing living in "
+                           "any of them")
+
+    def test_every_caller_says_whether_there_is_a_river(self):
+        """The funnel guard, and the actual point of the milestone.
+
+        The bug was not that the adventure map got it wrong -- it got it
+        right. The bug was that getting it right was each caller's job, and
+        two of three did not know they had one. A fourth caller would not know
+        either, so this fails until it passes `river=`.
+
+        `underground=True` is exempt: a cavern is asked about by flag, not by
+        biome, and there is no river down there to ask about.
+        """
+        import ast
+        import os
+
+        offenders = []
+        for root, dirs, files in os.walk("ascii_warriors"):
+            dirs[:] = [d for d in dirs if d != "__pycache__"]
+            for name in sorted(files):
+                if not name.endswith(".py"):
+                    continue
+                path = os.path.join(root, name)
+                with open(path) as fh:
+                    tree = ast.parse(fh.read())
+                for node in ast.walk(tree):
+                    if not isinstance(node, ast.Call):
+                        continue
+                    called = getattr(node.func, "attr", None) \
+                        or getattr(node.func, "id", None)
+                    if called != "spawnable":
+                        continue
+                    words = {k.arg: k.value for k in node.keywords}
+                    if "river" in words:
+                        continue
+                    under = words.get("underground")
+                    if isinstance(under, ast.Constant) and under.value is True:
+                        continue
+                    offenders.append("%s:%d" % (name, node.lineno))
+        self.assertEqual(
+            offenders, [],
+            "these ask what lives somewhere without saying whether it has a "
+            "river, so nothing that lives in water can be offered: %s"
+            % offenders)
+
+
 class TestTheOrderThatDidNothing(unittest.TestCase):
     """"Defend the fortress" is in the orders menu and nothing read it.
 
