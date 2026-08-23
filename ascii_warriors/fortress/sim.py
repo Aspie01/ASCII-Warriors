@@ -980,7 +980,12 @@ def _scan_military(fort, budget: int) -> int:
                 continue
             dwarf.fort.labors.enable("military")
             posted += _equip_one(fort, squad, dwarf)
-        if squad.order == "train" and not military.alarm:
+        # `defend` trains as well as `train` does. A squad ordered to defend
+        # the fortress used to equip itself and then stand there for the rest
+        # of the game -- no training, no station, no target -- so the most
+        # defensive-sounding entry in the menu was the one that left the
+        # militia at the skill it embarked with.
+        if squad.order in ("train", "defend") and not military.alarm:
             posted += _train_squad(fort, squad, budget - posted)
     return posted
 

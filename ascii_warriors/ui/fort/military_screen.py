@@ -238,7 +238,7 @@ class MilitaryScene(Scene):
                         "Orders for %s" % squad.name, items)
         if chosen is None:
             return
-        squad.order = chosen
+        squad.set_order(chosen)
         if chosen == "station":
             squad.station = self._view_centre()
         if chosen == "kill" and hostiles:

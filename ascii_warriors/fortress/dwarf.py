@@ -745,19 +745,67 @@ def _desperate(dwarf) -> bool:
             or needs.drowsy > SLEEP_URGENT * 1.8)
 
 
+def _still_arming(fort, dwarf) -> bool:
+    """True while this soldier has an equipment job it has not walked to yet.
+
+    Asked about the *job*, and only the job. A second half asking whether the
+    fortress still holds kit this soldier wants was written too, and the
+    re-break pass showed it could be removed without a single test noticing:
+    every soldier that wants kit the fortress has is *given* a job for it in
+    the same step, so the job answers the question on its own. It was carrying
+    a case that only the rally point could produce, and the rally point is not
+    here -- see `_post_for`.
+
+    It terminates because a fortress with nothing to arm anybody with posts no
+    job at all, so nobody waits for a mail shirt that does not exist.
+    """
+    return any(j.kind == "equip" and j.assigned == dwarf.id
+               for j in fort.jobs.jobs.values())
+
+
+def _post_for(fort, squad):
+    """Where this squad should be standing when nothing is in sight.
+
+    Only a stationed squad has anywhere to be. A rally point for `defend` --
+    the militia forming up on the ground the civilians shelter on when the
+    alarm goes up -- was written and then measured and then thrown away: it
+    left one soldier of three at the post in its own clothes, unchanged at
+    eight hundred steps, and two attempts at the arming rule closed the case
+    it was reported for without closing that one. Shipping it would have been
+    trading a squad that does nothing for a squad that does something badly.
+    `defend` trains instead, which is a fix; the rally is a feature and can
+    have a milestone of its own.
+
+    None means "no post": go back to what you were doing.
+    """
+    return squad.station if squad.order == "station" else None
+
+
 def _hold_position(fort, dwarf, squad) -> bool:
     """No enemy in sight: stand where you were told, or shelter."""
     if _desperate(dwarf):
         return False
     if squad is not None:
-        if squad.order == "station" and squad.station is not None:
+        post = _post_for(fort, squad)
+        if post is not None and _still_arming(fort, dwarf):
+            # Arm first, stand second. Taking a post used to preempt the
+            # equipment job for ever: `_handle_danger` runs before a dwarf
+            # looks at the job board, so a stationed soldier walked to its
+            # post and stood there, and the job it had been given to fetch
+            # its mail shirt was released and re-posted every step of the
+            # game. Measured over two hundred steps, three soldiers on a
+            # station finished with thirty-one pieces of their uniform still
+            # on the floor, against none for any squad without a post. The
+            # player stations the militia at the gate and the militia holds
+            # the gate in its civilian clothes.
+            return False
+        if post is not None:
             here = (dwarf.x, dwarf.y, dwarf.z)
-            if geometry.chebyshev(here[0], here[1], squad.station[0],
-                                  squad.station[1]) <= 2 \
-                    and here[2] == squad.station[2]:
+            if geometry.chebyshev(here[0], here[1], post[0], post[1]) <= 2 \
+                    and here[2] == post[2]:
                 return True
             release_job(fort, dwarf)
-            if path_to(fort, dwarf, squad.station):
+            if path_to(fort, dwarf, post):
                 step_along(fort, dwarf)
                 return True
         return False

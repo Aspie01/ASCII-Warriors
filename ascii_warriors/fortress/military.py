@@ -15,7 +15,12 @@ Cell = Tuple[int, int, int]
 #: How many dwarves fit in one squad.
 SQUAD_SIZE = 10
 
-#: What a squad's orders can be.
+#: What a squad's orders can be, and the whole of them.
+#:
+#: Declared from the beginning and read by nothing, which is how `"defend"`
+#: came to be an order the simulation had never heard of. `Squad.from_dict`
+#: takes what a save says and `set_order` takes what the menu says, and both
+#: measure it against this now.
 ORDERS: Tuple[str, ...] = ("train", "station", "defend", "kill")
 
 ORDER_NAMES: Dict[str, str] = {
@@ -133,6 +138,20 @@ class Squad:
             "target": self.target, "barracks": self.barracks,
         }
 
+    def set_order(self, order: str) -> bool:
+        """Give the squad an order. False for one that is not an order.
+
+        A squad's order decides what it does with every turn it is not
+        fighting, so a word the simulation does not recognise is a squad that
+        stands still for the rest of the game. Nothing checked, which is how
+        `"defend"` -- a real entry in the menu -- went years meaning exactly
+        what a typo would have meant.
+        """
+        if order not in ORDERS:
+            return False
+        self.order = order
+        return True
+
     @classmethod
     def from_dict(cls, d: Mapping[str, Any]) -> "Squad":
         """Rebuild from :meth:`to_dict`."""
@@ -140,7 +159,8 @@ class Squad:
         s.id = int(d.get("id", s.id))
         Squad._next_id = max(Squad._next_id, s.id + 1)
         s.members = [int(m) for m in d.get("members", [])]
-        s.order = str(d.get("order", "train"))
+        order = str(d.get("order", "train"))
+        s.order = order if order in ORDERS else "train"
         station = d.get("station")
         s.station = tuple(int(v) for v in station) if station else None
         s.target = d.get("target")

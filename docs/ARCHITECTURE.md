@@ -9969,7 +9969,94 @@ said. **Writing the guard is not the work; proving it can fail is the work.**
 
 Re-break: five defects put back, five caught, 0 misses.
 
-## 155. Style
+## 155. The order that did nothing (v3.95)
+
+`military.ORDERS` declares four orders. The simulation consults three.
+
+| order | what reads it |
+| --- | --- |
+| `train` | `sim._soldiers` posts training |
+| `station` | `dwarf._hold_position` walks the squad to a cell |
+| `kill` | `dwarf._handle_danger` picks the target |
+| `defend` | **nothing, anywhere** |
+
+Measured over two hundred steps with a barracks up and kit on the floor:
+
+| order | training jobs | soldier-steps on post |
+| --- | --- | --- |
+| `train` | 539 | — |
+| `station` | 0 | 382 |
+| `defend` | 0 | 0 |
+| `xyzzy_not_a_word` | 0 | 0 |
+
+`defend` is byte for byte a word the game has never heard of. It is also the
+most defensive-sounding entry in the menu, so a player who reads "Defend the
+fortress" and picks it gets the militia that never gets any better at
+fighting. It trains now.
+
+### The militia in its civilian clothes
+
+Chasing that turned up something worse, and older. `_handle_danger` runs
+before a dwarf looks at the job board, so a stationed soldier with nothing in
+sight holds its post — and the job it had been given to fetch its mail shirt
+was released and re-posted every step of the game. Three soldiers on a
+station finished two hundred steps with **thirty-one pieces of their uniform
+still on the floor**, against none for any squad without a post. The player
+stations the militia at the gate and the militia holds the gate in its own
+clothes.
+
+`_still_arming` fixes it: arm first, stand second. It is asked about the job
+rather than the uniform, so a fortress with nothing to arm anybody with posts
+no job and nobody waits for a mail shirt that does not exist.
+
+This is the more serious half of the milestone. `station` is an order that
+*works*, and it has been quietly undressing the militia the whole time.
+
+### A rally point, measured and thrown away
+
+`defend` was going to mean more than training: when the alarm goes up, the
+squad forms up on the ground the civilians are sheltering on — the militia
+between them and whatever is coming. It was written, and then measured.
+
+It left **one soldier of three standing at the post in its own clothes**, and
+eight hundred steps did not change the number. Two different arming rules each
+closed one case and left the other open:
+
+- *"have you been given a job"* starves a soldier that reaches the post on a
+  step before anything is posted for it: after that it holds position instead
+  of looking for work, and the answer is no for ever.
+- *"is there kit left to pick up"* starves the opposite case, and more subtly.
+  `_find_kit` returns the best **unclaimed** piece, and a soldier that already
+  has a job has reserved the very item that job is for — so "is there anything
+  left for you to fetch" answers no *because the answer is already in its
+  hands*. It stands at the post holding a job it will never walk to.
+
+Both together worked in the station case and still lost a soldier at the rally.
+The rally is gone. Shipping it would have traded a squad that does nothing for
+a squad that does something badly, and the fix it was attached to —  `defend`
+trains, `station` arms itself — does not need it. The rally is a feature and
+can have a milestone of its own.
+
+With the rally gone, the kit half of the arming rule became unreachable, and
+the re-break pass proved it: removing it broke no test. It is gone too.
+
+### `ORDERS` becomes a rule
+
+Third milestone running to find a declared-value tuple nothing validated —
+after `ALERTS` (§153) and `EVENT_KINDS` (§154). `Squad.set_order` and
+`Squad.from_dict` measure against it now, and a guard reads the orders menu
+and requires it to offer exactly `ORDERS`.
+
+That guard could not fail as first written. It collected menu items **whose
+value was in `ORDERS`** and compared the result to `ORDERS` — so dropping an
+entry from the tuple dropped it from the measured set too, and the two agreed
+all the way down to empty. It reads `_set_order` and takes every item now.
+
+Re-break: five defects put back, five caught, 0 misses — after a first run
+that found two of my own guards unable to fail. That is the third milestone in
+a row where the re-break pass caught a green, plausible, meaningless test.
+
+## 156. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

@@ -4028,6 +4028,199 @@ class TestMilitary(unittest.TestCase):
         self.assertEqual(again.military.burrow, (5, 5, fort.z, 4, 4))
 
 
+class TestTheOrderThatDidNothing(unittest.TestCase):
+    """"Defend the fortress" is in the orders menu and nothing read it.
+
+    `ORDERS` declares four and the simulation consults three: `train` posts
+    training, `station` sends the squad to a cell, `kill` picks a target. No
+    line anywhere mentions `defend`, so a squad given it equipped itself and
+    then stood still for the rest of the game. Measured over two hundred steps
+    with a barracks and kit on the floor:
+
+        train                539 training jobs
+        station                0, and 382 soldier-steps on its post
+        defend                 0, and nothing else
+        xyzzy_not_a_word       0, and nothing else
+
+    Byte for byte, `defend` was a word the game had never heard of -- and it
+    is the most defensive-sounding entry in the menu, so the player who picks
+    it gets the militia that never gets any better at fighting.
+    """
+
+    def _squad(self, fort, order, size=3):
+        from ascii_warriors.game.item import Item
+
+        spot = _open_spot(fort, "barracks")
+        self.assertIsNotNone(spot, "nowhere to put a barracks")
+        barracks = Building("barracks", *spot)
+        barracks.built = True
+        fort.buildings.append(barracks)
+        first = fort.dwarves()[0]
+        for _ in range(size + 3):
+            for def_id, mat in (("battle_axe", "steel"), ("mail_shirt", "iron"),
+                                ("helm", "iron"), ("shield", "iron"),
+                                ("greaves", "iron"), ("high_boots", "leather"),
+                                ("gauntlets", "iron"), ("breastplate", "iron"),
+                                ("leather_armor", "leather"), ("cap", "iron")):
+                fort.drop_item(Item(def_id, mat), first.x, first.y, first.z)
+        squad = fort.military.add_squad("The Guard", "axe")
+        squad.barracks = barracks.id
+        for d in fort.dwarves()[-size:]:
+            fort.military.enlist(squad, d.id)
+        squad.order = order
+        return squad
+
+    def _training_jobs(self, order, steps=150):
+        fort = embark("orders")
+        squad = self._squad(fort, order)
+        ids = set(squad.members)
+        seen = set()
+        for _ in range(steps):
+            sim.step(fort)
+            for job in fort.jobs.jobs.values():
+                if job.kind == "train" and job.assigned in ids:
+                    seen.add(job.assigned)
+        return len(seen)
+
+    def test_a_squad_told_to_defend_the_fortress_trains(self):
+        self.assertGreater(
+            self._training_jobs("defend"), 0,
+            "a squad ordered to defend the fortress never trains, so the "
+            "order is strictly worse than the one next to it in the menu")
+
+    def test_it_is_not_the_same_as_a_word_the_game_never_heard_of(self):
+        """The whole finding, as one comparison."""
+        self.assertGreater(self._training_jobs("defend"),
+                           self._training_jobs("xyzzy_not_a_word"))
+
+    def test_training_still_belongs_to_the_orders_that_ask_for_it(self):
+        """Not every order trains, or `station` would abandon its post."""
+        self.assertEqual(self._training_jobs("station"), 0)
+
+
+class TestTheMilitiaInItsCivilianClothes(unittest.TestCase):
+    """A squad sent to stand somewhere never finished putting its armour on.
+
+    `_handle_danger` runs before a dwarf looks at the job board, and a
+    stationed soldier with nothing in sight holds its post -- so the job it
+    had been given to fetch its mail shirt was released and re-posted every
+    step of the game. Three soldiers on a station finished two hundred steps
+    with thirty-one pieces of their uniform still on the floor, against none
+    for any squad without a post. The player stations the militia at the gate
+    and the militia holds the gate in its own clothes.
+
+    This was here before the order that did nothing, and is the more serious
+    half of that milestone: `station` is an order that *does* work.
+    """
+
+    def test_a_stationed_squad_puts_its_armour_on_first(self):
+        from ascii_warriors.fortress import military as military_mod
+        from ascii_warriors.game.item import Item
+
+        fort = embark("armour")
+        spot = _open_spot(fort, "barracks")
+        barracks = Building("barracks", *spot)
+        barracks.built = True
+        fort.buildings.append(barracks)
+        first = fort.dwarves()[0]
+        for _ in range(8):
+            for def_id, mat in (("battle_axe", "steel"), ("mail_shirt", "iron"),
+                                ("helm", "iron"), ("shield", "iron"),
+                                ("greaves", "iron"), ("high_boots", "leather"),
+                                ("gauntlets", "iron"), ("breastplate", "iron"),
+                                ("leather_armor", "leather"), ("cap", "iron")):
+                fort.drop_item(Item(def_id, mat), first.x, first.y, first.z)
+        squad = fort.military.add_squad("The Guard", "axe")
+        squad.barracks = barracks.id
+        for d in fort.dwarves()[-3:]:
+            fort.military.enlist(squad, d.id)
+        squad.order = "station"
+        squad.station = (first.x + 6, first.y, first.z)
+        for _ in range(300):
+            sim.step(fort)
+        short = []
+        for dwarf_id in squad.members:
+            soldier = fort.creatures.get(dwarf_id)
+            if soldier is not None:
+                short += list(military_mod.wanted_items(squad, soldier))
+        self.assertEqual(
+            short, [],
+            "%d pieces of uniform still on the floor while the squad stands "
+            "on its post: %s" % (len(short), sorted(set(short))))
+
+    def test_it_still_goes_and_stands_there(self):
+        """Arming first must not become arming instead."""
+        from ascii_warriors.game.item import Item
+
+        fort = embark("armour")
+        first = fort.dwarves()[0]
+        squad = fort.military.add_squad("The Guard", "axe")
+        for d in fort.dwarves()[-2:]:
+            fort.military.enlist(squad, d.id)
+        squad.order = "station"
+        # Nothing to arm with anywhere, which is the case that would hang if
+        # the rule waited on kit that does not exist.
+        squad.station = (first.x + 5, first.y, first.z)
+        for _ in range(200):
+            sim.step(fort)
+        near = [d for d in squad.members
+                if fort.creatures.get(d) is not None
+                and geometry.chebyshev(fort.creatures[d].x, fort.creatures[d].y,
+                                       squad.station[0], squad.station[1]) <= 2]
+        self.assertTrue(near, "an unarmable squad never took its post")
+
+
+class TestTheOrdersThatExist(unittest.TestCase):
+    """`ORDERS` declared four and was read by nothing at all.
+
+    The same shape as `ALERTS` in v3.93 and `EVENT_KINDS` in v3.94: a tuple
+    that describes what the code may do, which the code never consults. Here
+    it let a menu entry the simulation had no branch for sit in the list
+    looking exactly like the three that work.
+    """
+
+    def test_a_squad_will_not_take_an_order_that_is_not_one(self):
+        from ascii_warriors.fortress.military import ORDERS, Squad
+
+        squad = Squad("The Guard")
+        for order in ORDERS:
+            self.assertTrue(squad.set_order(order), order)
+            self.assertEqual(squad.order, order)
+        self.assertFalse(squad.set_order("xyzzy_not_a_word"))
+        self.assertEqual(squad.order, ORDERS[-1],
+                         "a squad took an order the simulation cannot read")
+
+    def test_a_save_carrying_one_is_brought_back_in(self):
+        from ascii_warriors.fortress.military import ORDERS, Squad
+
+        back = Squad.from_dict({"name": "x", "order": "xyzzy_not_a_word"})
+        self.assertIn(back.order, ORDERS)
+
+    def test_the_menu_offers_exactly_the_orders_that_exist(self):
+        """The menu and the tuple drifting apart is how this started."""
+        import ast
+        import inspect
+        import textwrap
+
+        from ascii_warriors.fortress.military import ORDERS
+        from ascii_warriors.ui.fort import military_screen
+
+        # Read out of `_set_order` and nothing else. Filtering the menu items
+        # by `ORDERS` -- which is how this was written first -- makes the test
+        # unable to fail: drop an entry from `ORDERS` and it drops out of the
+        # measured set too, and the two agree all the way down to empty.
+        source = inspect.getsource(military_screen.MilitaryScene._set_order)
+        offered = set()
+        for node in ast.walk(ast.parse(textwrap.dedent(source))):
+            if isinstance(node, ast.Call) and \
+                    getattr(node.func, "id", None) == "MenuItem":
+                if len(node.args) > 1 and isinstance(node.args[1], ast.Constant):
+                    offered.add(node.args[1].value)
+        self.assertEqual(offered, set(ORDERS),
+                         "the orders menu and ORDERS disagree: menu %s, "
+                         "ORDERS %s" % (sorted(offered), sorted(ORDERS)))
+
+
 class TestTheAlarmNobodyCouldLift(unittest.TestCase):
     """The militia screen offers an `a` key. It did nothing that lasted.
 
