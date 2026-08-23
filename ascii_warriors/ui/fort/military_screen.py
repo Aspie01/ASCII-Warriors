@@ -111,11 +111,9 @@ class MilitaryScene(Scene):
             return
         if key == "a":
             if military.alarm:
-                military.all_clear()
-                fort.log.good("All clear.")
+                military.all_clear(fort.log)
             else:
-                military.sound_alarm()
-                fort.log.warn("The alarm is raised.")
+                military.sound_alarm(fort.log)
             return
 
         value = self.menu.selected_value

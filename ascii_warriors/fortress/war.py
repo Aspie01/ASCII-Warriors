@@ -207,7 +207,7 @@ def launch(fort, siege: Siege) -> List:
 
     fort.siege = siege
     fort.siege_count += 1
-    fort.military.alert = "danger"
+    fort.military.sound_alarm(fort.log)
     _announce(fort, siege, civ, leader, len(out))
     return out
 

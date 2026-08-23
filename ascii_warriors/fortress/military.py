@@ -79,7 +79,14 @@ TRAINING_SKILLS: Tuple[str, ...] = (
     "fighter", "dodging", "armor_use", "shield_use",
 )
 
-#: The alert states a fortress can be in.
+#: The alert states a fortress can be in, and the whole of them.
+#:
+#: This used to be a comment rather than a rule. Four different strings were
+#: assigned to :attr:`Military.alert` around the codebase -- ``"danger"`` by
+#: every megabeast, werebeast, necromancer, demon wave and siege, and
+#: ``"combat"`` by a test -- and the :attr:`Military.alarm` property compares
+#: against ``"alarm"`` and so read every one of them as "no alarm".
+#: :class:`TestTheAlarmStatesThatExist` holds the set closed now.
 ALERTS: Tuple[str, ...] = ("civilian", "alarm")
 
 
@@ -151,7 +158,14 @@ class Military:
     def __init__(self) -> None:
         self.squads: List[Squad] = []
         #: ``"civilian"`` is business as usual; ``"alarm"`` sends everyone in.
+        #: One of :data:`ALERTS`, always.
         self.alert = "civilian"
+        #: Whether there was anything hostile on the map at the last look.
+        #: The watch compares this against what it can see now, so it only
+        #: touches the alert when the answer *changes*. Between those two
+        #: moments the state belongs to whoever set it, which is the only
+        #: way the player's alarm key can mean anything.
+        self.seen_threat = False
         #: The rectangle civilians retreat into when the alarm sounds.
         self.burrow: Optional[Tuple[int, int, int, int, int]] = None
 
@@ -207,13 +221,33 @@ class Military:
 
     # -- alert -------------------------------------------------------------- #
 
-    def sound_alarm(self) -> None:
-        """Send the civilians inside."""
-        self.alert = "alarm"
+    def sound_alarm(self, log: Any = None) -> None:
+        """Send the civilians inside, and say so the first time.
 
-    def all_clear(self) -> None:
-        """Back to work."""
+        The announcement lives here because it used to live in one caller.
+        `sim._watch` was the only thing that raised the alarm through this
+        method -- every megabeast, siege, werebeast, necromancer and demon
+        wave assigned the string directly -- so the watch was also the only
+        thing that told the player, one step after the fact. Moving the
+        threats onto this method without moving the message would have left
+        a necromancer walking in, the fortress downing tools, and nothing on
+        screen to connect the two.
+
+        Raising an alarm that is already up says nothing and changes nothing.
+        """
+        if self.alert == "alarm":
+            return
+        self.alert = "alarm"
+        if log is not None:
+            log.warn("The alarm is raised. Civilians, get inside.")
+
+    def all_clear(self, log: Any = None) -> None:
+        """Back to work. Silent if the fortress was never under alarm."""
+        if self.alert == "civilian":
+            return
         self.alert = "civilian"
+        if log is not None:
+            log.good("All clear.")
 
     @property
     def alarm(self) -> bool:
@@ -241,6 +275,7 @@ class Military:
         return {
             "squads": [s.to_dict() for s in self.squads],
             "alert": self.alert,
+            "seen_threat": self.seen_threat,
             "burrow": list(self.burrow) if self.burrow else None,
         }
 
@@ -249,7 +284,9 @@ class Military:
         """Rebuild from :meth:`to_dict`."""
         m = cls()
         m.squads = [Squad.from_dict(s) for s in d.get("squads", [])]
-        m.alert = str(d.get("alert", "civilian"))
+        alert = str(d.get("alert", "civilian"))
+        m.alert = alert if alert in ALERTS else "civilian"
+        m.seen_threat = bool(d.get("seen_threat", False))
         burrow = d.get("burrow")
         m.burrow = tuple(int(v) for v in burrow) if burrow else None
         return m

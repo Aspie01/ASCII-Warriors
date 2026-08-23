@@ -9714,7 +9714,163 @@ honest, because this is the same disease: a copy nothing compares.
   tested through `_run_play` and `_PLAY_RUN` in `test_ui.py`, which has the
   same shape and has not drifted yet. It was not swept here.
 
-## 153. Style
+## 153. The alarm nobody could lift (v3.93)
+
+The militia screen prints an `a` key in its hints and labels it `alarm`. It
+did nothing that survived a single step.
+
+`sim._watch` re-derived the alert from the current threat every step:
+
+```python
+hostiles = fort.hostiles()
+if hostiles and not military.alarm:
+    military.sound_alarm()
+elif not hostiles and military.alarm:
+    military.all_clear()
+```
+
+That reads like "raise and lift the alarm" and is not the same thing. It is
+"the alert *is* whether anything is on the map", recomputed from scratch
+fourteen thousand times a year, and it overwrites whatever the player just
+said. Both directions were wiped, measured on seed `alarm`:
+
+| the player does | after one step |
+| --- | --- |
+| sounds the alarm over an empty map | `civilian` -- put out |
+| stands the fortress down mid-siege | `alarm` -- put back |
+
+### What an alarm costs
+
+An alarm is not decoration. A civilian under one drops its job and sits in
+the burrow (`dwarf.py`, `_hold_position`). With a burrow set and **nothing
+hostile anywhere on the map**, over three hundred steps:
+
+| seed | painted | cut, alarm down | cut, alarm up |
+| --- | --- | --- | --- |
+| `designations` | 147 | 85 | 0 |
+| `alarm` | 207 | 85 | 0 |
+| `burrow` | 21 | 21 | 0 |
+| `fort` | 9 | 9 | 0 |
+
+So the player could watch the fortress stop, could see the alarm that stopped
+it, had a key for that alarm, and could not spend the one to change the other.
+
+### The measurement that was wrong first
+
+The first attempt at that table ran an actual siege, lifted the alarm at step
+50 and found the same zero cells cut — which looked like the fix not working.
+It was not the alarm. `_handle_danger` sends any civilian within
+`CIVILIAN_SIGHT` (10) of a goblin running whether or not a horn ever blew, and
+on that seed the goblins were close enough to see. The alarm and the fleeing
+were both stopping the same dwarves, and the number could not tell them apart.
+
+The table above therefore has nothing hostile on the map at all. That is the
+only arrangement in which the number is about the alarm. **The proxy was one
+step from being written into a guard.**
+
+### The rule now
+
+The watch acts on the *change*, not the state:
+
+```python
+threat = bool(fort.hostiles())
+if threat == military.seen_threat:
+    return
+military.seen_threat = threat
+```
+
+The first thing to arrive raises the alarm; the last one to leave lifts it.
+Between those two moments the state belongs to whoever set it last. Anything
+newly arriving sounds the alarm itself, so a second wave landing on a fortress
+that stood down is still noticed.
+
+`seen_threat` is what the watch compares against, so it is **saved**. Lose it
+and it loads back as `False`, the next step reads the besieging army as newly
+arrived, and a fortress the player stood down is under alarm again purely
+because it was saved.
+
+### Standing down is usually wrong
+
+Worth being plain about, because the fix does not claim otherwise. Across
+three seeds, lifting the alarm mid-siege bought **one** extra cell of digging,
+and on one of them a dwarf who would otherwise have lived was killed and the
+siege ran on. The civilians who can see a goblin flee anyway; the ones who
+cannot are usually near enough to be found. It is a decision, and the player
+is now allowed to make it and to get it wrong. Before, it was not a decision.
+
+### Four spellings of two states
+
+`military.ALERTS` declared `("civilian", "alarm")`. The codebase used four.
+Every megabeast, siege, werebeast, necromancer and demon wave wrote
+`alert = "danger"`, and `Military.alarm` is `self.alert == "alarm"` — so the
+property read every threat in the game as *no alarm*. A test had added a fifth
+spelling, `"combat"`, for the same purpose.
+
+It was survivable only by accident: the old watch overwrote the alert from
+scratch every step, so a threat's own word for its own arrival was corrected
+out of existence within one step of being written. Two things follow.
+
+1. Fixing the watch **made this dangerous**. A value nothing understands now
+   sits where it was put. Every threat goes through `sound_alarm()`, every
+   end-of-siege through `all_clear()`, and `TestTheAlarmStatesThatExist`
+   walks the whole package with `ast` and fails on any constant assigned to
+   `.alert` that is not in `ALERTS`.
+2. Saves written before this exist and say `"danger"`. Nothing corrects them
+   any more, so `Military.from_dict` maps anything outside `ALERTS` back to
+   `"civilian"` on the way in.
+
+This is the second declared-value tuple found to have drifted from the code it
+described, after `ai.MODES` in v3.87. Both were comments pretending to be
+rules. The lesson is not about alarms: **an enumeration nothing validates is
+documentation, and documentation drifts.**
+
+### The message that nearly stayed behind
+
+Moving the threats onto `sound_alarm()` broke something the measurement had
+not been looking at. `_watch` was the only thing that had ever raised the
+alarm through that method, so it was also the only thing that *announced* it —
+the "The alarm is raised. Civilians, get inside." line lived in the caller. A
+necromancer now walked in, the fortress downed tools, and nothing on screen
+connected the two. Measured across the three ways in:
+
+| arrives | alarm | told the player |
+| --- | --- | --- |
+| `spawn_attack` | yes | the line |
+| `_send_necromancer` | yes | **nothing** |
+| `_send_werebeast` | yes | **nothing** |
+
+The announcement belongs with the state change, so it moved into
+`sound_alarm(log)` and `all_clear(log)` — which also made them idempotent,
+because a method that speaks has to be safe to call twice.
+
+### Guards
+
+`TestTheAlarmNobodyCouldLift` and `TestTheAlarmStatesThatExist`, nine tests.
+The player's alarm holds over an empty map; the player's stand-down holds
+mid-siege; a lifted alarm is still lifted after a save; the watch still raises
+and lifts on its own; nothing in the package assigns an undeclared alert; a
+necromancer raises the alarm as it arrives rather than a step later; an old
+save carrying `"danger"` is brought back in; every way in announces itself;
+and an alarm already up does not announce itself again.
+
+That last one **could not fail** as first written. It counted entries in
+`fort.log`, and the real log collapses a repeated line to a single entry — so
+it passed whether `sound_alarm` was idempotent or not. It was measuring the
+log's deduplication. It counts through a stub now.
+
+The stand-down test asserts the goblins are still alive rather than skipping
+if they are not. A skip there would leave the guard passing over an empty map,
+which is the shape of guard this milestone exists to be rid of.
+
+Re-break: seven defects put back, seven caught, 0 misses — on the third run.
+The second run found the log-deduplication guard above, which is the whole
+reason the pass exists. The first run was wrong in a different way. It restored between cases with `git checkout --
+ascii_warriors/`, which reverted the *uncommitted fix* along with the injected
+defect, so cases 2 through 5 were run against v3.92 and reported six red tests
+each. Four convincing passes that measured nothing. A re-break of uncommitted
+work has to restore from a snapshot of the working tree, never from git.
+
+## 154. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

@@ -377,7 +377,7 @@ def _hostiles(fort, ticks: int) -> None:
                 fort.creatures.pop(foe.id, None)
         if not fort.hostiles():
             fort.siege = None
-            fort.military.alert = "civilian"
+            fort.military.all_clear(fort.log)
             fort.log.good("The last of them is gone.")
         return
 
@@ -418,7 +418,7 @@ def _hostiles(fort, ticks: int) -> None:
     if fort.siege is not None and not fort.hostiles():
         war.record(fort, won=True)
         fort.siege = None
-        fort.military.alert = "civilian"
+        fort.military.all_clear(fort.log)
         fort.log.good("The last of them is gone.")
 
 
@@ -772,15 +772,38 @@ def _traps(fort) -> None:
 
 
 def _watch(fort) -> None:
-    """Sound and lift the alarm on the player's behalf."""
+    """Sound the alarm when something arrives, lift it when the last one goes.
+
+    This used to re-derive the alert from the current threat on every step,
+    which reads as the same thing and is not. The militia screen offers the
+    player an ``a`` key and prints it in the hints, and both directions of it
+    were wiped by the next step: sound the alarm with nothing on the map and
+    this put it out, lift it during a siege and this put it back.
+
+    That is not a cosmetic problem, because an alarm stops the fortress. A
+    civilian under one drops its job and sits in the burrow, and with nothing
+    hostile on the map at all -- so that fleeing on sight cannot be blamed --
+    four seeds cut 9, 21, 85 and 85 designated cells over three hundred steps
+    with the alarm down, and none at all with it up. The player could watch
+    the fortress stop, could see the alarm that stopped it, had a key for that
+    alarm, and could not spend the one to change the other.
+
+    So the watch acts on the *change* now. The first thing on the map raises
+    the alarm and the last one leaving lifts it; in between the state belongs
+    to whoever set it last. A player who would rather keep the farmers working
+    while the militia holds the gate is allowed to say so, and to be wrong
+    about it. Anything newly arriving sounds the alarm itself, so a second
+    wave landing on a fortress that stood down still gets noticed.
+    """
     military = fort.military
-    hostiles = fort.hostiles()
-    if hostiles and not military.alarm:
-        military.sound_alarm()
-        fort.log.warn("The alarm is raised. Civilians, get inside.")
-    elif not hostiles and military.alarm:
-        military.all_clear()
-        fort.log.good("All clear.")
+    threat = bool(fort.hostiles())
+    if threat == military.seen_threat:
+        return
+    military.seen_threat = threat
+    if threat:
+        military.sound_alarm(fort.log)
+    else:
+        military.all_clear(fort.log)
 
 
 def _crops(fort, ticks: int) -> None:
@@ -1500,7 +1523,7 @@ def _maybe_beast(fort) -> None:
                       "everyone inside." % dead)
     else:
         fort.log.warn("Get everyone inside.")
-    fort.military.alert = "danger"
+    fort.military.sound_alarm(fort.log)
 
 
 def spawn_beast(fort, beast):
@@ -2065,7 +2088,7 @@ def _send_werebeast(fort) -> None:
     beast.wx, beast.wy = fort.wx, fort.wy
     fort.add_creature(beast)
     fort.log.bad("The moon is full, and something is howling outside.")
-    fort.military.alert = "danger"
+    fort.military.sound_alarm(fort.log)
 
 
 def _send_necromancer(fort) -> None:
@@ -2096,7 +2119,7 @@ def _send_necromancer(fort) -> None:
         fort.add_creature(thrall)
     fort.log.bad("%s has come to %s. Bury your dead deep."
                  % (boss.display_name(), fort.name))
-    fort.military.alert = "danger"
+    fort.military.sound_alarm(fort.log)
 
 
 #: Odds per season that somebody tries the door while nobody is looking.
@@ -2213,7 +2236,7 @@ def spawn_demons(fort, cell, wave: int = 1) -> List:
         foe.wx, foe.wy = fort.wx, fort.wy
         fort.add_creature(foe)
         out.append(foe)
-    fort.military.alert = "danger"
+    fort.military.sound_alarm(fort.log)
     fort.breach_cell = cell
     if wave == 1:
         fort.log.bad("Demons pour out of the pit. There are %d of them."

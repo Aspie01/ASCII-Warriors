@@ -2375,7 +2375,7 @@ class TestWar(unittest.TestCase):
         """
         fort = self.fort
         _plan, army = self._army(fort)
-        fort.military.alert = "combat"
+        fort.military.sound_alarm()
         for foe in army:
             fort.creatures.pop(foe.id, None)
         self.assertIsNotNone(fort.siege)
@@ -4026,6 +4026,225 @@ class TestMilitary(unittest.TestCase):
         self.assertEqual(back.uniform, "hammer")
         self.assertEqual(back.station, (10, 10, fort.z))
         self.assertEqual(again.military.burrow, (5, 5, fort.z, 4, 4))
+
+
+class TestTheAlarmNobodyCouldLift(unittest.TestCase):
+    """The militia screen offers an `a` key. It did nothing that lasted.
+
+    `_watch` re-derived the alert from the current threat on every step, which
+    reads like the same thing as raising and lifting it and is not. Both
+    directions of the player's key were wiped by the very next step: sound the
+    alarm over an empty map and the watch put it out, stand the civilians down
+    during a siege and the watch put them back.
+
+    An alarm is not decoration -- it stops the fortress. With a burrow set and
+    nothing hostile anywhere on the map, so that nothing else can be blamed:
+
+        seed designations   147 painted   85 cut quiet   0 cut under alarm
+        seed alarm          207 painted   85 cut quiet   0 cut under alarm
+        seed burrow          21 painted   21 cut quiet   0 cut under alarm
+        seed fort             9 painted    9 cut quiet   0 cut under alarm
+
+    So the player could watch the fortress stop, could see the alarm that
+    stopped it, had a key for that alarm, and could not spend the one to
+    change the other.
+
+    The first measurement of this made the mistake it was meant to catch. It
+    ran a siege, lifted the alarm and found the same zero cells cut, which
+    looked like the fix failing. It was not the alarm: `_handle_danger` sends
+    a civilian within `CIVILIAN_SIGHT` of a goblin running whether or not a
+    horn ever blew, and on that seed the goblins were close enough to see.
+    The table above has nothing hostile on the map for exactly that reason.
+
+    Note what this does *not* claim. Standing the fortress down mid-siege is
+    usually a bad idea -- measured over three seeds it bought one extra cell
+    of digging, and on one of them a dwarf who would otherwise have lived was
+    killed and the siege ran on. That is a decision, and a decision the player
+    is allowed to get wrong. It was not one before.
+    """
+
+    def test_the_player_can_sound_it_over_an_empty_map(self):
+        """A drill, or a siege the player can see coming. It has to hold."""
+        fort = embark("alarm")
+        self.assertEqual(fort.hostiles(), [])
+        fort.military.sound_alarm()
+        for _ in range(5):
+            sim.step(fort)
+        self.assertTrue(fort.military.alarm,
+                        "the watch put out an alarm the player raised")
+
+    def test_the_player_can_stand_the_fortress_down_mid_siege(self):
+        """The other direction, which is the one that costs work."""
+        fort = embark("alarm")
+        sim.spawn_attack(fort, 2)
+        sim.step(fort)
+        self.assertTrue(fort.military.alarm, "the watch never raised it")
+        fort.military.all_clear()
+        for _ in range(5):
+            sim.step(fort)
+        # Asserted rather than skipped over. If these two die in five steps
+        # the test still runs and still passes, and then it is guarding an
+        # empty map instead of a siege -- which is the shape of guard this
+        # milestone exists to be rid of.
+        self.assertTrue(fort.hostiles(),
+                        "the siege ended before the point was tested")
+        self.assertFalse(fort.military.alarm,
+                         "the watch raised an alarm the player had lifted")
+
+    def test_an_alarm_the_player_lifted_is_still_lifted_after_a_save(self):
+        """`seen_threat` is what the watch compares against.
+
+        Lose it in the save and it loads back as False, the next step reads
+        the goblins as newly arrived, and the fortress the player stood down
+        is under alarm again because it was saved.
+        """
+        fort = embark("alarm")
+        sim.spawn_attack(fort, 2)
+        sim.step(fort)
+        fort.military.all_clear()
+        again = Fortress.from_dict(fort.to_dict())
+        self.assertTrue(again.hostiles(), "the fixture lost its goblins")
+        sim.step(again)
+        self.assertFalse(again.military.alarm,
+                         "the save re-sounded an alarm the player had lifted")
+
+    def test_the_watch_still_does_its_own_job(self):
+        """None of the above is worth breaking the automatic alarm for."""
+        fort = embark("watchful")
+        self.assertFalse(fort.military.alarm)
+        sim.spawn_attack(fort, 2)
+        sim.step(fort)
+        self.assertTrue(fort.military.alarm, "nobody noticed the goblins")
+        for foe in fort.hostiles():
+            foe.body.dead = True
+        sim.step(fort)
+        self.assertFalse(fort.military.alarm, "the alarm rang over an empty map")
+
+
+class TestTheAlarmStatesThatExist(unittest.TestCase):
+    """`ALERTS` names two states. The codebase used four.
+
+    `Military.alarm` is `self.alert == "alarm"`, and every megabeast, siege,
+    werebeast, necromancer and demon wave set `alert = "danger"` instead --
+    a string that property reads as *no alarm at all*. A test added a fifth
+    spelling, `"combat"`, for the same purpose.
+
+    It happened to be survivable only because the old `_watch` overwrote the
+    alert from scratch every step, so a threat's own word for its own arrival
+    was corrected out of existence within one step of being written. That is
+    no longer true: the watch leaves the state alone between changes, so a
+    value nothing understands would now simply sit there. Threats raise the
+    alarm through `sound_alarm` now, and this keeps it that way.
+    """
+
+    def test_nothing_assigns_an_alert_that_is_not_declared(self):
+        """Every literal ever stored in `alert`, across the whole package."""
+        import ast
+        from pathlib import Path
+
+        from ascii_warriors.fortress import military as military_mod
+
+        roots = [Path(military_mod.__file__).resolve().parents[1], Path("tools")]
+        seen, bad = [], []
+        for root in roots:
+            for path in sorted(root.rglob("*.py")):
+                tree = ast.parse(path.read_text())
+                for node in ast.walk(tree):
+                    if not isinstance(node, ast.Assign):
+                        continue
+                    if not any(isinstance(t, ast.Attribute) and t.attr == "alert"
+                               for t in node.targets):
+                        continue
+                    if not isinstance(node.value, ast.Constant):
+                        continue
+                    seen.append((path.name, node.lineno, node.value.value))
+                    if node.value.value not in military_mod.ALERTS:
+                        bad.append("%s:%d %r" % (path.name, node.lineno,
+                                                 node.value.value))
+        self.assertTrue(seen, "found no alert assignments at all to check")
+        self.assertEqual(bad, [],
+                         "assigned to Military.alert but not in ALERTS: %s "
+                         "-- `alarm` reads anything outside that tuple as no "
+                         "alarm" % "; ".join(bad))
+
+    def test_a_threat_raises_the_alarm_as_it_arrives(self):
+        """Not one step later, and not in a spelling nothing reads."""
+        fort = embark("visitation")
+        self.assertFalse(fort.military.alarm)
+        sim._send_necromancer(fort)
+        self.assertTrue(fort.military.alarm,
+                        "a necromancer walked in and the alarm stayed down")
+
+    def test_every_way_in_tells_the_player_the_alarm_went_up(self):
+        """The message has to move with the state that caused it.
+
+        `_watch` was the only thing that raised the alarm through
+        `sound_alarm`, so it was also the only thing that announced it. Moving
+        the threats onto that method and leaving the message behind in the
+        watch left a necromancer walking in, the fortress downing tools, and
+        nothing on screen connecting the two -- which is how this milestone
+        broke it, between writing the fix and running the suite.
+        """
+        WANTED = "The alarm is raised. Civilians, get inside."
+        for label, arrive in (("a goblin attack", lambda f: sim.spawn_attack(f, 2)),
+                              ("a necromancer", sim._send_necromancer),
+                              ("a werebeast", sim._send_werebeast)):
+            fort = embark("announce")
+            before = len(fort.log.all())
+            arrive(fort)
+            sim.step(fort)
+            said = [m.text for m in fort.log.all()[before:]]
+            self.assertTrue(fort.military.alarm, "%s raised no alarm" % label)
+            self.assertIn(WANTED, said,
+                          "%s put the fortress under alarm without saying so; "
+                          "the player saw the digging stop and nothing else"
+                          % label)
+
+    def test_an_alarm_already_up_is_not_announced_again(self):
+        """Otherwise the watch narrates every step of a siege.
+
+        Counted through a stub rather than through `fort.log`. The real log
+        collapses a repeated line to one entry, so the first version of this
+        test watched the log length and passed whether the method was
+        idempotent or not -- it was measuring the log's deduplication. The
+        re-break pass caught it: removing the early return from `sound_alarm`
+        left every test green.
+        """
+        from ascii_warriors.fortress.military import Military
+
+        class Counter:
+            def __init__(self):
+                self.said = []
+
+            def warn(self, text):
+                self.said.append(text)
+
+            good = warn
+
+        m, log = Military(), Counter()
+        for _ in range(5):
+            m.sound_alarm(log)
+        self.assertEqual(len(log.said), 1,
+                         "raising a raised alarm said it %d times"
+                         % len(log.said))
+        for _ in range(5):
+            m.all_clear(log)
+        self.assertEqual(len(log.said), 2,
+                         "clearing a clear fortress said it again: %s"
+                         % log.said)
+
+    def test_a_save_carrying_an_undeclared_state_is_brought_back_in(self):
+        """Saves written before this exist, and they say "danger".
+
+        Nothing corrects it any more -- that was the old watch's doing -- so
+        it has to be corrected on the way in or the fortress loads stopped in
+        a state no reader understands.
+        """
+        from ascii_warriors.fortress.military import ALERTS, Military
+
+        back = Military.from_dict({"squads": [], "alert": "danger"})
+        self.assertIn(back.alert, ALERTS)
+        self.assertFalse(back.alarm)
 
 
 class TestHospital(unittest.TestCase):
@@ -6918,7 +7137,9 @@ class TestNight(unittest.TestCase):
         undead = [c for c in fort.creatures.values()
                   if c.def_id in ("zombie", "skeleton")]
         self.assertTrue(undead)
-        self.assertEqual(fort.military.alert, "danger")
+        self.assertTrue(fort.military.alarm,
+                        "a necromancer on the doorstep is an alarm, not a "
+                        "fifth spelling of one")
 
     # -- curses ------------------------------------------------------------- #
 
