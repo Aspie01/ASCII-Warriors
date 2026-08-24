@@ -10266,10 +10266,16 @@ identical, cell for cell.
 
 Written the obvious way, the connectivity guard asked "how much of this map
 can be reached from the surface" and failed at **23.4%** — on a map with no
-tree problem at all, whose *surface* is split into plateaus by cliffs that the
-ramps do not join. That is a real defect and a separate one. The guard asks
-from the mouth of the cave downwards now: a guard that goes red for a reason
-it does not name is a guard that gets deleted by whoever meets it next.
+tree problem at all. The guard asks from the mouth of the cave downwards now:
+a guard that goes red for a reason it does not name is a guard that gets
+deleted by whoever meets it next.
+
+> **Corrected in v3.99.** The reason given here for that 23.4% — "the surface
+> is split into plateaus by cliffs the ramps do not join" — was wrong, and so
+> is the table of residuals below. Both came from a probe that started its
+> flood at the *highest-z walkable cell*, which is usually a tree canopy or an
+> isolated peak rather than the ground. Measured by largest connected region
+> instead, that map is 98.3% one piece. See §159.
 
 The second: the shrub branch. Over six generated seeds not one shrub ever
 landed on a staircase, so removing its refusal broke nothing — the tree guard
@@ -10279,7 +10285,8 @@ staircase, a hundred rolls, both branches.
 
 ### What is still cut off
 
-The residual, surveyed over twelve world tiles after the fix:
+The residual, surveyed over twelve world tiles after the fix — **these
+numbers are wrong; see the correction in §159**:
 
 | | |
 | --- | --- |
@@ -10288,15 +10295,137 @@ The residual, surveyed over twelve world tiles after the fix:
 | one taiga | 28.8% |
 
 Small sealed bubbles in the rock are a fine thing for a cave system to have.
-Twenty-eight per cent is the cliff problem above, and it is the reason seed
-`long` still fails v3.97's alarm: the map its bounty is on is fragmented at
-the surface, and the prey is in a 1864-cell pocket on the far side. **This
-milestone does not close that seed.** It closes the four-in-fifteen case, and
-names the other one.
+**This milestone does not close seed `long`.** It closes the four-in-fifteen
+case; what is left of the other one is measured properly in §159.
 
 Re-break: three defects put back, three caught, 0 misses.
 
-## 159. Style
+## 159. The tree at the top of the slope, and the path behind it (v3.99)
+
+The same mistake as §158, one square over.
+
+A ramp is the other way up a piece of ground, and it climbs exactly one level:
+`neighbours` yields `(x+dx, y+dy, z+1)` from a RAMP tile and takes the answer
+from `walkable`. So whatever stands on the cell at the *top* of the slope
+decides whether the slope is a slope or a wall.
+
+`_scatter_plants` knew to leave the ramp itself alone — it skips the RAMP flag
+— and nothing told it about the cell the ramp leads onto. Over five maps:
+
+| | |
+| --- | --- |
+| ramps placed | 1064 |
+| leading nowhere | **120** (11.3%) |
+| blocked by a tree | **144 of 144** |
+
+Not one was rock, or water, or anything else. And every upward step between
+neighbouring surface columns is exactly one level — 1493 of 1493 measured — so
+a ramp could climb all of them. A tree was the only thing turning a slope into
+a cliff. Afterwards: 1064 ramps placed, **0** leading nowhere, and the count
+unchanged, because the refusal is made after the roll as in §158.
+
+### Correcting §158
+
+§158 said that a map failing its first connectivity guard at 23.4% had a
+"surface split into plateaus by cliffs the ramps do not join", and gave a
+table of residuals ending at "one taiga at 28.8%". **Both were wrong**, and
+they were wrong for the same reason: the probe behind them started its flood
+at `max(walkable, key=lambda c: c[2])` — the highest walkable cell on the map.
+That is usually a **tree canopy** or an isolated peak, not ground anybody
+stands on, so it measured how much of the map is unreachable *from a treetop*.
+
+Measured properly — the share of walkable ground outside the largest connected
+region — the same twelve world tiles come out:
+
+| | before, from the highest cell | properly |
+| --- | --- | --- |
+| the "28.8% taiga" | 28.8% | **1.7%**, one region of 11452 out of 11653 |
+| worst of the twelve | 28.8% | 10.8% |
+| typical | 0%–11% | 0%–8% |
+
+There is no widespread cliff problem, and there was never a multi-level cliff
+at all: every step is one level. The explanation in §158 was wrong twice over,
+and it survived a full ritual and a re-break because **nothing it claimed was
+load-bearing** — it was a sentence about a number, and the guards were about
+something else.
+
+The lesson is narrower than "measure the claim". It is: a flood fill is only
+as honest as the cell it starts from, and "the highest walkable cell" is a
+tree.
+
+### The path the fortress could not draw
+
+The map change broke two tests, and chasing them found a second defect that
+had nothing to do with trees.
+
+`Fortress.reach_from` is an exhaustive flood fill: if it holds a cell, a dwarf
+can walk there. `path_to` runs A* with `MAX_PATH_NODES = 6000`. An embark's
+walkable component is around **eighteen thousand** cells and the heuristic is
+nearly blind between z-levels, so A* can spend its whole budget on a route it
+would have found. Measured on seed `art`:
+
+| | |
+| --- | --- |
+| the route | **77 steps** |
+| A* at 6000 nodes | nothing |
+| A* at 12000 nodes | the 77 steps |
+| the reach fill | 18537 cells, and it holds the target |
+
+So `can_reach` said yes and `path_to` said no. The engraving job was claimed,
+abandoned, written into `fort.unreachable`, retried on the delay and abandoned
+again — for the rest of the fortress's life. What a player sees is a wall
+marked for carving that nobody ever carves.
+
+`path_to` asks the fill now when the cheap pass has failed, and searches again
+bounded by its size. The fill is the exact upper bound on what A* can expand,
+so the second pass either finds the route or proves there is none — and it
+only runs when the cheap pass failed, on targets the fill says are worth it.
+
+This is why v3.99 carries two fixes: the tree fix moved a wall from near to
+far and made a pre-existing defect reachable. It was not caused here, and it
+would have gone on being invisible.
+
+### The test that passed by one step
+
+The other failure was the hospital: a dwarf that should have been saved died.
+The hospital code is untouched and demonstrably works — a doctor binds at step
+6. The fixture declared `MORTAL = 14`, and on the old map the untreated
+patient died at step 15; on the new one, at step 7. The window was one step
+wide the whole time. Measured on the new map:
+
+| rate | untreated | with a doctor |
+| --- | --- | --- |
+| 12 | survives — no control | — |
+| 13 | dies at 12 | **saved at 9** |
+| 14 | dies at 7 | dies at 7 |
+
+A constant cannot sit safely in a window one number wide, so the test walks
+the rate up until the control dies and *then* asks whether a doctor changes
+the outcome. That is the claim it was always making, and no map can move it.
+
+Retuning the constant to 13 would also have passed. It would also have left
+the next map change to break it again.
+
+### What is actually left
+
+Twelve world tiles, share outside the largest region: worst 10.8%, most under
+3%. The regions outside are small sealed bubbles in the rock, except on one
+beach, where a **924-cell basin at z = −1** sits ringed entirely by
+`soil_wall` — a genuine hollow in the ground with no way out, and 1107 of its
+1108 cells are at their own surface level so the ramp pass should have seen
+them. Not investigated further here. It is named rather than explained,
+because the last thing this section did was explain something it had not
+measured.
+
+Re-break: five defects put back, five caught, 0 misses — after a first
+run whose fifth case could not fail. Removing the fill *filter* from the
+second pass leaves every answer correct, because searching a disconnected
+component fails correctly; what it costs is six full-component searches
+every time a dwarf considers a job behind a sealed wall. An optimisation
+whose absence no guard notices is an optimisation that gets deleted, so
+that one counts the searches rather than the answers.
+
+## 160. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

@@ -1591,6 +1591,106 @@ class TestThePageDoesNotContradictItself(unittest.TestCase):
         self.assertIn("until %d" % (world.year - 3), text)
 
 
+class TestTheTreeAtTheTopOfTheSlope(unittest.TestCase):
+    """The same mistake as v3.98, one square over.
+
+    v3.98 stopped plants growing *on* a staircase. A ramp is the other way up
+    or down a piece of ground, and it climbs exactly one level: `neighbours`
+    yields `(x+dx, y+dy, z+1)` from a RAMP tile and takes the answer from
+    `walkable`. So whatever stands on the cell at the top of the slope decides
+    whether the slope is a slope or a wall.
+
+    `_scatter_plants` knew to leave the ramp itself alone -- it skips the RAMP
+    flag -- and nothing told it about the cell the ramp leads onto. Measured
+    over five maps:
+
+        ramps placed            1064
+        leading nowhere          120   (11.3%)
+        blocked by a tree        144   of 144. Not one was rock, or water.
+
+    Every upward step between neighbouring surface columns is exactly one
+    level -- measured, 1493 of 1493 -- so a ramp could climb all of them. A
+    tree was the only thing turning a slope into a cliff.
+    """
+
+    def _map(self, seed):
+        world = _world(seed, size="pocket", years=20)
+        x, y = world.land_tiles()[0]
+        return generate_local(world, x, y, RNG("lm-%s" % seed))[0]
+
+    def _dead_ramps(self, lm):
+        """Ramps with nothing walkable to climb onto."""
+        dead = []
+        for y in range(lm.height):
+            for x in range(lm.width):
+                sz = lm.surface_z(x, y)
+                if not tiles.get(lm.tile(x, y, sz)).has("RAMP"):
+                    continue
+                if any(lm.walkable(x + dx, y + dy, sz + 1)
+                       for dx, dy in ((0, -1), (1, 0), (0, 1), (-1, 0))):
+                    continue
+                dead.append((x, y, sz))
+        return dead
+
+    def test_no_ramp_climbs_onto_nothing(self):
+        for seed in ("long", "a", "b", "e", "j"):
+            lm = self._map(seed)
+            dead = self._dead_ramps(lm)
+            self.assertEqual(dead[:5], [],
+                             "%s: %d ramps lead nowhere" % (seed, len(dead)))
+
+    def test_the_thing_that_used_to_block_them_was_always_a_tree(self):
+        """Kept as a statement of what the defect was, and a check that the
+        cells at the tops of slopes are still ordinary ground."""
+        for seed in ("long", "a", "b"):
+            lm = self._map(seed)
+            for y in range(lm.height):
+                for x in range(lm.width):
+                    sz = lm.surface_z(x, y)
+                    if not tiles.get(lm.tile(x, y, sz)).has("RAMP"):
+                        continue
+                    for dx, dy in ((0, -1), (1, 0), (0, 1), (-1, 0)):
+                        nx, ny = x + dx, y + dy
+                        if not lm.in_bounds(nx, ny, sz + 1):
+                            continue
+                        if lm.surface_z(nx, ny) <= sz:
+                            continue
+                        self.assertNotIn(
+                            lm.tile(nx, ny, sz + 1), ("tree", "shrub"),
+                            "%s: a plant at (%d,%d,%d) is the top of the slope "
+                            "at (%d,%d,%d)" % (seed, nx, ny, sz + 1, x, y, sz))
+
+    def test_the_refusal_fires_on_a_map_built_to_make_it(self):
+        """Deterministic, because generated maps only ever caught the tree.
+
+        The same trap as v3.98's shrub branch: on real maps the shrub roll
+        almost never lands on the one cell that matters, so a guard that waits
+        for it is a guard resting on luck.
+        """
+        from ascii_warriors.world.localmap import LocalMap, _scatter_plants
+
+        for i in range(60):
+            lm = LocalMap(6, 6, -2, 2, biome="tropical_forest")
+            for y in range(lm.height):
+                for x in range(lm.width):
+                    for z in range(lm.zmin, lm.zmax + 1):
+                        lm.set_tile(x, y, z, "air")
+                    # west half low, east half one step up
+                    if x < 3:
+                        lm.set_tile(x, y, -1, "grass")
+                        lm.set_tile(x, y, -2, "soil_wall")
+                    else:
+                        lm.set_tile(x, y, 0, "grass")
+                        lm.set_tile(x, y, -1, "soil_wall")
+                        lm.set_tile(x, y, -2, "soil_wall")
+            lm.set_tile(2, 3, -1, "ramp_up")
+            _scatter_plants(lm, RNG("slope%d" % i))
+            self.assertNotIn(
+                lm.tile(3, 3, 0), ("tree", "shrub"),
+                "roll %d put a %s on the top of the slope"
+                % (i, lm.tile(3, 3, 0)))
+
+
 class TestTheTreeOverTheMouthOfTheCave(unittest.TestCase):
     """`_scatter_plants` runs last, and a `stair_down` is walkable.
 

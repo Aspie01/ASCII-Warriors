@@ -4132,6 +4132,168 @@ class TestTheRiverOnlyOneMapKnewAbout(unittest.TestCase):
             % offenders)
 
 
+class TestThePathTheFortressCouldNotDraw(unittest.TestCase):
+    """`can_reach` said yes and `path_to` said no, and the work was dropped.
+
+    `Fortress.reach_from` is an exhaustive flood fill: if it holds a cell, a
+    dwarf can walk there. `path_to` runs A* with `MAX_PATH_NODES = 6000`. An
+    ordinary embark's walkable component is about eighteen thousand cells and
+    the heuristic is nearly blind between z-levels, so A* can spend its whole
+    budget on a route it would have found.
+
+    Measured on seed `art`: a wall **seventy-seven steps** from the dwarf,
+    with three standing spots all inside the reach fill, and A* returning
+    nothing at 6000 nodes and the route at 12000. The engraving job was
+    claimed, abandoned, written into `fort.unreachable`, retried on the delay
+    and abandoned again -- for the rest of the fortress's life. The
+    designation stayed painted the whole time, which is what a player would
+    see: a wall marked for carving that nobody ever carves.
+
+    `path_to` asks the fill now when the cheap pass has failed, and searches
+    again bounded by its size. The fill is the exact upper bound on what A*
+    can expand, so that second pass either finds the route or proves there is
+    none, and it only runs when the answer is already known to be yes.
+    """
+
+    def _far_wall(self, fort):
+        """The nearest wall an engraver could work, the way TestArt picks it."""
+        from ascii_warriors.engine.pathfind import bfs_reachable
+
+        lm = fort.local
+        dwarf = fort.dwarves()[0]
+        best = None
+        for x, y, z in bfs_reachable((dwarf.x, dwarf.y, dwarf.z),
+                                     fort.path_neighbours, max_nodes=20000):
+            for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                cell = (x + dx, y + dy, z)
+                if lm.in_bounds(*cell) and lm.tile(*cell) == "rock_wall":
+                    far = abs(x - dwarf.x) + abs(y - dwarf.y) \
+                        + abs(z - dwarf.z) * 4
+                    if best is None or (far, cell) < best:
+                        best = (far, cell)
+        return best[1] if best else None
+
+    def test_it_finds_a_route_the_short_budget_gives_up_on(self):
+        from ascii_warriors.engine.pathfind import astar
+        from ascii_warriors.fortress import dwarf as dwarf_mod
+
+        fort = embark("art")
+        cell = self._far_wall(fort)
+        self.assertIsNotNone(cell)
+        fort.dig_out(cell, "wall_constructed")
+        dwarf = fort.dwarves()[0]
+        start = (dwarf.x, dwarf.y, dwarf.z)
+
+        spots = dwarf_mod.work_positions(fort.local, cell, vertical=False)
+        within = fort.reach_from(start)
+        connected = [c for c in spots if c in within]
+        self.assertTrue(connected, "the fixture wall has nowhere to stand")
+        short = [c for c in connected
+                 if not astar(start, c, fort.path_neighbours,
+                              dwarf_mod._heuristic,
+                              max_nodes=dwarf_mod.MAX_PATH_NODES)]
+        self.assertTrue(
+            short,
+            "the fixture no longer has a target the short budget misses, so "
+            "this test is not measuring anything")
+        self.assertTrue(
+            dwarf_mod.path_to(fort, dwarf, cell, vertical=False),
+            "the fill holds %d cells including %s, and path_to still could "
+            "not draw a route to any of them" % (len(within), connected))
+
+    def test_the_work_actually_gets_done(self):
+        """The consequence, rather than the mechanism."""
+        fort = embark("art")
+        for dwarf in fort.dwarves():
+            dwarf.fort.labors.enable("engraving")
+        cell = self._far_wall(fort)
+        fort.dig_out(cell, "wall_constructed")
+        self.assertTrue(fort.designations.set(fort.local, *cell, "engrave"))
+        sim.run(fort, 1200)
+        self.assertIn(cell, fort.engravings,
+                      "designated, reachable, and never carved")
+
+    def test_it_does_not_search_for_what_the_fill_says_is_not_there(self):
+        """The second pass is bounded by the fill *and* filtered by it.
+
+        Without the filter the answer is still right -- a search of a
+        disconnected component fails, correctly -- so the re-break pass could
+        not make a correctness guard fail, and an optimisation with no guard
+        is an optimisation that gets deleted. This counts the searches
+        instead: six targets times eighteen thousand nodes, every time a dwarf
+        considers a job behind a sealed wall, is the exact cost `reach_from`
+        was written to avoid.
+        """
+        from ascii_warriors.fortress import dwarf as dwarf_mod
+
+        fort = embark("art")
+        dwarf = fort.dwarves()[0]
+        start = (dwarf.x, dwarf.y, dwarf.z)
+        within = fort.reach_from(start)
+        sealed = None
+        lm = fort.local
+        for z in range(lm.zmin, lm.zmax + 1):
+            for y in range(1, lm.height - 1):
+                for x in range(1, lm.width - 1):
+                    cell = (x, y, z)
+                    if not lm.walkable(*cell) or cell in within:
+                        continue
+                    if any(lm.walkable(x + dx, y + dy, z)
+                           for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))):
+                        sealed = cell
+                        break
+                if sealed:
+                    break
+            if sealed:
+                break
+        if sealed is None:
+            self.skipTest("this map has no sealed pocket to ask about")
+
+        calls = []
+        real = dwarf_mod.astar
+
+        def counted(*a, **kw):
+            calls.append(kw.get("max_nodes"))
+            return real(*a, **kw)
+
+        dwarf_mod.astar = counted
+        try:
+            self.assertFalse(
+                dwarf_mod.path_to(fort, dwarf, sealed, vertical=False))
+        finally:
+            dwarf_mod.astar = real
+        big = [n for n in calls if n and n > dwarf_mod.MAX_PATH_NODES]
+        self.assertEqual(big, [],
+                         "%d full-component searches for a cell the fill "
+                         "already said was not connected" % len(big))
+
+    def test_it_does_not_search_twice_when_the_first_pass_works(self):
+        """The second pass is for the case the first one gets wrong.
+
+        A fortress whose work is all close by must never pay for a fill: the
+        expensive pass is gated on the cheap one having already failed.
+        """
+        fort = embark("art")
+        dwarf = fort.dwarves()[0]
+        beside = None
+        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            cell = (dwarf.x + dx, dwarf.y + dy, dwarf.z)
+            if fort.local.walkable(*cell):
+                beside = cell
+                break
+        self.assertIsNotNone(beside)
+        before = fort.reach_fills
+        self.assertTrue(dwarf_mod_path(fort, dwarf, beside))
+        self.assertEqual(fort.reach_fills, before,
+                         "a step to the next square drew a reach fill")
+
+
+def dwarf_mod_path(fort, dwarf, cell):
+    from ascii_warriors.fortress import dwarf as dwarf_mod
+
+    return dwarf_mod.path_to(fort, dwarf, cell, vertical=False)
+
+
 class TestTheOrderThatDidNothing(unittest.TestCase):
     """"Defend the fortress" is in the orders menu and nothing read it.
 
@@ -4662,22 +4824,45 @@ class TestHospital(unittest.TestCase):
         self.assertFalse(patient.body.dead)
 
     def test_a_hospital_saves_a_dwarf_that_would_have_died(self):
-        """The point of a hospital."""
-        def run(with_doctors):
+        """The point of a hospital.
+
+        The mortal rate is *found* rather than declared. Written against a
+        fixed `MORTAL = 14` this test passed by one step: a doctor binds at
+        step 6 and the untreated patient died at step 7, so any change that
+        moved the map by a cell flipped it. v3.99 moved the map, the patient
+        started dying at step 7 instead of surviving to be treated, and the
+        test failed for a reason that had nothing to do with hospitals.
+
+        Measured on the new map, the whole usable range is one number wide:
+
+            rate 12   survives untreated  -- no control
+            rate 13   dies at 12 untreated, saved at 9 with a doctor
+            rate 14   dies at 7 untreated, and the doctor cannot beat that
+
+        A constant cannot sit safely in a window one wide. So the test walks
+        the rate up until the control dies, and then asks whether a doctor
+        changes that outcome -- which is the actual claim, and one no map can
+        move out from under.
+        """
+        def run(rate, with_doctors):
             fort = embark("saved")
             self._ward(fort, doctors=with_doctors)
             patient = fort.dwarves()[3]
             if with_doctors:
                 self._doctor_beside(fort, patient)
-            self._wound(patient, bleeding=self.MORTAL)
+            self._wound(patient, bleeding=rate)
             for _ in range(900):
                 sim.step(fort)
                 if patient.body.dead or patient.body.bleeding_rate() == 0:
                     break
             return patient.body.dead
 
-        self.assertTrue(run(False), "the control case did not die; retune it")
-        self.assertFalse(run(True), "the hospital did not save the patient")
+        mortal = next((r for r in range(8, 40) if run(r, False)), None)
+        self.assertIsNotNone(
+            mortal, "no bleeding rate up to 40 kills an untreated dwarf")
+        self.assertFalse(run(mortal, True),
+                         "a wound that kills an untreated dwarf (rate %d) "
+                         "still killed one with a doctor beside it" % mortal)
 
     def test_supplies_are_never_lost(self):
         """A doctor must not pocket the fortress's only bandages."""

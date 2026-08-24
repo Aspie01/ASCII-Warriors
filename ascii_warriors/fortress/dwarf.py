@@ -269,6 +269,33 @@ def path_to(fort, dwarf, goal: Cell, *, adjacent: bool = True,
             state.path = route
             state.path_goal = goal
             return True
+
+    # Everything failed inside the ordinary budget. Before believing that,
+    # ask the fill -- which is the same graph, walked exhaustively -- whether
+    # any of these places is connected at all.
+    #
+    # `MAX_PATH_NODES` is 6000 and an embark's walkable component is around
+    # eighteen thousand cells, so A* can run out of budget on a route it would
+    # have found: measured, a wall seventy-seven steps from the dwarf that
+    # needed twelve thousand nodes to reach, because the heuristic is nearly
+    # blind between z-levels. The job was abandoned, written into
+    # `fort.unreachable`, retried on the delay and abandoned again, and the
+    # designation stayed painted for the rest of the fortress's life.
+    #
+    # The fill is the exact upper bound on what A* can expand, so a second
+    # pass bounded by its size either finds the route or proves there is none.
+    # It only runs when the cheap pass has already failed, and only for
+    # targets the fill says are worth the search.
+    within = fort.reach_from(start)
+    for target in targets[:6]:
+        if target not in within:
+            continue
+        route = astar(start, target, fort.path_neighbours, _heuristic,
+                      max_nodes=len(within) + 1)
+        if route:
+            state.path = route
+            state.path_goal = goal
+            return True
     return False
 
 

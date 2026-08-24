@@ -614,6 +614,40 @@ def _add_ramps(lm: LocalMap) -> None:
 NO_PLANTING: Tuple[str, ...] = ("stair_down", "stair_up", "stair_updown")
 
 
+def _tops_a_ramp(lm: LocalMap, x: int, y: int, z: int) -> bool:
+    """True if some ramp on the level below climbs onto this cell.
+
+    A ramp is the only way up a step of ground, and it climbs exactly one
+    level: `neighbours` yields `(x+dx, y+dy, z+1)` from a RAMP tile and takes
+    the answer from `walkable`. So whatever stands on the cell at the top of
+    the slope decides whether the slope is a slope or a wall.
+    """
+    for dx, dy in ((0, -1), (1, 0), (0, 1), (-1, 0)):
+        below = (x + dx, y + dy, z - 1)
+        if not lm.in_bounds(*below):
+            continue
+        if tile_data.get(lm.tile(*below)).has("RAMP"):
+            return True
+    return False
+
+
+def _plantable(lm: LocalMap, x: int, y: int, z: int) -> bool:
+    """Whether a tree or a shrub may stand here.
+
+    Not on a staircase, and not at the top of a ramp. Both are the same
+    mistake: `_scatter_plants` runs last of all the generation steps and knows
+    nothing about the ways up and down that the steps before it cut.
+
+    v3.98 stopped plants growing *on* a stair. The measurement that followed
+    found 120 of 1064 ramps leading nowhere, and every one of the 144 blocked
+    cells had a tree on it -- not one was rock, or water, or anything else.
+    Every step between neighbouring surface columns is exactly one level, so
+    the ramps could climb all of them; trees were what turned slopes into
+    cliffs and broke surfaces into plateaus.
+    """
+    return lm.tile(x, y, z) not in NO_PLANTING and not _tops_a_ramp(lm, x, y, z)
+
+
 def _scatter_plants(lm: LocalMap, rng: RNG) -> None:
     """Plant trees and shrubs according to the biome.
 
@@ -641,14 +675,14 @@ def _scatter_plants(lm: LocalMap, rng: RNG) -> None:
             if not t.walk or t.has("WATER") or t.has("RAMP"):
                 continue
             if rng.chance(b.tree_density * 0.55):
-                if lm.tile(x, y, sz) in NO_PLANTING:
+                if not _plantable(lm, x, y, sz):
                     continue
                 lm.set_tile(x, y, sz, "tree")
                 # A tree's canopy occupies the level above.
                 if lm.in_bounds(x, y, sz + 1):
                     lm.set_tile(x, y, sz + 1, "tree")
             elif rng.chance(b.shrub_density * 0.35):
-                if lm.tile(x, y, sz) in NO_PLANTING:
+                if not _plantable(lm, x, y, sz):
                     continue
                 lm.set_tile(x, y, sz, "shrub")
 
