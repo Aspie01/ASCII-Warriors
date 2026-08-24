@@ -10529,7 +10529,90 @@ first pass over the water fix missed one because the fixture never set column
 surface heights, so `_add_ramps` was looking at the air above the pool rather
 than the pool.
 
-## 161. Style
+## 161. Any garment will do (v4.01)
+
+Found by playing the game and looking. Twenty-four adventurers, two thousand
+turns each:
+
+| how it ended | |
+| --- | --- |
+| bled to death | **18 (75%)** |
+| survived | 3 |
+| upper body destroyed | 2 |
+| lower body destroyed | 1 |
+
+Median life: 143 turns. Eighteen of twenty-one deaths — **86%** — are one
+cause. In a game with cuts, bruises, fractures, burns and frostbite, and a
+fortress full of doctors and hospitals, an adventurer bleeds to death.
+
+Per fatal life the driver binds **14.5 times**, tears up a shirt 1.1 times,
+and spends **10.9 turns "bleeding, and nothing to bind it with"**. The supply
+runs out.
+
+### What the help promised
+
+`make_bandage` takes `("CLOTH", 1)`, and `_satisfies` reads that as the
+*material flag* `CLOTH`. Its description read:
+
+> Any garment will do, and a shirt is worth four bandages.
+
+Garment materials are rolled. Over four hundred warrior kits:
+
+| | |
+| --- | --- |
+| garments that come out leather | **19%** |
+| adventurers with at least one leather garment | **58%** |
+| with two or more | 18% |
+
+So a majority of adventurers set out wearing something the help told them they
+could tear up and the recipe would not take — while bleeding to death is the
+thing that kills them.
+
+### The fix is the words, and this was nearly got backwards
+
+The obvious move is to accept leather. It was implemented, measured, and
+reverted, for two reasons.
+
+**It barely helps.** With leather accepted, "nothing to bind it with" collapses
+from 10.9 turns per fatal life to 1.2 — a real effect — and the death rate
+moves from 75% to 71%, which is noise across sixteen lives. They stop dying
+*for want of a bandage* and go on dying at the same rate, because the bleeding
+outruns the binding whatever is in the pack.
+
+**The rule is deliberate.** `test_a_recipe_still_means_what_it_says` has pinned
+"it tore strips off a leather tunic" as a failure since the recipe was written,
+with a docstring saying so. Overturning a considered decision needs a better
+argument than the one the measurement just refused to supply.
+
+So the description says what the code does, and a guard ties them together:
+refuse leather and say so, or accept it, but not one and the other.
+
+### Two structural guards, from a wrong turn taken on the way
+
+Widening the class exposed two holes worth keeping guards for, even though the
+widening itself was reverted.
+
+`CLASSES` mapped a need to one category and required that need *as a flag*,
+so it could not express "cloth or leather" without special-casing. It takes a
+tuple of alternatives now. Nothing uses the alternation — it is there because
+the single-flag form reads as "a garment" and means "a cloth garment", which
+is the misreading the whole milestone is about.
+
+And `_satisfies` answers False for a class it has never heard of. A typo in a
+recipe input, or a class removed while a recipe still names it, is a recipe
+that silently never appears and nothing says why. Both directions are guarded
+now: every input names an item or a class, and every class is named by a
+recipe.
+
+### What this does not fix
+
+Adventurers still bleed to death three times in four. The supply was not the
+constraint; the race is. Why binding loses it is the open question, and it is
+the interesting one.
+
+Re-break: five defects put back, five caught, 0 misses.
+
+## 162. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

@@ -46,8 +46,10 @@ _r("cook_fish", "Roast fish", "cooking", 0, (("fish_food", 1),), "cooked_meat", 
 _r("fine_meal", "Prepare a fine meal", "cooking", 3,
    (("cooked_meat", 1), ("plump_helmet", 1)), "prepared_meal", 1, ("fire",))
 _r("make_torch", "Make a torch", "crafting", 0, (("log", 1),), "torch", 3, ())
-_r("make_bandage", "Tear a bandage", "crafting", 0, (("CLOTH", 1),), "bandage",
-   4, (), "Any garment will do, and a shirt is worth four bandages.")
+_r("make_bandage", "Tear a bandage", "crafting", 0, (("CLOTH", 1),),
+   "bandage", 4, (),
+   "Any cloth garment will do, and a shirt is worth four bandages. "
+   "Leather does not tear into dressings.")
 _r("make_arrows", "Fletch arrows", "bowyer", 2, (("log", 1),), "arrow", 12, ())
 _r("make_bolts", "Carve bolts", "bowyer", 2, (("log", 1),), "bolt", 12, ())
 _r("make_rope", "Braid a rope", "crafting", 1, (("hide", 2),), "rope", 1, ())
@@ -115,16 +117,40 @@ def _facilities(creature, game) -> set:
 #: the thing that kills adventurers could not be made by the person bleeding.
 #: Eight driver runs, eight deaths, seven of them counting "bleeding, and
 #: nothing to bind it with" after the third and last bandage in the kit.
-CLASSES: Dict[str, str] = {"CLOTH": "clothing"}
+#: Recipe inputs that name a *kind* of thing rather than one item id, as
+#: ``need -> (item category, any one of these material flags)``.
+#:
+#: The flags are alternatives. `CLOTH` was the only entry and it was also the
+#: only flag it would accept, which read as "a cloth garment" and was written
+#: into `make_bandage` -- whose own description says **"Any garment will
+#: do."** Half of what an adventurer sets out wearing is leather: the tunic
+#: and the shoes carry `LEATHER`, the trousers and the cloak carry `CLOTH`.
+#: So the help promised a shirt off your back and the code took two garments
+#: of the four, and 75% of measured adventurers bled to death, 10.9 turns of
+#: each fatal life spent with nothing left to bind a wound with.
+#: Recipe inputs that name a *kind* of thing rather than one item id, as
+#: ``need -> (item category, any one of these material flags)``.
+#:
+#: The flags are alternatives, which is a shape the table did not have when it
+#: was one entry mapping to one implied flag. Nothing uses the alternation
+#: today; it is here because the single-flag form read as though `CLOTH` meant
+#: "a garment" and it means "a cloth garment", and that reading is what
+#: `make_bandage` was documented against for four hundred versions.
+CLASSES: Dict[str, Tuple[str, Tuple[str, ...]]] = {
+    "CLOTH": ("clothing", ("CLOTH",)),
+}
 
 
 def _satisfies(item, need: str) -> bool:
     """Whether a carried item counts as one unit of a recipe input."""
     if item.def_id == need:
         return True
-    category = CLASSES.get(need)
-    return (category is not None and item.category == category
-            and need in item.mat.flags)
+    found = CLASSES.get(need)
+    if found is None:
+        return False
+    category, flags = found
+    return (item.category == category
+            and any(flag in item.mat.flags for flag in flags))
 
 
 def _carried(creature, need: str) -> List:

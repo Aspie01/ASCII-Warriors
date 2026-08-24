@@ -8,6 +8,7 @@ import tempfile
 import unittest
 
 from ascii_warriors.engine.rng import RNG
+from ascii_warriors.data import items as items_data
 from ascii_warriors.game import combat, crafting
 from ascii_warriors.game.attributes import ALL_ATTRS, Attributes, roll_attributes
 from ascii_warriors.game import body as body_mod
@@ -1194,6 +1195,87 @@ class TestSomethingToBindItWith(unittest.TestCase):
                 break
         self.assertLessEqual(b.blood_fraction(), body_mod.BLOOD_DEATH,
                              "three hundred points of bleeding is survivable")
+
+    def test_the_help_does_not_promise_what_the_recipe_refuses(self):
+        """`make_bandage` said "Any garment will do". It takes cloth ones.
+
+        Garment materials are rolled. Over four hundred warrior kits 19% of
+        the clothes come out leather, and **58% of adventurers set out with at
+        least one garment the help told them they could tear and the recipe
+        would not take**. Bleeding is what kills adventurers -- 75% of
+        twenty-four measured lives -- and they spent 10.9 turns of each fatal
+        life with nothing left to bind with.
+
+        The rule is deliberate: `test_a_recipe_still_means_what_it_says` has
+        pinned "it tore strips off a leather tunic" as a failure since the
+        recipe was written, and leather does not tear into dressings. So the
+        words were wrong, not the rule. This ties the two together: refuse
+        leather and say so, or accept it, but not one and the other.
+        """
+        recipe = crafting.RECIPES["make_bandage"]
+        rng = RNG("promise")
+        leather = make_item(rng, "cloak", material="leather")
+        self.assertEqual(leather.category, "clothing")
+        takes_leather = crafting._satisfies(leather, recipe.inputs[0][0])
+        said = recipe.description.lower()
+        if takes_leather:
+            self.assertNotIn(
+                "leather does not", said,
+                "the recipe takes leather and the help says it does not")
+        else:
+            self.assertIn(
+                "cloth", said,
+                "the recipe takes only cloth and the help does not say so")
+            self.assertIn(
+                "leather", said,
+                "the recipe refuses leather garments and never mentions it, "
+                "so a bleeding adventurer wearing one is told to tear it up")
+
+    def test_armour_is_not_a_garment(self):
+        """A breastplate is not a shirt off your back, whatever it is made of.
+
+        The class names a *category* as well as a material, and armour is
+        `armor` rather than `clothing`. Loosen the material without noticing
+        that and "tear a bandage" quietly becomes "shred your armour", and
+        the first anybody knows is a soldier fighting naked.
+        """
+        rng = RNG("armour")
+        need = crafting.RECIPES["make_bandage"].inputs[0][0]
+        for def_id in ("leather_armor", "mail_shirt", "helm", "high_boots"):
+            for material in ("leather", "wool_cloth"):
+                piece = make_item(rng, def_id, material=material)
+                self.assertFalse(
+                    crafting._satisfies(piece, need),
+                    "a %s %s can be torn up for bandages"
+                    % (material, def_id))
+
+    def test_every_recipe_input_names_something_that_exists(self):
+        """An input naming nothing is a recipe nobody can ever make.
+
+        `_satisfies` answers False for a class it has never heard of, so a
+        typo, or a class removed from `CLASSES` while a recipe still asks for
+        it, is a silent failure -- the recipe simply never appears and nothing
+        says why. `CLOTH` was removed from `CLASSES` in this milestone, which
+        is exactly the move that would cause it.
+        """
+        for rid, recipe in sorted(crafting.RECIPES.items()):
+            for need, _count in recipe.inputs:
+                self.assertTrue(
+                    need in items_data.ITEMS or need in crafting.CLASSES,
+                    "recipe %r wants %r, which is neither an item nor a class"
+                    % (rid, need))
+            self.assertIn(recipe.output, items_data.ITEMS,
+                          "recipe %r makes %r, which is not an item"
+                          % (rid, recipe.output))
+
+    def test_no_class_is_declared_and_unused(self):
+        """The other direction, and the reason `CLOTH` is gone."""
+        asked = {need for recipe in crafting.RECIPES.values()
+                 for need, _count in recipe.inputs}
+        unused = sorted(k for k in crafting.CLASSES if k not in asked)
+        self.assertEqual(unused, [],
+                         "%s declared in CLASSES and named by no recipe"
+                         % unused)
 
     def test_the_person_bleeding_can_make_a_bandage(self):
         """`make_bandage` asked for a cloak and nobody had one.
