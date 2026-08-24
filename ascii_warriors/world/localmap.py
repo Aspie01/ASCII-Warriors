@@ -609,8 +609,30 @@ def _add_ramps(lm: LocalMap) -> None:
                     lm.set_tile(x, y, sz, "ramp_up")
 
 
+#: Tiles a plant must never be put on top of. A stair is the mouth of
+#: something, and a plant on it is a lid.
+NO_PLANTING: Tuple[str, ...] = ("stair_down", "stair_up", "stair_updown")
+
+
 def _scatter_plants(lm: LocalMap, rng: RNG) -> None:
-    """Plant trees and shrubs according to the biome."""
+    """Plant trees and shrubs according to the biome.
+
+    Nothing is planted on a staircase. `_scatter_plants` runs last of all the
+    generation steps, after `_add_cave_entrance` has cut its shaft and written
+    the surface cell down as the way in, and a `stair_down` is walkable and is
+    neither water nor a ramp -- so it passed the filter and got a tree on it
+    like any other patch of grass.
+
+    That sealed the whole underground. Measured over fifteen maps, **four had
+    three cavern levels with no route to them at all**, between 73% and 78% of
+    the walkable ground on the map, because a tree had grown over the mouth of
+    the cave. Seed `long` is where this was found: v3.97's driver spent three
+    thousand turns on a bounty whose prey stood on the far side of that tree.
+
+    The refusal is made after the roll rather than before it, so the random
+    stream is exactly what it was and no map changes except the ones that were
+    sealed shut.
+    """
     b = biome_data.get(lm.biome)
     for y in range(lm.height):
         for x in range(lm.width):
@@ -619,11 +641,15 @@ def _scatter_plants(lm: LocalMap, rng: RNG) -> None:
             if not t.walk or t.has("WATER") or t.has("RAMP"):
                 continue
             if rng.chance(b.tree_density * 0.55):
+                if lm.tile(x, y, sz) in NO_PLANTING:
+                    continue
                 lm.set_tile(x, y, sz, "tree")
                 # A tree's canopy occupies the level above.
                 if lm.in_bounds(x, y, sz + 1):
                     lm.set_tile(x, y, sz + 1, "tree")
             elif rng.chance(b.shrub_density * 0.35):
+                if lm.tile(x, y, sz) in NO_PLANTING:
+                    continue
                 lm.set_tile(x, y, sz, "shrub")
 
 

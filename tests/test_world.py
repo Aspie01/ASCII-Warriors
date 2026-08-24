@@ -1591,6 +1591,142 @@ class TestThePageDoesNotContradictItself(unittest.TestCase):
         self.assertIn("until %d" % (world.year - 3), text)
 
 
+class TestTheTreeOverTheMouthOfTheCave(unittest.TestCase):
+    """`_scatter_plants` runs last, and a `stair_down` is walkable.
+
+    `generate_local` cuts the way underground with `_add_cave_entrance` and
+    then, two steps later, scatters trees and shrubs over every surface cell
+    that is walkable and is neither water nor a ramp. A staircase is all
+    three, so it got a tree on it like any other patch of grass -- and the
+    tree's canopy takes the level above as well.
+
+    That sealed the whole underground. Measured over fifteen maps generated
+    from the adventurer's own start:
+
+        four of fifteen had every cavern level cut off
+        between 73% and 78% of the walkable ground on the map
+        the other eleven were between 0.0% and 0.2%
+
+    It is where v3.97's seed `long` came from: the driver spent three thousand
+    turns on a bounty whose prey stood on the far side of a tree.
+
+    The refusal happens after the random roll rather than before it, so the
+    stream is untouched and the eleven healthy maps come out identical.
+    """
+
+    def _map(self, seed, size="pocket", years=20):
+        world = _world(seed, size=size, years=years)
+        x, y = world.land_tiles()[0]
+        return generate_local(world, x, y, RNG("lm-%s" % seed))[0]
+
+    def _reachable(self, lm, start):
+        seen, edge = {start}, [start]
+        while edge:
+            nxt = []
+            for cell in edge:
+                for c, _cost in lm.path_neighbours(cell):
+                    if c not in seen:
+                        seen.add(c)
+                        nxt.append(c)
+            edge = nxt
+        return seen
+
+    def test_nothing_is_ever_planted_on_a_staircase(self):
+        """The defect itself, over enough maps to be sure."""
+        from ascii_warriors.world.localmap import NO_PLANTING
+
+        planted = []
+        for seed in ("long", "e", "j", "l", "a", "b"):
+            lm = self._map(seed)
+            for z in range(lm.zmin, lm.zmax + 1):
+                for y in range(lm.height):
+                    for x in range(lm.width):
+                        if lm.tile(x, y, z) not in ("tree", "shrub"):
+                            continue
+                        below = lm.tile(x, y, z - 1) if z > lm.zmin else None
+                        if below in NO_PLANTING:
+                            planted.append((seed, x, y, z))
+        self.assertEqual(planted[:6], [],
+                         "%d plants standing on a staircase" % len(planted))
+
+    def test_the_way_into_the_caves_is_one_you_can_walk_onto(self):
+        """An entrance the player cannot step onto is not an entrance."""
+        for seed in ("long", "e", "j", "l"):
+            lm = self._map(seed)
+            entry = lm.entry_points.get("cave")
+            self.assertIsNotNone(entry, "%s has no cave entrance" % seed)
+            self.assertTrue(lm.walkable(*entry),
+                            "%s: the mouth of the cave at %s is not walkable"
+                            % (seed, entry))
+            self.assertNotIn(lm.tile(*entry), ("tree", "shrub"),
+                             "%s: something is growing on the entrance" % seed)
+
+    def test_neither_a_tree_nor_a_shrub_will_go_on_one(self):
+        """Both branches, on a map built to make them fire.
+
+        The generated maps above only ever caught the tree: shrubs are much
+        rarer, and over six seeds not one landed on a staircase, so removing
+        the refusal from the shrub branch broke nothing at all. That is a
+        guard resting on luck. This one puts a staircase on every square of a
+        surface and rolls a hundred times.
+        """
+        from ascii_warriors.world.localmap import LocalMap, _scatter_plants
+
+        for kind in ("stair_down", "stair_up", "stair_updown"):
+            for i in range(100):
+                lm = LocalMap(8, 8, -2, 2, biome="tropical_forest")
+                for y in range(lm.height):
+                    for x in range(lm.width):
+                        for z in range(lm.zmin, lm.zmax + 1):
+                            lm.set_tile(x, y, z, "air" if z > 0 else "rock_wall")
+                        lm.set_tile(x, y, 0, kind)
+                _scatter_plants(lm, RNG("plant%d" % i))
+                grown = [(x, y) for y in range(lm.height)
+                         for x in range(lm.width)
+                         if lm.tile(x, y, 0) != kind]
+                self.assertEqual(
+                    grown, [],
+                    "something grew on %d %s tiles at roll %d"
+                    % (len(grown), kind, i))
+
+    def test_the_entrance_reaches_the_bottom_of_the_caves(self):
+        """The consequence, isolated to the thing the tree was breaking.
+
+        Asked from the entrance downwards rather than "how much of the map is
+        reachable", on purpose. Written the broad way first, this failed at
+        23.4% on a fixture whose *surface* is split into plateaus by cliffs --
+        a real and separate defect, and nothing to do with the tree. A guard
+        that goes red for a reason it does not name is a guard that will be
+        deleted by whoever meets it next.
+        """
+        for seed in ("long", "e", "j", "l", "a", "b"):
+            lm = self._map(seed)
+            entry = lm.entry_points.get("cave")
+            self.assertIsNotNone(entry, "%s has no cave entrance" % seed)
+            below = self._reachable(lm, entry)
+            deepest = min((z for _x, _y, z in below), default=None)
+            self.assertIsNotNone(deepest)
+            self.assertLessEqual(
+                deepest, lm.zmin + 1,
+                "%s: from the mouth of the cave you can get no deeper than "
+                "z=%s, and the map goes to z=%s" % (seed, deepest, lm.zmin))
+
+    def test_the_list_of_what_cannot_be_planted_on_names_every_stair(self):
+        """A declared set nothing checks is how the last five milestones went.
+
+        If a new kind of staircase is added and not named here, a tree grows
+        over it and the level below quietly disappears.
+        """
+        from ascii_warriors.world import tiles as tile_data
+        from ascii_warriors.world.localmap import NO_PLANTING
+
+        stairs = sorted(tid for tid in tile_data.TILES if "stair" in tid)
+        self.assertTrue(stairs, "found no staircase tiles at all")
+        self.assertEqual(sorted(NO_PLANTING), stairs,
+                         "NO_PLANTING and the stair tiles disagree: %s vs %s"
+                         % (sorted(NO_PLANTING), stairs))
+
+
 class TestTheWayDown(unittest.TestCase):
     """`random_cave`: the funnel for "somewhere under the ground".
 

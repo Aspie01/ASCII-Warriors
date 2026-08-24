@@ -10219,7 +10219,84 @@ can go stale; `main` in `play.py` reads its keys by name, so
 
 Re-break: six defects put back, six caught, 0 misses.
 
-## 158. Style
+## 158. The tree over the mouth of the cave (v3.98)
+
+v3.97 ended by naming a defect it had found and not fixed: seed `long` gets a
+bounty on prey with no path to it. This is that defect, and it is one line.
+
+`generate_local` runs its steps in order:
+
+```python
+_carve_caves(lm, rng)
+_connect_levels(lm, rng)
+_add_cave_entrance(lm, rng)   # cuts the shaft, writes the surface cell down
+_add_ramps(lm)
+_scatter_plants(lm, rng)      # <- and then plants on it
+```
+
+`_scatter_plants` skips a cell that is not walkable, is water, or is a ramp. A
+`stair_down` is none of those, so it got a tree like any other patch of grass
+— and a tree's canopy takes the level above as well.
+
+### What one tree costs
+
+Fifteen maps, generated from the adventurer's own start, measured by flooding
+outward from where the player stands:
+
+| | maps | walkable ground unreachable |
+| --- | --- | --- |
+| sealed | **4 of 15** | 73%–78% |
+| the rest | 11 of 15 | 0.0%–0.2% |
+
+On the four, three entire cavern levels had no route to them. The entrance
+existed — `lm.entry_points["cave"]` was set, the shaft was cut, every cell of
+it was walkable — and the top of it was a tree.
+
+After the fix, all fifteen are between 0.0% and 0.2%.
+
+### The stream is untouched
+
+The refusal is made *after* the random roll rather than before it. Filtering
+stair cells out before the `rng.chance` call would stop those cells drawing at
+all, and every map in the game would come out different for a fix that is
+supposed to change four of them. Done this way, the eleven healthy maps are
+identical, cell for cell.
+
+### Two guards that were not measuring the fix
+
+Written the obvious way, the connectivity guard asked "how much of this map
+can be reached from the surface" and failed at **23.4%** — on a map with no
+tree problem at all, whose *surface* is split into plateaus by cliffs that the
+ramps do not join. That is a real defect and a separate one. The guard asks
+from the mouth of the cave downwards now: a guard that goes red for a reason
+it does not name is a guard that gets deleted by whoever meets it next.
+
+The second: the shrub branch. Over six generated seeds not one shrub ever
+landed on a staircase, so removing its refusal broke nothing — the tree guard
+was carrying it. Shrub density is a fraction of tree density and the maps were
+simply lucky. It is tested on a constructed map now, every surface cell a
+staircase, a hundred rolls, both branches.
+
+### What is still cut off
+
+The residual, surveyed over twelve world tiles after the fix:
+
+| | |
+| --- | --- |
+| typical | 0%–4% |
+| beaches | 9%–11% |
+| one taiga | 28.8% |
+
+Small sealed bubbles in the rock are a fine thing for a cave system to have.
+Twenty-eight per cent is the cliff problem above, and it is the reason seed
+`long` still fails v3.97's alarm: the map its bounty is on is fragmented at
+the surface, and the prey is in a 1864-cell pocket on the far side. **This
+milestone does not close that seed.** It closes the four-in-fifteen case, and
+names the other one.
+
+Re-break: three defects put back, three caught, 0 misses.
+
+## 159. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).
