@@ -10711,7 +10711,68 @@ dies in eight. Measured ceilings now, at twice the real cost.
 
 Re-break: five defects put back, five caught, 0 misses.
 
-## 163. Style
+## 163. The manual that taught the bug (v4.03)
+
+v4.02 corrected bone so it crushes below where it shears. The combat chapter
+went on teaching the inversion:
+
+> "bone shears far more easily than it crushes -- a battle axe takes one
+> apart, a hammer rings off it."
+
+That was an accurate account of a defect. Once the defect was gone the
+sentence became advice to leave the hammer at home for exactly the wrong
+reason — and it was v4.02's own debt, created by fixing the code and not
+reading what the game says about it.
+
+Every claim in the passage, measured after v4.02:
+
+| the manual said | measured | |
+| --- | --- | --- |
+| a battle axe takes one apart | 34 blows | true |
+| **a hammer rings off it** | **85 blows** | **false** |
+| an iron blade will not cut one | never, on that seed | *see below* |
+| a steel one will | 50 blows | true |
+| a hammer flattens a zombie | 24 blows | true |
+
+### The claim that was right by luck
+
+The iron-blade sentence checked out on the seed it was measured against, and
+a guard written to pin it failed on the first seed it was run against instead:
+an iron sword killed the skeleton in 62 blows. Over fifteen fights per weapon:
+
+| | finishes | median blows |
+| --- | --- | --- |
+| iron sword | 17 of 25 | **330** |
+| steel sword | 25 of 25 (14 of 15 on other seeds) | **42** |
+| iron warhammer | 25 of 25 | 69 |
+| iron battle axe | 25 of 25 | 39 |
+
+So "an iron blade will not cut a skeleton" is an overstatement of something
+true: iron gets there two times in three, in eight times the blows. The
+distinction the sentence draws is real and worth keeping; the absolute was
+not. Both sentences are corrected.
+
+That is the third time in this milestone that a threshold picked from one run
+was wrong — the guard said "an iron sword cannot", then "a steel sword always
+can" (14 of 15), then finally proportions with margin. **A guard whose verdict
+is one sample agrees with whatever it was written beside.**
+
+### Guarding prose against code
+
+`TestTheManualThatTaughtTheBug` measures the chapter's claims and checks the
+words. Both directions are needed and the re-break proved it: with only the
+behavioural assertions, the metal sentence could revert to "an iron blade will
+not cut a skeleton" and **nothing went red** — the same failure as the
+milestone itself, one layer down. It also fails if the materials table goes
+back, so the words and the numbers cannot drift apart in either direction.
+
+A control case was written into the re-break and then removed: making chitin
+uncrushable *should* leave these guards green, and counting an expected pass
+as a "miss" makes the pass report meaningless. A re-break list is defects.
+
+Re-break: three defects put back, three caught, 0 misses.
+
+## 164. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

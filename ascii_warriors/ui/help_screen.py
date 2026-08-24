@@ -831,9 +831,11 @@ Unless it has no blood in it. The undead, the things in the deep caverns, the
 demon and the forgotten beast do not bleed and do not faint, so none of that
 touches them: you stop one by taking it apart, and it stays up until enough of
 it is cut away or broken. Bring the right weapon. A skeleton is bones with
-nothing on them, and bone shears far more easily than it crushes -- a battle
-axe takes one apart, a hammer rings off it. A zombie still has flesh on it, and
-a hammer flattens it.
+nothing on them, and bone gives to a blow sooner than to an edge, the way every
+tissue does -- a hammer or a mace breaks one up, and a battle axe hacks it
+apart faster still. What a skeleton turns is a fine edge: an iron sword takes
+eight times the blows a steel one does and often never finishes at all. A
+zombie still has flesh on it, and a hammer flattens it.
 
 Armour subtracts from the force of a blow according to its material and its
 thickness -- and according to how widely the blow arrived. Armour works by
@@ -848,8 +850,9 @@ no armour, the point is for the man who has some.
 
 What your weapon is made of matters for the same reason, and only where things
 are hard. Against a man it does not show at all: flesh yields to anything.
-Against bone and plate it decides everything. An iron blade will not cut a
-skeleton and a steel one will. Copper is heavy and soft and folds on armour.
+Against bone and plate it decides everything. An iron blade will barely cut a
+skeleton -- two runs in three it gets there, in eight times the blows -- and a
+steel one goes through it. Copper is heavy and soft and folds on armour.
 Adamantine weighs almost nothing, which is a real cost -- it passes through
 plate as though it were not there and then arrives behind it carrying very
 little -- so it is a light sword against a man and the only thing in the world

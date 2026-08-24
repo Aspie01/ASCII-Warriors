@@ -1208,6 +1208,161 @@ class TestTheHammerThatCouldNotBreakABone(unittest.TestCase):
                 "a %s now takes %d sword blows" % (foe_id, blows))
 
 
+class TestTheManualThatTaughtTheBug(unittest.TestCase):
+    """The combat chapter told the player the inverted physics, as advice.
+
+    Before v4.02 bone crushed harder than it sheared, and the manual described
+    that faithfully:
+
+        "bone shears far more easily than it crushes -- a battle axe takes one
+         apart, a hammer rings off it."
+
+    That was an accurate account of a defect. v4.02 corrected the material and
+    left the sentence standing, so the manual went on teaching the bug after
+    the bug was gone -- and a player who read it would leave the hammer at
+    home for exactly the wrong reason.
+
+    Measured after v4.02, against every claim the passage makes:
+
+        a battle axe takes one apart        34 blows   true
+        a hammer rings off it               85 blows   FALSE
+        an iron blade will not cut one      never      true
+        a steel one will                    50 blows   true
+        a hammer flattens a zombie          24 blows   true
+
+    One sentence in five. The rest of the chapter was right, which is what
+    made it worth checking rather than rewriting.
+    """
+
+    class _Ground:
+        def drop_item(self, item, x, y, z):
+            pass
+
+    def _one_fight(self, seed, weapon, material, foe_id, cap=800):
+        rng = RNG(seed)
+        hero = make_creature(rng, "human", faction="player", level=1)
+        held = make_item(rng, weapon, material=material)
+        hero.inventory.add(held)
+        hero.inventory.equip(held)
+        foe = make_creature(rng, foe_id, faction="hostile", level=1)
+        ground = self._Ground()
+        for i in range(cap):
+            combat.timed_strike(hero, foe, rng=rng, log=None, ground=ground)
+            foe.body.tick(rng, 10, 1.0, 1.0)
+            if foe.body.dead:
+                return i + 1
+        return None
+
+    def _blows(self, weapon, material, foe_id, runs=15):
+        """Kills out of *runs*, and the median blows when it killed.
+
+        Over a spread of seeds, never one. The first version of this asked a
+        single fight and reported "an iron sword cannot kill a skeleton",
+        which is true of that seed and false two times in three -- and the
+        sentence in the manual it was checking had the same flaw. A guard
+        whose verdict is one sample is a guard that agrees with whatever it
+        was written beside.
+        """
+        got = [self._one_fight("manual-%s-%s-%s-%d"
+                               % (weapon, material, foe_id, i),
+                               weapon, material, foe_id)
+               for i in range(runs)]
+        killed = sorted(b for b in got if b is not None)
+        median = killed[len(killed) // 2] if killed else None
+        return len(killed), runs, median
+
+    def _combat_chapter(self):
+        from ascii_warriors.ui import help_screen
+
+        return " ".join(help_screen.COMBAT_TEXT.split())
+
+    def test_the_chapter_does_not_teach_the_inversion(self):
+        """The claim the materials table now contradicts."""
+        said = self._combat_chapter().lower()
+        self.assertNotIn(
+            "bone shears far more easily than it crushes", said,
+            "the manual still teaches the inversion v4.02 corrected")
+        killed, runs, median = self._blows("warhammer", "iron", "skeleton")
+        self.assertNotIn(
+            "a hammer rings off it", said,
+            "the manual still says a hammer rings off a skeleton; measured, "
+            "it breaks one up in %d of %d fights, median %s blows"
+            % (killed, runs, median))
+
+    def test_the_chapter_agrees_with_the_materials_table(self):
+        """Whichever way round it is, the words and the numbers must match."""
+        bone = materials.get("bone")
+        said = self._combat_chapter().lower()
+        crushes_easier = bone.impact_yield < bone.shear_yield
+        self.assertTrue(
+            crushes_easier,
+            "bone shears at %d and crushes at %d; if that is deliberate the "
+            "manual has to say so and this test has to be rewritten"
+            % (bone.shear_yield, bone.impact_yield))
+        self.assertIn(
+            "gives to a blow sooner than to an edge", said,
+            "bone crushes easier than it shears and the manual does not say so")
+
+    def test_a_hammer_really_does_break_a_skeleton_up(self):
+        killed, runs, _median = self._blows("warhammer", "iron", "skeleton")
+        self.assertGreaterEqual(
+            killed, runs * 0.8,
+            "the manual promises a hammer works; it finished %d of %d"
+            % (killed, runs))
+
+    def test_an_axe_really_is_faster_still(self):
+        _ak, _ar, axe = self._blows("battle_axe", "iron", "skeleton")
+        _hk, _hr, hammer = self._blows("warhammer", "iron", "skeleton")
+        self.assertIsNotNone(axe)
+        self.assertIsNotNone(hammer)
+        self.assertLess(axe, hammer,
+                        "the manual says the axe is faster; median axe %d, "
+                        "median hammer %d" % (axe, hammer))
+
+    def test_iron_barely_cuts_a_skeleton_and_steel_goes_through(self):
+        """The metal claim, restated to what it actually is.
+
+        The manual said "an iron blade will not cut a skeleton". Over fifteen
+        fights an iron sword finishes most of them, in something like eight
+        times the blows a steel one needs. The distinction the sentence is
+        making is real and worth keeping; the absolute was not.
+        """
+        said = self._combat_chapter().lower()
+        iron_kills, runs, iron_median = self._blows("sword", "iron", "skeleton")
+        steel_kills, _r, steel_median = self._blows("sword", "steel", "skeleton")
+        # The prose as well as the behaviour. Guarding only the numbers let
+        # the sentence revert to "an iron blade will not cut a skeleton"
+        # without a single test noticing -- which is the whole failure this
+        # milestone is about, one layer down.
+        if iron_kills > runs * 0.25:
+            self.assertNotIn(
+                "will not cut a skeleton", said,
+                "an iron sword finishes %d of %d fights and the manual says "
+                "it cannot" % (iron_kills, runs))
+            self.assertNotIn(
+                "iron sword will not cut one", said,
+                "an iron sword finishes %d of %d fights and the manual says "
+                "it cannot" % (iron_kills, runs))
+        # A proportion, not a clean sweep. Steel finished 25 of 25 on one set
+        # of seeds and 14 of 15 on another, which is the same lesson a third
+        # time: pick the threshold from the spread, not from the first run.
+        self.assertGreaterEqual(
+            steel_kills, runs * 0.8,
+            "a steel sword failed %d of %d fights"
+            % (runs - steel_kills, runs))
+        self.assertIsNotNone(iron_median)
+        self.assertGreater(
+            iron_median, steel_median * 3,
+            "the manual says the metal decides it against bone; iron takes a "
+            "median %d blows and steel %d" % (iron_median, steel_median))
+
+    def test_a_hammer_still_flattens_a_zombie(self):
+        killed, runs, median = self._blows("warhammer", "iron", "zombie")
+        self.assertGreaterEqual(killed, runs * 0.8)
+        self.assertLess(median, 120,
+                        "a hammer took a median %d blows on a zombie" % median)
+
+
 class TestSomethingToBindItWith(unittest.TestCase):
     """Bleeding, clotting, and the one recipe that answers them.
 
