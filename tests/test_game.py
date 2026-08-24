@@ -8,7 +8,7 @@ import tempfile
 import unittest
 
 from ascii_warriors.engine.rng import RNG
-from ascii_warriors.data import items as items_data
+from ascii_warriors.data import bodies, items as items_data, materials
 from ascii_warriors.game import combat, crafting
 from ascii_warriors.game.attributes import ALL_ATTRS, Attributes, roll_attributes
 from ascii_warriors.game import body as body_mod
@@ -1101,6 +1101,111 @@ class TestTheMetalInYourSword(unittest.TestCase):
         has to cost what a wolf cost."""
         self.assertLessEqual(self._blows("sword", "iron", "wolf"), 8)
         self.assertLessEqual(self._blows("sword", "iron", "goblin"), 8)
+
+
+class TestTheHammerThatCouldNotBreakABone(unittest.TestCase):
+    """Hard tissue crushed harder than it sheared, and only hard tissue.
+
+    Everything soft gives to a blow sooner than to an edge -- skin shears at
+    20,000 and crushes at 10,000, fat at 15,000 and 10,000, muscle at 30,000
+    and 20,000. Bone was written the other way round: shear 115,000, **impact
+    200,000**, nearly twice as hard to crush as to cut, and the whole bone
+    family followed it.
+
+    A skeleton is the only creature in the game made of hard tissue alone --
+    twenty-two of its forty parts are bone and nothing else -- so it was where
+    the inversion had nowhere to hide, and it turned the weapon triangle
+    upside down:
+
+        battle axe     72 blows to kill      warhammer    >1500, still up
+        sword         115 blows              mace         >1500, still up
+        spear         209 blows
+
+    A warhammer landed **262 of 400 blows and left no wound at all**, while
+    the same hammer put 147 bruises on a goblin.
+    """
+
+    class _Ground:
+        def drop_item(self, item, x, y, z):
+            pass
+
+    def _blows_to_kill(self, weapon, foe_id, cap=600):
+        """How many swings of *weapon* it takes to put *foe_id* down."""
+        rng = RNG("blows-%s-%s" % (weapon, foe_id))
+        hero = make_creature(rng, "human", faction="player", level=1)
+        held = make_item(rng, weapon, material="iron")
+        hero.inventory.add(held)
+        hero.inventory.equip(held)
+        foe = make_creature(rng, foe_id, faction="hostile", level=1)
+        ground = self._Ground()
+        for i in range(cap):
+            combat.timed_strike(hero, foe, rng=rng, log=None, ground=ground)
+            foe.body.tick(rng, 10, 1.0, 1.0)
+            if foe.body.dead:
+                return i + 1
+        return None
+
+    def test_no_tissue_crushes_harder_than_it_shears(self):
+        """The rule, over the whole table.
+
+        Stated once here rather than trusted six times in the data. `nail` and
+        `scale` carried the same inversion and no creature is made of either
+        alone, so nothing had exposed them -- but scale is a layer a blow has
+        to get through, and it was stopping a hammer better than a sword.
+        """
+        wrong = []
+        for tissue_id, tissue in sorted(bodies.TISSUES.items()):
+            mat = materials.get(tissue.material)
+            if mat.impact_yield > mat.shear_yield:
+                wrong.append("%s (%s): crushes at %d, shears at %d"
+                             % (tissue_id, tissue.material,
+                                mat.impact_yield, mat.shear_yield))
+        self.assertEqual(wrong, [], "; ".join(wrong))
+
+    def test_a_hammer_can_break_a_skeleton(self):
+        blows = self._blows_to_kill("warhammer", "skeleton")
+        self.assertIsNotNone(
+            blows, "six hundred hammer blows and the skeleton is still up")
+
+    def test_the_weapon_triangle_is_not_upside_down(self):
+        """Blunt must not be the worst thing to bring to a pile of bones.
+
+        Not "blunt must win" -- an axe hacking a skeleton apart is a fine
+        answer too. Only that the one class of weapon made for shattering
+        bone is not beaten by the one made for cutting flesh.
+        """
+        hammer = self._blows_to_kill("warhammer", "skeleton")
+        sword = self._blows_to_kill("sword", "skeleton")
+        self.assertIsNotNone(hammer, "the hammer never killed it")
+        if sword is None:
+            # A sword that cannot cut a skeleton at all is the triangle the
+            # right way up, not a case to skip past. Said out loud, because a
+            # bare `return` here would let the hammer regress unnoticed the
+            # moment the sword stopped working.
+            return
+        self.assertLessEqual(
+            hammer, sword * 2,
+            "a warhammer needs %d blows on a skeleton and a sword %d"
+            % (hammer, sword))
+
+    def test_flesh_and_blood_costs_what_it_cost(self):
+        """S126 anchored these and the shear numbers are untouched.
+
+        Blows spend themselves on skin, fat and muscle long before they reach
+        bone, so a change to how bone crushes should not reach a wolf at all.
+        Measured over the change: a wolf still dies in a median of 5 rounds
+        and a goblin in 6, at the same win rates.
+        """
+        # Twice what each actually costs, measured: 8 blows for a wolf, 4 for
+        # a goblin, 4 for a kobold. Loose enough that ordinary drift will not
+        # trip it, tight enough to notice a real change -- the first version
+        # allowed forty and did not blink at flesh made ten times tougher.
+        for foe_id, ceiling in (("wolf", 16), ("goblin", 10), ("kobold", 10)):
+            blows = self._blows_to_kill("sword", foe_id)
+            self.assertIsNotNone(blows, "a sword no longer kills a %s" % foe_id)
+            self.assertLessEqual(
+                blows, ceiling,
+                "a %s now takes %d sword blows" % (foe_id, blows))
 
 
 class TestSomethingToBindItWith(unittest.TestCase):

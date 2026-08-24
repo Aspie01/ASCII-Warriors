@@ -204,23 +204,51 @@ _add(_m("leather", "leather", "leather", "leather", 800, colors.LEATHER,
         11000, 11000, 11000, 11000, 0, 2,
         ("LEATHER", "ORGANIC", "ARMOR_OK", "WEAPON_OK",
          "FLAMMABLE"), 10250))
+# Hard tissue crushes below where it shears, the same way soft tissue does.
+#
+# It used to be the other way round, and only here. Skin shears at 20,000 and
+# crushes at 10,000; fat at 15,000 and 10,000; muscle at 30,000 and 20,000 --
+# everything soft gives to a blow sooner than to an edge. Bone was written
+# with a shear yield of 115,000 and an **impact** yield of 200,000, so it was
+# nearly twice as hard to crush as to cut, and every material in this family
+# followed it.
+#
+# A skeleton is the only creature in the game built out of hard tissue alone:
+# twenty-two of its forty parts are bone and nothing else. So it was the one
+# creature where the inversion had nowhere to hide, and what it produced was a
+# weapon triangle upside down -- the one class of weapon that should shatter a
+# skeleton was the only one that could not touch it:
+#
+#     battle axe    72 blows to kill        warhammer    >1500, still up
+#     sword        115 blows                mace         >1500, still up
+#     spear        209 blows
+#
+# A warhammer landed 262 of 400 blows on a skeleton and left no wound at all,
+# while the same hammer put 147 bruises on a goblin.
+#
+# The shear numbers are untouched, so cutting behaves exactly as it did and
+# §126's anchored costs hold: measured over the change, a wolf still dies in a
+# median of 5 rounds and a goblin in 6, both to the same win rates. What moves
+# is skeletons (a warhammer goes from 0% to 62%, a mace 0% to 71%) and bone or
+# shell armour, which now stops a hammer slightly less well than it stops a
+# sword -- 16 median rounds to 14. That is the point of the distinction.
 _add(_m("bone", "bone", "bone", "bone", 500, colors.BONE,
-        200000, 200000, 115000, 130000, 6000, 2,
+        90000, 100000, 115000, 130000, 6000, 2,
         ("BONE", "ORGANIC", "WEAPON_OK", "ARMOR_OK"), 12000))
 _add(_m("shell", "shell", "shell", "bone", 800, colors.Color(226, 206, 182),
-        200000, 200000, 115000, 130000, 5000, 2,
+        90000, 100000, 115000, 130000, 5000, 2,
         ("BONE", "ORGANIC", "ARMOR_OK"), 12000))
 _add(_m("chitin", "chitin", "chitin", "bone", 600, colors.Color(148, 116, 62),
-        150000, 150000, 90000, 100000, 4000, 2,
+        70000, 80000, 90000, 100000, 4000, 2,
         ("BONE", "ORGANIC", "ARMOR_OK"), 12000))
 _add(_m("ivory", "ivory", "ivory", "bone", 1800, colors.Color(238, 230, 208),
-        200000, 200000, 115000, 130000, 5000, 20,
+        90000, 100000, 115000, 130000, 5000, 20,
         ("BONE", "ORGANIC", "WEAPON_OK"), 12000))
 _add(_m("horn", "horn", "horn", "bone", 1300, colors.Color(198, 176, 128),
-        150000, 150000, 90000, 110000, 4000, 3,
+        70000, 85000, 90000, 110000, 4000, 3,
         ("BONE", "ORGANIC", "WEAPON_OK"), 12000))
 _add(_m("tooth", "tooth", "tooth", "bone", 1800, colors.Color(244, 240, 226),
-        200000, 200000, 115000, 130000, 6000, 3,
+        90000, 100000, 115000, 130000, 6000, 3,
         ("BONE", "ORGANIC"), 12000))
 
 # -- cloth ------------------------------------------------------------------ #
@@ -307,12 +335,16 @@ _add(_m("liver", "liver", "liver", "tissue", 1050, colors.Color(140, 62, 56),
         18000, 18000, 22000, 22000, 0, 1, ("ORGANIC", "EDIBLE"), 10000))
 _add(_m("eye", "eye", "eye", "tissue", 1030, colors.Color(230, 232, 236),
         10000, 10000, 10000, 10000, 0, 1, ("ORGANIC",), 10000))
+# Nail and scale carried the same inversion as the bone family above. No
+# creature is made of either alone, so neither had a skeleton to expose it,
+# but scale is a layer a blow has to get through and it was stopping a hammer
+# better than a sword. Latent is not the same as harmless.
 _add(_m("nail", "nail", "nail", "tissue", 1300, colors.Color(226, 214, 190),
-        100000, 100000, 60000, 70000, 3000, 1, ("ORGANIC",), 12000))
+        45000, 55000, 60000, 70000, 3000, 1, ("ORGANIC",), 12000))
 _add(_m("hair", "hair", "hair", "tissue", 1300, colors.Color(90, 70, 50),
         10000, 10000, 10000, 10000, 0, 1, ("ORGANIC", "FLAMMABLE"), 11000))
 _add(_m("scale", "scale", "scale", "tissue", 1200, colors.Color(110, 148, 96),
-        180000, 180000, 100000, 120000, 3000, 2,
+        80000, 90000, 100000, 120000, 3000, 2,
         ("ORGANIC", "ARMOR_OK"), 12000))
 _add(_m("feather", "feather", "feather", "tissue", 300,
         colors.Color(206, 202, 194), 10000, 10000, 10000, 10000, 0, 1,

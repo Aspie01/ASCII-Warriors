@@ -10612,7 +10612,106 @@ the interesting one.
 
 Re-break: five defects put back, five caught, 0 misses.
 
-## 162. Style
+## 162. The hammer that cannot break a bone (v4.02)
+
+v4.01 left an open question: adventurers bleed to death three times in four
+and the bandage supply is not the constraint. This is what the constraint was.
+
+### One creature is not like the others
+
+Duels, forty per pairing, with the adventurer the game actually builds:
+
+| opponent | won |
+| --- | --- |
+| wolf, kobold, zombie, ghoul | 100% |
+| goblin | 98% |
+| **skeleton** | **22%** |
+
+Zombies and ghouls are undead too, so it is not undeath. The difference is in
+the body: a skeleton has **22 of its 40 parts made of bone and nothing else**,
+where a zombie and a goblin have skin, fat, muscle and bone. It is the only
+creature in the game built of hard tissue alone.
+
+### The triangle was upside down
+
+Blows to kill a skeleton, by weapon:
+
+| | |
+| --- | --- |
+| battle axe | 72 |
+| sword | 115 |
+| spear | 209 |
+| **mace** | **>1500 — still up** |
+| **warhammer** | **>1500 — still up** |
+
+A warhammer **landed 262 of 400 blows and left no wound at all**, while the
+same hammer put 147 bruises on a goblin. The one class of weapon made for
+shattering bone was the only one that could not touch a pile of it.
+
+### The number
+
+Every soft tissue gives to a blow sooner than to an edge. Bone was written the
+other way round, and the whole family followed it:
+
+| tissue | shears at | crushes at | |
+| --- | --- | --- | --- |
+| skin | 20000 | 10000 | crushes easier |
+| fat | 15000 | 10000 | crushes easier |
+| muscle | 30000 | 20000 | crushes easier |
+| **bone** | **115000** | **200000** | **crushes harder** |
+
+`apply_damage` glances a blow off when `remaining < resist * 0.35`, and for a
+skeleton bone is the only layer there is. So a hammer never reached the
+threshold and a keen edge — which divides bone's shear resistance by its
+keenness, "against bone it is the whole question" — did.
+
+The shear numbers are untouched, so cutting behaves exactly as before.
+
+### What moved, and what did not
+
+| | before | after |
+| --- | --- | --- |
+| skeleton vs warhammer | 0% | **62%** |
+| skeleton vs mace | 0% | **71%** |
+| skeleton vs battle axe | 77% | 93% |
+| goblin (starting kit) | 96%, median 6 rounds | 96%, median 6 |
+| wolf (starting kit) | 100%, median 5 | 100%, median 5 |
+| goblin with a warhammer | 92%, median 12 | 92%, median 12 |
+| goblin in bone armour vs hammer | 88%, median 16 | 88%, median 14 |
+| giant cave spider | 8%, median 31 | 8%, median 31 |
+
+§126 anchored the cost of a wolf and it is exactly where it was, because blows
+spend themselves on skin, fat and muscle long before they reach bone. The only
+other movement is bone and shell armour stopping a hammer slightly less well
+than it stops a sword, which is the point of the distinction.
+
+`nail` and `scale` carried the same inversion. No creature is made of either
+alone, so nothing had exposed them — but scale is a layer a blow has to get
+through and it was stopping a hammer better than a sword. Latent is not the
+same as harmless, and they are corrected too.
+
+### The guard that measured nothing, twice
+
+The re-break pass needed three attempts on its fifth case.
+
+The first injection made muscle ten times tougher, expecting the anchored
+costs to notice. It did not apply — the pattern was wrong. The second one
+applied, and **changed nothing at all**: a wolf still died in exactly 8 sword
+blows, a goblin in 4. That is not a guard failing, it is an injection that
+does not inject, and the difference matters. Tissue toughness barely moves
+these kills, because `hurt` has a floor of 0.05 and what actually ends the
+fight is bleeding.
+
+So the anchored-costs guard was proved fallible another way — neuter
+`compute_momentum` and three of its four assertions go red. It is kept, and
+what it is *not* sensitive to is written down here rather than assumed.
+
+The first version of that guard also allowed forty sword blows for a wolf that
+dies in eight. Measured ceilings now, at twice the real cost.
+
+Re-break: five defects put back, five caught, 0 misses.
+
+## 163. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).
