@@ -1591,6 +1591,154 @@ class TestThePageDoesNotContradictItself(unittest.TestCase):
         self.assertIn("until %d" % (world.year - 3), text)
 
 
+class TestTheWaterYouCouldNotClimbOutOf(unittest.TestCase):
+    """`_add_ramps` will not put a ramp on water, and it is right not to.
+
+    Writing `ramp_up` over a river tile deletes the river, so the pass skips
+    anything with the WATER flag. The consequence was that the edge of any
+    water sitting one level below its bank had **no way up at all**: wade in
+    and you stay in.
+
+    Seed `long` is where this was finally cornered. v3.97's driver reported it
+    as a run that achieved nothing; v3.98 and v3.99 each found a different
+    thing sealing ground and neither closed it. The adventurer was standing in
+    a **1586-cell** region, every cell of it at one level, every boundary cell
+    shallow water, with dry grass one step up in **187 places**. A lake map
+    measured for this holds a 97-cell pool with 29 ways out and none of them
+    usable.
+
+    Wading out of knee-deep water onto the bank is the same motion a ramp
+    gives, so it is granted in `neighbours` rather than written into the map.
+    `walkable` decides how deep is too deep: water you swim in is not water
+    you are standing in.
+    """
+
+    def _pool(self):
+        """A one-level pool at z=-1 with dry bank at z=0 all around it."""
+        from ascii_warriors.world.localmap import LocalMap
+
+        lm = LocalMap(7, 7, -2, 2, biome="grassland")
+        for y in range(lm.height):
+            for x in range(lm.width):
+                for z in range(lm.zmin, lm.zmax + 1):
+                    lm.set_tile(x, y, z, "air")
+                if 2 <= x <= 4 and 2 <= y <= 4:
+                    lm.set_tile(x, y, -1, "shallow_water")
+                    lm.set_tile(x, y, -2, "soil_wall")
+                    lm.surface[y * lm.width + x] = -1
+                else:
+                    lm.set_tile(x, y, 0, "grass")
+                    lm.set_tile(x, y, -1, "soil_wall")
+                    lm.set_tile(x, y, -2, "soil_wall")
+                    lm.surface[y * lm.width + x] = 0
+        return lm
+
+    def test_you_can_climb_out_of_the_shallows(self):
+        lm = self._pool()
+        out = set(lm.neighbours(3, 2, -1))
+        self.assertIn((3, 1, 0), out,
+                      "standing in the shallows with the bank one step up "
+                      "and no way onto it")
+
+    def test_you_can_step_back_down_into_them(self):
+        """`neighbours` promises symmetry: what you climbed you can descend."""
+        lm = self._pool()
+        self.assertIn((3, 2, -1), set(lm.neighbours(3, 1, 0)))
+
+    def test_the_whole_pool_can_be_left(self):
+        lm = self._pool()
+        seen, edge = {(3, 3, -1)}, [(3, 3, -1)]
+        while edge:
+            nxt = []
+            for cell in edge:
+                for c in lm.neighbours(*cell):
+                    if c not in seen:
+                        seen.add(c)
+                        nxt.append(c)
+            edge = nxt
+        dry = [c for c in seen if c[2] == 0]
+        self.assertTrue(dry, "the pool is a trap: %d cells and none dry"
+                        % len(seen))
+
+    def test_water_too_deep_to_stand_in_is_not_a_step(self):
+        """The rule is about wading, and `walkable` is what says so.
+
+        A creature swimming in deep water is not standing on anything, so it
+        gets no purchase to climb with -- and if this used the WATER flag
+        alone instead of `walkable`, every river would become a staircase.
+        """
+        lm = self._pool()
+        for y in range(2, 5):
+            for x in range(2, 5):
+                lm.set_tile(x, y, -1, "deep_water")
+        self.assertFalse(lm.walkable(3, 2, -1),
+                         "the fixture's deep water is still standable")
+        self.assertNotIn((3, 1, 0), set(lm.neighbours(3, 2, -1)))
+
+    def test_the_ramp_pass_still_refuses_to_pave_over_water(self):
+        """The reason the wading rule has to exist, kept as a rule itself.
+
+        `_add_ramps` skips WATER because writing `ramp_up` over a river tile
+        deletes the river. Take that refusal away and the trap "fixes itself"
+        by draining -- every shallow edge becomes dry ramp, the pool is
+        climbable, and the map has lost its water. Nothing here noticed, so
+        the re-break pass found this guard missing.
+        """
+        from ascii_warriors.world.localmap import _add_ramps
+
+        lm = self._pool()
+        before = sum(1 for y in range(lm.height) for x in range(lm.width)
+                     for z in range(lm.zmin, lm.zmax + 1)
+                     if tiles.get(lm.tile(x, y, z)).has("WATER"))
+        self.assertGreater(before, 0, "the fixture has no water in it")
+        _add_ramps(lm)
+        after = sum(1 for y in range(lm.height) for x in range(lm.width)
+                    for z in range(lm.zmin, lm.zmax + 1)
+                    if tiles.get(lm.tile(x, y, z)).has("WATER"))
+        self.assertEqual(after, before,
+                         "the ramp pass drained %d cells of water"
+                         % (before - after))
+
+    def test_no_generated_map_holds_a_pool_with_no_way_out(self):
+        """The measurement that found it, kept."""
+        world = _world("traps", size="small", years=20)
+        rivers = [(x, y) for x, y in world.land_tiles()
+                  if world.tile(x, y).river][:5]
+        self.assertTrue(rivers, "no river tiles to check")
+        for wx, wy in rivers:
+            lm = generate_local(world, wx, wy, RNG("t%d_%d" % (wx, wy)))[0]
+            walk = {(x, y, z) for z in range(lm.zmin, lm.zmax + 1)
+                    for y in range(lm.height) for x in range(lm.width)
+                    if lm.walkable(x, y, z)}
+            regions, left = [], set(walk)
+            while left:
+                seed = next(iter(left))
+                seen, edge = {seed}, [seed]
+                while edge:
+                    nxt = []
+                    for cell in edge:
+                        for c, _ in lm.path_neighbours(cell):
+                            if c in walk and c not in seen:
+                                seen.add(c)
+                                nxt.append(c)
+                    edge = nxt
+                regions.append(seen)
+                left -= seen
+            for region in regions:
+                wet = sum(1 for c in region
+                          if tiles.get(lm.tile(*c)).has("WATER"))
+                if wet * 2 < len(region):
+                    continue
+                above = [(x, y, z) for x, y, z in region
+                         for dx, dy in ((0, -1), (1, 0), (0, 1), (-1, 0))
+                         if lm.walkable(x + dx, y + dy, z + 1)]
+                self.assertEqual(
+                    above, [],
+                    "(%d,%d): %d cells of water with land one step above in "
+                    "%d places and no way up" % (wx, wy, len(region),
+                                                 len(above)))
+
+
 class TestTheTreeAtTheTopOfTheSlope(unittest.TestCase):
     """The same mistake as v3.98, one square over.
 

@@ -202,6 +202,27 @@ class LocalMap:
             n = (x + dx, y + dy, z - 1)
             if tile_data.get(self.tile(*n)).has("RAMP") and self.walkable(*n):
                 yield n
+            # Out of the shallows onto the bank, and back down into them.
+            #
+            # `_add_ramps` will not put a ramp on water, and it is right not
+            # to: writing `ramp_up` over a river tile deletes the river. The
+            # consequence was that the edge of any water sitting one level
+            # below its bank had no way up at all, so anything that waded in
+            # stayed in. Seed `long`'s adventurer stood in 1586 cells of it
+            # for three thousand turns with the bank one step away in a
+            # hundred and eighty-seven places; a lake map measured here holds
+            # a ninety-seven cell pool with twenty-nine ways out and none of
+            # them usable.
+            #
+            # Wading out of knee-deep water onto the bank is the same motion
+            # a ramp gives, so it is granted here rather than written into
+            # the map. `walkable` is what decides how deep is too deep: water
+            # you can swim in is not water you are standing in.
+            if here.has("WATER") and self.walkable(x, y, z) \
+                    and self.walkable(x + dx, y + dy, z + 1):
+                yield (x + dx, y + dy, z + 1)
+            if tile_data.get(self.tile(*n)).has("WATER") and self.walkable(*n):
+                yield n
 
     def path_neighbours(self, node: Tuple[int, int, int]):
         """Neighbour generator in the ``(node, cost)`` form A* expects."""

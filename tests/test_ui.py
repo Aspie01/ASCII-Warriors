@@ -1185,6 +1185,27 @@ class TestARunYouCanReplay(unittest.TestCase):
 #: What `tools.play.play` hands back after a run that went well. The invariant
 #: tests replace the run itself: what is under test is which of these numbers
 #: the driver refuses to print OK over.
+def _a_game():
+    """A small real game, for driver tests that need a map to walk on."""
+    from ascii_warriors.engine.rng import RNG
+    from ascii_warriors.game.state import Game
+    from ascii_warriors.world.worldgen import generate_world
+
+    rng = RNG("driver")
+    world = generate_world(rng.sub("w"), size="pocket", history_years=20)
+    return Game.new_game(world, {"race": "dwarf", "profession": "warrior"}, rng)
+
+
+def _a_creature(game, def_id="wolf"):
+    """One hostile on the map, placed by the caller."""
+    from ascii_warriors.game.entity import make_creature
+
+    beast = make_creature(game.rng, def_id, faction="hostile", level=1)
+    beast.wx, beast.wy = game.player.wx, game.player.wy
+    game.creatures[beast.id] = beast
+    return beast
+
+
 _PLAY_RUN = {
     "turns": 230, "ticks": 109921, "dead": True, "cause": "bled to death",
     "peak": {"thirst": 22126, "hunger": 27447, "drowsy": 29075},
@@ -1235,10 +1256,67 @@ class TestThePatienceNobodySpends(unittest.TestCase):
         return driver.play(seed, turns=turns)
 
     def test_it_gives_up_on_what_it_cannot_reach(self):
-        out = self._play("long")
-        self.assertGreater(out["gave_up"], 0,
-                           "three thousand turns at an unreachable target and "
-                           "the driver never wrote it off")
+        """Built rather than found.
+
+        This asked seed `long` for the answer, because that seed had an
+        unreachable bounty on it. v4.00 fixed the map defect behind that --
+        the adventurer was standing in a lake it could not climb out of -- and
+        the seed now finishes two of three jobs and gives up on nothing, so
+        the guard went red for the best possible reason and was measuring the
+        wrong thing either way. A guard for "the driver stops chasing what it
+        cannot catch" must not depend on the game still having somewhere
+        uncatchable in it.
+        """
+        from tools import play as driver
+
+        game = _a_game()
+        quarry = _a_creature(game)
+        why = collections.Counter()
+        # Somewhere solid, on a level of its own: nothing walks to this.
+        quarry.x, quarry.y, quarry.z = 1, 1, game.local.zmin
+        game.local.set_tile(quarry.x, quarry.y, quarry.z, "rock_wall")
+
+        # Halfway to the bound it is still worth chasing: the patience is a
+        # patience, not a single failed step.
+        for _ in range(driver.LOCAL_PATIENCE // 2):
+            driver._swing_at(game, quarry, why, "hunted")
+        self.assertTrue(driver._worth_chasing(game, quarry),
+                        "wrote it off after %d tries, well inside the bound"
+                        % (driver.LOCAL_PATIENCE // 2))
+        self.assertEqual(why["gave up on something it could not reach"], 0)
+
+        for _ in range(driver.LOCAL_PATIENCE):
+            driver._swing_at(game, quarry, why, "hunted")
+        self.assertFalse(driver._worth_chasing(game, quarry),
+                         "chased it %d times and never wrote it off"
+                         % (driver.LOCAL_PATIENCE + driver.LOCAL_PATIENCE // 2))
+        self.assertEqual(why["gave up on something it could not reach"], 1,
+                         "the reason should be counted once, not every step")
+
+    def test_reaching_it_clears_the_count(self):
+        """A long approach that works is not a failure.
+
+        Without this the patience is a lifetime budget rather than a run of
+        failures, and a driver that chased two hundred things successfully
+        would refuse to chase the two hundred and first.
+        """
+        from tools import play as driver
+
+        game = _a_game()
+        quarry = _a_creature(game)
+        quarry.x, quarry.y, quarry.z = 1, 1, game.local.zmin
+        game.local.set_tile(quarry.x, quarry.y, quarry.z, "rock_wall")
+        why = collections.Counter()
+        for _ in range(driver.LOCAL_PATIENCE // 2):
+            driver._swing_at(game, quarry, why, "hunted")
+        self.assertTrue(driver._worth_chasing(game, quarry))
+
+        # Now it is standing next to the player, and gets hit.
+        player = game.player
+        quarry.x, quarry.y, quarry.z = player.x + 1, player.y, player.z
+        driver._swing_at(game, quarry, why, "hunted")
+        self.assertEqual(driver._patience(game)["tries"].get(quarry.id), None,
+                         "getting there did not clear the count")
 
     def test_giving_up_is_not_the_same_as_giving_up_on_everything(self):
         """A run that finishes its work must not be writing targets off.

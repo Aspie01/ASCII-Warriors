@@ -10425,7 +10425,111 @@ every time a dwarf considers a job behind a sealed wall. An optimisation
 whose absence no guard notices is an optimisation that gets deleted, so
 that one counts the searches rather than the answers.
 
-## 160. Style
+## 160. The water you could not climb out of (v4.00)
+
+`_add_ramps` will not put a ramp on water, and it is right not to: writing
+`ramp_up` over a river tile deletes the river. So the pass skips anything
+with the WATER flag — and the edge of any water sitting one level below its
+bank got **no way up at all**. Wade in and you stay in.
+
+This is the third distinct thing sealing ground, and the one that finally
+closed seed `long`.
+
+### What it looked like from inside
+
+v3.97's driver reported seed `long` as a run that achieved nothing. §158 and
+§159 each found something real and neither closed it. Measured on the quest
+map the adventurer had travelled to:
+
+| | |
+| --- | --- |
+| walkable ground | 4298 cells |
+| the adventurer could reach | 1586 |
+| sealed off | **2712 (63.1%)** |
+| the adventurer's whole region | **all at one level, z = −4** |
+| every boundary cell of it | shallow water |
+| places dry grass sat one step up | **187** |
+
+An adventurer standing in a lake, with the bank one step away in a hundred
+and eighty-seven places, for three thousand turns. A lake map sampled for this
+holds a 97-cell pool with 29 ways out and none of them usable.
+
+### The rule
+
+Wading out of knee-deep water onto the bank is the same motion a ramp gives,
+so it is granted in `neighbours` rather than written into the map — which is
+the only way to have it without draining the water to get it. Both directions,
+because that function's contract is symmetry: "if you can get from A to B you
+can get back. An asymmetric graph gives you one-way drops that A* will
+cheerfully route through, stranding whoever took them."
+
+`walkable` decides how deep is too deep. Water you swim in is not water you
+are standing in, and a swimmer has nothing to push off. The first version
+asked only whether the tile was WATER — **a guard written in the same commit
+caught it**, and without that check every river in the game becomes a
+staircase.
+
+### Seed `long`
+
+| | before | after |
+| --- | --- | --- |
+| turns | 3000 | 872 |
+| jobs taken | 1 | 3 |
+| jobs finished | **0** | **2** |
+| how it ended | still standing in the lake | died fighting |
+| the driver said | `PLAY PROBLEM` | `PLAY OK` |
+
+Died in a fight with two of three jobs done is an ordinary adventurer's life.
+The alarm v3.97 added found a real defect, three milestones ran it down, and
+the seed it found is healthy.
+
+### Guards
+
+Six, in `TestTheWaterYouCouldNotClimbOutOf`: you can climb out of the
+shallows; you can step back down; a whole pool can be left; water too deep to
+stand in is not a step; no generated river map holds a pool with no way out;
+and the ramp pass still refuses to pave over water.
+
+That last one exists because the re-break pass found it missing. Take the
+WATER check out of `_add_ramps` and the trap "fixes itself" — every shallow
+edge becomes dry ramp, the pool is climbable, and the map has quietly lost its
+water. Nothing noticed. A fix whose *reason* is unguarded is a fix that gets
+undone by whoever tidies up next.
+
+### The guard that was standing on the bug
+
+The full suite went red on a test from §157:
+
+```
+test_it_gives_up_on_what_it_cannot_reach
+AssertionError: 0 not greater than 0
+```
+
+v3.97 wrote that guard to prove the driver stops chasing what it cannot
+catch, and reached for seed `long` as the case — because seed `long` had an
+unreachable bounty on it. This milestone fixed the map defect underneath, so
+the seed now finishes two of three jobs and gives up on nothing, and the guard
+failed **for the best possible reason**.
+
+It was measuring the wrong thing either way. A guard for "the driver writes
+off what it cannot reach" must not depend on the game still having somewhere
+unreachable in it. It builds its own quarry now — a wolf in the rock on a
+level of its own — and checks the mechanism: still worth chasing at half the
+bound, written off past it, and the reason counted once rather than every
+step. It also gained a second guard, that arriving clears the count, because
+otherwise the patience is a lifetime budget and a driver that chased two
+hundred things successfully would refuse the two hundred and first.
+
+**A guard anchored to a defect dies when the defect is fixed** — and looks
+like a regression on the way out. This is the second in the run: §159 had to
+correct a claim resting on a probe that started its flood at a treetop.
+
+Re-break: eight defects put back across the two, eight caught, 0 misses. The
+first pass over the water fix missed one because the fixture never set column
+surface heights, so `_add_ramps` was looking at the air above the pool rather
+than the pool.
+
+## 161. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).
