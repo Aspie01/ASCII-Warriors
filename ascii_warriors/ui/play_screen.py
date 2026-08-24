@@ -283,17 +283,25 @@ class PlayScene(Scene):
             cost = actions.ride_or_dismount(game)
         elif key == "E":
             cost = actions.tame_animal(game)
-        elif key == "U":
+        # `^`, `"` and `%` are the glyphs of the things these act on, the same
+        # mnemonic `_` uses for an altar. They are here rather than on `U`,
+        # `B`, `N` and `Y` because those four are the diagonal *run* keys:
+        # `is_run_key` is tested earlier in this chain and swallowed all four,
+        # so disarming a trap, setting a fire, gathering plants and fishing
+        # were four things the game could do and the player could not reach.
+        # Two of them were printed in the help; the other two were not
+        # documented anywhere either.
+        elif key == "^":
             cost = actions.disarm_trap(game)
-        elif key == "B":
+        elif key == "!":
             cost = actions.set_fire(game)
         elif key == "X":
             cost = actions.sharpen(game)
         elif key == "V":
             cost = actions.write_book(game)
-        elif key == "N":
+        elif key == '"':
             cost = actions.gather_here(game)
-        elif key == "Y":
+        elif key == "%":
             cost = actions.fish_here(game)
         elif key == "_":
             # The altar's own glyph, which is the only mnemonic that needs no

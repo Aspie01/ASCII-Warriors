@@ -10772,7 +10772,89 @@ as a "miss" makes the pass report meaningless. A re-break list is defects.
 
 Re-break: three defects put back, three caught, 0 misses.
 
-## 164. Style
+## 164. The keys the run keys ate (v4.04)
+
+v4.03 checked one paragraph of the manual against the game and found two of
+five claims wrong. This checked the Controls page the same way, and found
+something worse than a wrong sentence.
+
+`PlayScene.handle` tests `keys.is_run_key(key)` near the top of its chain. The
+diagonal run keys are `H J K L Y U B N`. Four branches further down tested
+`U`, `B`, `N` and `Y`:
+
+| key | what it was for | |
+| --- | --- | --- |
+| `U` | disarm a trap you have found | **printed in the help** |
+| `B` | set fire to what is beside you | **printed in the help** |
+| `N` | gather the plants growing here | documented nowhere |
+| `Y` | fish, if you are standing by water | documented nowhere |
+
+All four were dead code. Pressing them ran the player diagonally. Measured by
+pressing each one on a real `PlayScene` and watching whether the action was
+ever entered: `E`, `X`, `V`, `S` and `s` all arrive, and those four never do.
+
+Two of them are the same shape as §153's alarm key — a control the player can
+read about and cannot use. The other two are its mirror: **a working action
+nobody could find out about**, since the game shipped an ability whose only
+documentation was the source.
+
+They are on `^`, `!`, `"` and `%` now — the glyph of a trap, a mark, the glyph
+of a shrub, and a mark for water, following `_` for an altar: "the only
+mnemonic that needs no explaining in a game you read by its glyphs."
+
+### The mirror, swept
+
+Asking the other direction found three more: `X` (sharpen a blade), `V`
+(write a book) and `_` (pray at an altar) were all handled and none appeared
+on the Controls page. Seven entries in total were wrong in one direction or
+the other, out of about fifty.
+
+### The same debt, made again in the same milestone
+
+Rebinding the keys and updating the Controls page was not the whole fix. The
+fortress chapter binds keys in *prose*, and four sentences still named the
+dead ones:
+
+> "Press N to pick what is growing" · "Press Y to fish" · "Press B with a lit
+> torch in hand" · "press U to take it apart"
+
+§163 is about exactly this — code corrected, manual left behind — and this
+milestone made the same mistake inside itself, one surface over, with §163
+already written. **The list-shaped guard could not see it, because prose is
+not a list.** Caught by re-reading the chapters before shipping, not by any
+test.
+
+### Guards
+
+`TestTheKeysTheRunKeysAte`, four tests. The four actions can be reached; no
+key the Controls page offers as an *action* is a run or movement key (movement
+entries exempt, since they are the run keys and have their own heading); and
+every key `PlayScene` handles appears on the Controls page.
+
+The second is the rule rather than the four cases, and it is what makes this
+milestone stick: any future action bound to a diagonal run key fails
+immediately instead of shipping as dead code with a help entry.
+
+The fourth reads the prose: an instruction to press a key must name a key some
+screen tests explicitly. Its first version folded the Controls page into what
+counts as "known" and **could not fail** — "press N to pick what is growing"
+passed because `N` appears there as a diagonal run key, which is the very
+confusion that produced the defect. A key being pressable is not the same as a
+key doing what the sentence says.
+
+Three false positives are worth recording, because each looked like a finding.
+`W` is handled by `key in ("w", "W")`, and an AST pass reading only
+`key == "..."` misses tuple membership entirely. The movement keys come back as
+"advertised keys that are run keys", which they are supposed to be — the guard
+exempts the MOVEMENT section by position rather than guessing from the
+description. And the fortress chapter's "Press u" and "Press h" look like the
+same defect and are not: `FortScene` scrolls on arrows and the numpad only, so
+vi keys reach their handlers there. An adventure-mode rule applied to a
+fortress-mode chapter answers confidently and wrongly.
+
+Re-break: five defects put back, five caught, 0 misses.
+
+## 165. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

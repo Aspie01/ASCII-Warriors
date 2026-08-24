@@ -1231,6 +1231,192 @@ def _run_play(out, argv=("--seed", "t")):
     return code, buf.getvalue()
 
 
+class TestTheKeysTheRunKeysAte(UITestBase):
+    """Four things the game could do and the player could not reach.
+
+    `PlayScene.handle` tests `keys.is_run_key(key)` near the top of its chain,
+    and the diagonal run keys are `H J K L Y U B N`. Four branches further
+    down tested `U`, `B`, `N` and `Y`, so they were dead code:
+
+        U   disarm a trap you have found      printed in the help
+        B   set fire to what is beside you    printed in the help
+        N   gather the plants growing here    documented nowhere
+        Y   fish, if you are standing by water   documented nowhere
+
+    Pressing them ran the player diagonally instead. Two were advertised on
+    the Controls page, which makes them the same shape as v3.93's alarm key --
+    a control the player can read about and cannot use -- and the other two
+    were a working action nobody could find.
+
+    They are on `^`, `!`, `"` and `%` now: the glyphs of a trap, and of a
+    shrub, and a mark for water, the same mnemonic `_` uses for an altar.
+    """
+
+    def _scene(self):
+        from ascii_warriors.ui.play_screen import PlayScene
+
+        scene = PlayScene(self.app)
+        self.app.push(scene)
+        return scene
+
+    def _reaches(self, key, action_name):
+        """True if pressing *key* gets as far as `actions.<action_name>`."""
+        from ascii_warriors.game import actions
+
+        scene = self._scene()
+        called = []
+        real = getattr(actions, action_name)
+
+        def spy(*a, **kw):
+            called.append(True)
+            return real(*a, **kw)
+
+        setattr(actions, action_name, spy)
+        try:
+            scene.handle(key)
+        finally:
+            setattr(actions, action_name, real)
+        return bool(called)
+
+    def test_the_four_actions_can_be_reached(self):
+        for key, action in (("^", "disarm_trap"), ("!", "set_fire"),
+                            ('"', "gather_here"), ("%", "fish_here")):
+            self.assertTrue(
+                self._reaches(key, action),
+                "%r never reaches actions.%s" % (key, action))
+
+    def test_no_advertised_action_sits_on_a_run_key(self):
+        """The rule, rather than the four cases.
+
+        Anything the Controls page offers as an *action* has to survive the
+        run-key test that runs before it. Movement entries are exempt: they
+        are the run keys, and are listed under their own heading.
+        """
+        from ascii_warriors.engine import keys as key_mod
+        from ascii_warriors.ui import help_screen
+
+        section = ""
+        clashes = []
+        for key, desc in help_screen.CONTROLS:
+            if not key and desc:
+                section = desc
+                continue
+            if section == "MOVEMENT" or not key or not desc:
+                continue
+            for part in key.replace("/", " ").replace(" or ", " ").split():
+                if len(part) != 1:
+                    continue
+                if key_mod.is_run_key(part) or \
+                        key_mod.direction_of(part) is not None:
+                    clashes.append("%r (%s)" % (part, desc))
+        self.assertEqual(clashes, [],
+                         "the Controls page offers %s, and the run-key branch "
+                         "in PlayScene.handle takes those keys first"
+                         % "; ".join(clashes))
+
+    def test_the_prose_names_keys_that_exist(self):
+        """The Controls page is not the only place the manual binds keys.
+
+        Rebinding the four keys and updating the Controls list left the
+        fortress chapter still saying "Press N to pick what is growing",
+        "Press Y to fish", "Press B with a lit torch in hand" and "press U to
+        take it apart" -- four sentences naming keys that had just become dead
+        again. The list-shaped guard above could not see them, because prose
+        is not a list.
+
+        The rule here is the weaker one that generalises: an instruction to
+        press a key must name a key some screen actually handles.
+        """
+        import ast
+        import inspect
+        import re
+        import textwrap
+
+        from ascii_warriors.ui import help_screen, play_screen
+        from ascii_warriors.ui.fort import fort_screen
+
+        def handled(func):
+            found = set()
+            source = textwrap.dedent(inspect.getsource(func))
+            for node in ast.walk(ast.parse(source)):
+                if isinstance(node, ast.Compare) \
+                        and isinstance(node.left, ast.Name) \
+                        and node.left.id == "key":
+                    for cmp_to in node.comparators:
+                        if isinstance(cmp_to, ast.Constant) \
+                                and isinstance(cmp_to.value, str):
+                            found.add(cmp_to.value)
+                        elif isinstance(cmp_to, (ast.Tuple, ast.List, ast.Set)):
+                            for element in cmp_to.elts:
+                                if isinstance(element, ast.Constant) \
+                                        and isinstance(element.value, str):
+                                    found.add(element.value)
+            return found
+
+        # Only keys a screen tests *explicitly*. Folding in the Controls page
+        # made this unable to fail: "press N to pick what is growing" passed
+        # because `N` appears there as a diagonal run key, which is exactly
+        # the confusion that produced the defect. A key being pressable is not
+        # the same as a key doing the thing the sentence says.
+        known = handled(play_screen.PlayScene.handle)
+        known |= handled(fort_screen.FortScene.handle)
+
+        # `press 'p'` is the manual's other way of writing it, so the quote is
+        # skipped rather than read as the key.
+        wrong = []
+        for name in ("FORTRESS_TEXT", "COMBAT_TEXT", "WORLD_TEXT",
+                     "SURVIVAL_TEXT"):
+            text = getattr(help_screen, name)
+            for match in re.finditer(r"[Pp]ress '?([!-~])'?", text):
+                pressed = match.group(1)
+                if pressed in ("'", '"'):
+                    continue
+                if pressed not in known:
+                    wrong.append("%s: press %r" % (name, pressed))
+        self.assertEqual(wrong, [],
+                         "the manual tells the player to press keys no screen "
+                         "handles: %s" % "; ".join(wrong))
+
+    def test_every_action_the_screen_handles_is_written_down(self):
+        """The other direction: a working key nobody can find out about.
+
+        `X`, `V` and `_` were all handled and none of them appeared on the
+        Controls page, so sharpening a blade, writing a book and praying at an
+        altar were things you could only do by reading the source.
+        """
+        import ast
+        import inspect
+        import textwrap
+
+        from ascii_warriors.ui import help_screen, play_screen
+
+        source = textwrap.dedent(
+            inspect.getsource(play_screen.PlayScene.handle))
+        handled = set()
+        for node in ast.walk(ast.parse(source)):
+            if isinstance(node, ast.Compare) \
+                    and isinstance(node.left, ast.Name) \
+                    and node.left.id == "key":
+                for cmp_to in node.comparators:
+                    if isinstance(cmp_to, ast.Constant) \
+                            and isinstance(cmp_to.value, str):
+                        handled.add(cmp_to.value)
+                    elif isinstance(cmp_to, (ast.Tuple, ast.List, ast.Set)):
+                        for element in cmp_to.elts:
+                            if isinstance(element, ast.Constant) \
+                                    and isinstance(element.value, str):
+                                handled.add(element.value)
+        listed = set()
+        for key, _desc in help_screen.CONTROLS:
+            for part in key.replace("/", " ").replace(" or ", " ").split():
+                if len(part) == 1:
+                    listed.add(part)
+        missing = sorted(k for k in handled - listed if len(k) == 1)
+        self.assertEqual(missing, [],
+                         "PlayScene handles %s and the Controls page never "
+                         "mentions them" % missing)
+
+
 class TestThePatienceNobodySpends(unittest.TestCase):
     """`LOCAL_PATIENCE` and `TRAVEL_PATIENCE` were declared and never read.
 

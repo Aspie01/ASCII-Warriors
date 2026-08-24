@@ -34,14 +34,19 @@ CONTROLS: List[Tuple[str, str]] = [
     ("P", "perform a song, poem or dance you know"),
     ("s", "search, and read the tracks on the ground"),
     ("m", "mount or dismount"),
-    ("U", "disarm a trap you have found"),
-    ("B", "set fire to what is beside you"),
+    ("^", "disarm a trap you have found"),
+    ("!", "set fire to what is beside you"),
+    ('"', "gather the plants growing here"),
+    ("%", "fish, if you are standing by water"),
     ("E", "tame the animal beside you"),
     ("s", "search the area carefully"),
     ("S", "sleep for eight hours"),
     ("R", "rest a while"),
     ("o", "open or close a door"),
     ("c", "make camp: craft, butcher, cook, build a fire"),
+    ("X", "sharpen a blade on a whetstone"),
+    ("V", "write a book, if you have a blank one and something to say"),
+    ("_", "pray at an altar you are standing on"),
     ("~", "light or douse a torch or lantern"),
     ("A", "apply first aid: bind wounds, set bones"),
     ("D", "examine injuries in detail"),
@@ -343,7 +348,7 @@ berserk with an axe.
 FIRE
 
 Trees, saplings and shrubs burn, and so does anything wooden lying on the
-ground. Press B with a lit torch in hand to set fire to whatever is next to
+ground. Press ! with a lit torch in hand to set fire to whatever is next to
 you.
 
 Fire spreads to what is beside it, burns down over time and leaves ash. It
@@ -375,11 +380,11 @@ Corpses, limbs and blood are all still there when you come back.
 
 LIVING OFF THE LAND
 
-Press N to pick what is growing under or beside you. A shrub is worth picking
+Press " to pick what is growing under or beside you. A shrub is worth picking
 and gives you a proper handful; grass is worth searching and usually is not.
 Herbalism decides how much you get.
 
-Press Y to fish, with a fishing rod in your pack and open water beside you. It
+Press % to fish, with a fishing rod in your pack and open water beside you. It
 takes a couple of hours and often catches nothing, and fishing skill decides
 how often it does. Not with company.
 
@@ -534,8 +539,8 @@ pits, falling rock, snares and alarms. Ruins have a few and lairs sometimes do.
 Every trap starts hidden. Press s to search the ground around you -- that is
 the same key that reads tracks -- and your Observer skill decides what you
 find. You may also spot one just walking past, but do not count on it. A trap
-you have found is drawn as a red ^ and you can walk around it, or press U to
-take it apart with Mechanic.
+you have found is drawn as a red ^ and you can walk around it, or press ^ --
+its own glyph -- to take it apart with Mechanic.
 
 A dart carries venom, a snare wraps you in web, a pit drops you a level, and
 an alarm tells everything within forty tiles exactly where you are. Armour
