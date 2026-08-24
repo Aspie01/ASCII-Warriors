@@ -468,9 +468,25 @@ EMPLOYERS = ("lord", "tavern_keeper", "guard", "priest", "merchant")
 
 #: How far the driver will walk inside one map before giving up on a target
 #: and doing something else. A local map is 80 by 60.
+#:
+#: Declared with that docstring and read by nothing until v3.97, which is how
+#: seed `long` came to run three thousand turns, take one job, finish none of
+#: it, and be reported `PLAY OK`. The job was a bounty; the prey was a
+#: `goblin_snatcher` standing one z-level above the player and diagonally
+#: adjacent, with no path to it at a hundred thousand nodes. The driver aimed
+#: at it eight hundred and eighty-five times.
+#:
+#: Two hundred is generous on an eighty-by-sixty map: a corner-to-corner walk
+#: is about a hundred and forty steps, so anything that has not arrived in two
+#: hundred is not walking towards it.
 LOCAL_PATIENCE = 200
 
 #: How many world tiles it will cross for one errand before writing it off.
+#:
+#: The same story as `LOCAL_PATIENCE`: declared, documented, and read by
+#: nothing. Forty is a long way on a world the driver has never crossed more
+#: than a handful of squares of, so this is a backstop rather than a
+#: day-to-day bound -- but an unspent backstop is not a backstop.
 TRAVEL_PATIENCE = 40
 
 
@@ -604,11 +620,66 @@ def _giver_of(game, quest):
                  if c.hf_id == quest.giver_hf and not c.body.dead), None)
 
 
+def _patience(game) -> dict:
+    """Per-run memory of what the driver has been walking at, and for how long.
+
+    Kept on the game rather than threaded through every branch, the way
+    `_play_water_cells` is. It never has to survive a save: it is the
+    driver's own book-keeping, not the game's.
+    """
+    book = getattr(game, "_play_patience", None)
+    if book is None:
+        book = game._play_patience = {"tries": {}, "gave_up": set()}
+    return book
+
+
+def _worth_chasing(game, target) -> bool:
+    """False once the driver has spent `LOCAL_PATIENCE` failing to reach this.
+
+    Something one z-level away with no stair between is indistinguishable,
+    step by step, from something that is nearly in reach: the walk always
+    finds a next square, and the distance never closes. This is what notices.
+    """
+    return target.id not in _patience(game)["gave_up"]
+
+
+def _gave_up_on(game, target, why) -> None:
+    """Count another failed approach, and write the target off past the bound."""
+    book = _patience(game)
+    book["tries"][target.id] = book["tries"].get(target.id, 0) + 1
+    if book["tries"][target.id] > LOCAL_PATIENCE:
+        book["gave_up"].add(target.id)
+        why["gave up on something it could not reach"] += 1
+
+
+def _worth_travelling(game, quest, why) -> bool:
+    """False once the driver has crossed `TRAVEL_PATIENCE` squares for this job.
+
+    Counted per job rather than per run, and only for the steps taken towards
+    it: a job that keeps the driver walking further than the width of the
+    world it is on is not a job it is going to reach.
+    """
+    book = _patience(game)
+    if quest.id in book["gave_up"]:
+        return False
+    book["tries"][quest.id] = book["tries"].get(quest.id, 0) + 1
+    if book["tries"][quest.id] > TRAVEL_PATIENCE:
+        book["gave_up"].add(quest.id)
+        why["gave up on somewhere it could not get to"] += 1
+        return False
+    return True
+
+
 def _quarry(game, quest) -> list:
-    """Whatever this quest wants killed, here and now."""
+    """Whatever this quest wants killed, here and now.
+
+    Anything the driver has already spent its patience on is not here as far
+    as this is concerned: the bounty branch takes the nearest, and the nearest
+    was exactly the one it could not get to.
+    """
     return [
         c for c in game.creatures.values()
-        if not c.body.dead and not c.is_player
+        if not c.body.dead and not c.is_player and _worth_chasing(game, c)
         and ((quest.target_hf is not None and c.hf_id == quest.target_hf)
              or (quest.target_def and c.def_id == quest.target_def))
     ]
@@ -638,13 +709,24 @@ def _sign(n: int) -> int:
     return (n > 0) - (n < 0)
 
 
-def _swing_at(game, target, why, label: str) -> int:
-    """Hit something adjacent, or walk to it."""
+def _swing_at(game, target, why, label: str):
+    """Hit something adjacent, or walk to it. None once it is not worth it.
+
+    Every chase in this driver goes through here, so this is where the
+    patience is spent. Getting beside the target clears its count: a long
+    approach that works is not a failure.
+    """
     p = game.player
     if _beside(game, target):
         why[label] += 1
+        _patience(game)["tries"].pop(target.id, None)
         return actions.attack_dir(game, _sign(target.x - p.x),
                                   _sign(target.y - p.y))
+    if not _worth_chasing(game, target):
+        return None
+    _gave_up_on(game, target, why)
+    if not _worth_chasing(game, target):
+        return None
     return _walk_toward(game, target.x, target.y, target.z)
 
 
@@ -758,6 +840,8 @@ def _errand(game, why) -> Optional[int]:
         if q.progress >= q.goal:
             continue
         if (p.wx, p.wy) != (q.wx, q.wy):
+            if not _worth_travelling(game, q, why):
+                continue
             why["on the road to the job"] += 1
             step = _travel_toward(game, q.wx, q.wy, why)
             if step is not None:
@@ -855,6 +939,8 @@ def play(seed: str, turns: int, *, size: str = "small",
                               if q.state == "done"}),
         "kinds_taken": sorted({q.kind for q in taken.values()}),
         "nowhere": sorted({q.kind for q in taken.values() if not q.site_name}),
+        # Targets and jobs the driver spent its patience on and wrote off.
+        "gave_up": len(_patience(game)["gave_up"]),
         # Met, carried back, told to the person who set it, and still owing.
         "ready_but_unpaid": len([
             q for q in taken.values()
@@ -929,6 +1015,19 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     # silently and it cannot fire wrongly.
     if out["turns"] < args.turns and not out["dead"]:
         problems.append("stopped early without dying")
+    # A player that lived a long life, wrote off everything it could not
+    # reach, and finished nothing. That is not a hard run -- it is a run in
+    # which the game offered work that could not be done from where it put
+    # the player. Seed `long` is the case this was built from: a bounty on a
+    # `goblin_snatcher` standing one z-level up with no path to it at a
+    # hundred thousand nodes, on a map the driver spent three thousand turns
+    # on. `dead` is excluded because a player who was killed has an obvious
+    # reason for finishing nothing.
+    if out["gave_up"] and not out["quests_done"] and not out["dead"] \
+            and out["turns"] >= LOCAL_PATIENCE * 2:
+        problems.append("survived %d turns, gave up on %d thing(s) it could "
+                        "not reach and finished none of the %d job(s) it took"
+                        % (out["turns"], out["gave_up"], out["quests_taken"]))
     if out["nowhere"]:
         problems.append("work with no destination: %s"
                         % ", ".join(out["nowhere"]))

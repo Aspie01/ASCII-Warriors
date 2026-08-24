@@ -10138,7 +10138,88 @@ defect.
 
 Re-break: four defects put back, four caught, 0 misses.
 
-## 157. Style
+## 157. The patience nobody spends (v3.97)
+
+`tools/play.py` declares two bounds and reads neither:
+
+```python
+#: How far the driver will walk inside one map before giving up on a target
+#: and doing something else. A local map is 80 by 60.
+LOCAL_PATIENCE = 200
+
+#: How many world tiles it will cross for one errand before writing it off.
+TRAVEL_PATIENCE = 40
+```
+
+Both say exactly what they are for. Nothing consulted either, so the driver
+had no bound at all.
+
+### What that cost
+
+Found by playing the game and looking. Seed `long`, three thousand turns:
+
+| | |
+| --- | --- |
+| jobs taken | 1 |
+| jobs finished | **0** |
+| turns spent walking at the target | 698 |
+| turns spent blocked | 1073 |
+| what the driver printed | **`PLAY OK`** |
+
+The job was a bounty. The prey was a `goblin_snatcher` standing one z-level
+above the player and diagonally adjacent — and there is **no path to it at a
+hundred thousand nodes**. The driver aimed at it eight hundred and eighty-five
+times.
+
+Something one level away with no stair between is indistinguishable, step by
+step, from something nearly in reach: the walk always finds a next square and
+the distance never closes. Nothing was watching the total, because the thing
+declared to watch it was never wired up.
+
+With the patience spent, the same seed drops from 698 walking turns to 203 and
+from 1073 blocked to 336, writes off four targets, and runs in 40s instead of
+107s.
+
+### The harness was the thing at fault
+
+Every ritual since this driver existed has printed `PLAY OK` over runs like
+that. A verification tool that reports success over a run in which the player
+achieved nothing is worse than no tool, because every milestone verified with
+it inherits the false confidence.
+
+So a run that **survived** a long life, wrote off things it could not reach,
+and finished none of the work it took is now a `PLAY PROBLEM`. `dead` is
+excluded: a player who was killed has an obvious reason for finishing nothing.
+Measured over twelve seeds, exactly one fires — `long`, the real case. An
+earlier draft without the `dead` exclusion fired on two, and the second was
+simply a player who died at 637 turns.
+
+**Seed `long` still fails, and that is the correct outcome.** The game handed
+out a bounty on prey the player cannot reach from where it was put; that is a
+defect in the local map's connectivity and it is not fixed here. The milestone
+is that the harness now says so instead of printing OK.
+
+### The stub that drifted once more
+
+v3.92 swept `_DRIVER_RUN`, the fortress driver's canned result, after it
+drifted twice — v3.80 added `militia`, v3.91 added `beds_added`, each costing
+five errors plus six behind them. Its write-up said plainly that
+`tools/play.py` had the same arrangement, **no guard at all**, and had not
+been swept.
+
+Adding `gave_up` to this driver's output killed eight tests in `test_ui.py`
+with `KeyError: 'gave_up'`. Third drift of this shape, first one predicted in
+writing.
+
+The guard here is stronger than the fortress one. `tools/fort.py` compares the
+stub against a hand-kept `REPORT_KEYS` tuple, which is itself something that
+can go stale; `main` in `play.py` reads its keys by name, so
+`TestTheStubThatDriftedOnceMore` reads them straight out of the function with
+`ast` and there is nothing in between to drift.
+
+Re-break: six defects put back, six caught, 0 misses.
+
+## 158. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

@@ -1191,6 +1191,7 @@ _PLAY_RUN = {
     "water_nearby": False, "dry_land_beside": False, "nowhere": [],
     "world_tiles": 4, "actions": {}, "ready_but_unpaid": 0,
     "quests_taken": 1, "quests_done": 0, "furthest": 40, "work": {},
+    "gave_up": 0,
 }
 
 
@@ -1207,6 +1208,177 @@ def _run_play(out, argv=("--seed", "t")):
     finally:
         driver.play = real
     return code, buf.getvalue()
+
+
+class TestThePatienceNobodySpends(unittest.TestCase):
+    """`LOCAL_PATIENCE` and `TRAVEL_PATIENCE` were declared and never read.
+
+    Their docstrings say what they are for -- "how far the driver will walk
+    inside one map before giving up on a target and doing something else" --
+    and nothing consulted either of them, so the driver had no bound at all.
+
+    Seed `long` is what that cost. Three thousand turns, one job taken, none
+    finished, and `PLAY OK` printed over it:
+
+        working  698     walking at the target
+        blocked 1073     walking into things while idle
+
+    The target was a `goblin_snatcher` one z-level above the player and
+    diagonally adjacent, with **no path to it at a hundred thousand nodes**.
+    The driver aimed at it eight hundred and eighty-five times. Every ritual
+    since the driver existed has been printing OK over runs like that.
+    """
+
+    def _play(self, seed, turns=1500):
+        from tools import play as driver
+
+        return driver.play(seed, turns=turns)
+
+    def test_it_gives_up_on_what_it_cannot_reach(self):
+        out = self._play("long")
+        self.assertGreater(out["gave_up"], 0,
+                           "three thousand turns at an unreachable target and "
+                           "the driver never wrote it off")
+
+    def test_giving_up_is_not_the_same_as_giving_up_on_everything(self):
+        """A run that finishes its work must not be writing targets off.
+
+        The bound has to be loose enough that an honest chase never hits it.
+        Seeds that die fighting have chased plenty and given up on nothing.
+        """
+        for seed in ("play", "t", "hero", "quest"):
+            out = self._play(seed)
+            self.assertEqual(out["gave_up"], 0,
+                             "%s wrote off a target on an ordinary run" % seed)
+
+    def test_the_bound_is_looser_than_a_walk_across_the_map(self):
+        """Or the driver gives up on things it was about to reach.
+
+        A local map is 80x60, so a corner-to-corner walk is about 140 steps
+        with diagonals. The bound has to sit above that.
+        """
+        from tools import play as driver
+
+        self.assertGreater(driver.LOCAL_PATIENCE, 140)
+
+    def test_a_run_that_achieved_nothing_is_not_reported_as_fine(self):
+        """The alarm, on the canned result rather than a fifty-second run."""
+        code, text = _run_play(dict(_PLAY_RUN, turns=3000, dead=False,
+                                    gave_up=4, quests_done=0, quests_taken=1),
+                               argv=("--seed", "t", "--turns", "3000"))
+        self.assertEqual(code, 1, text)
+        self.assertIn("finished none of the", text)
+
+    def test_dying_is_a_reason_to_have_finished_nothing(self):
+        """A player who was killed is not a player who was stuck."""
+        code, text = _run_play(dict(_PLAY_RUN, turns=3000, dead=True,
+                                    gave_up=4, quests_done=0, quests_taken=1),
+                               argv=("--seed", "t", "--turns", "3000"))
+        self.assertEqual(code, 0, text)
+
+    def test_a_short_run_is_not_asked(self):
+        """Giving up once inside two hundred turns is not a pathology."""
+        from tools import play as driver
+
+        code, text = _run_play(dict(_PLAY_RUN,
+                                    turns=driver.LOCAL_PATIENCE, dead=False,
+                                    gave_up=1, quests_done=0, quests_taken=1),
+                               argv=("--seed", "t", "--turns",
+                                     str(driver.LOCAL_PATIENCE)))
+        self.assertEqual(code, 0, text)
+
+    def test_finishing_the_work_clears_it(self):
+        """Writing off one target on the way to finishing the job is fine."""
+        code, text = _run_play(dict(_PLAY_RUN, turns=3000, dead=False,
+                                    gave_up=4, quests_done=1, quests_taken=1),
+                               argv=("--seed", "t", "--turns", "3000"))
+        self.assertEqual(code, 0, text)
+
+
+class TestTheStubThatDriftedOnceMore(unittest.TestCase):
+    """`_PLAY_RUN` is the adventure side of a shape that has now drifted three
+    times.
+
+    v3.92 swept the fortress stub, `_DRIVER_RUN`, after it drifted twice --
+    v3.80 added `militia`, v3.91 added `beds_added`, and each time five
+    reporting tests died on a `KeyError` and six more followed. Its write-up
+    said plainly that `tools/play.py` had the same arrangement, no guard at
+    all, and had not been swept.
+
+    v3.97 added `gave_up` and eight tests in this file died on
+    `KeyError: 'gave_up'`, which is the third time and the first one that was
+    predicted in writing.
+
+    This asks the driver rather than a hand-kept list. `tools/fort.py` has a
+    `REPORT_KEYS` tuple to compare against, which is itself a thing that can
+    drift; `main` here reads its keys by name, so the names can be read
+    straight out of it with `ast` and there is nothing in between to go stale.
+    """
+
+    def _keys_main_reads(self):
+        import ast
+        import inspect
+        import textwrap
+
+        from tools import play as driver
+
+        tree = ast.parse(textwrap.dedent(inspect.getsource(driver.main)))
+        found = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Subscript) \
+                    and isinstance(node.value, ast.Name) \
+                    and node.value.id == "out" \
+                    and isinstance(node.slice, ast.Constant):
+                found.add(node.slice.value)
+            if isinstance(node, ast.Call) \
+                    and isinstance(node.func, ast.Attribute) \
+                    and node.func.attr == "get" \
+                    and isinstance(node.func.value, ast.Name) \
+                    and node.func.value.id == "out" and node.args \
+                    and isinstance(node.args[0], ast.Constant):
+                found.add(node.args[0].value)
+        return found
+
+    def test_the_stub_carries_every_key_the_driver_reads(self):
+        wanted = self._keys_main_reads()
+        self.assertTrue(wanted, "read no keys out of `main` at all")
+        missing = sorted(k for k in wanted if k not in _PLAY_RUN)
+        self.assertEqual(missing, [],
+                         "the canned result is missing %s, so every reporting "
+                         "test in this file dies on KeyError" % missing)
+
+    def test_the_driver_produces_every_key_it_reads(self):
+        """The other direction: `play` must supply what `main` asks for."""
+        import inspect
+
+        from tools import play as driver
+
+        source = inspect.getsource(driver.play)
+        for key in sorted(self._keys_main_reads()):
+            self.assertIn('"%s"' % key, source,
+                          "`main` reads %r and `play` never sets it" % key)
+
+    def test_the_stub_does_not_say_anything_twice(self):
+        """Python keeps the last of a repeated key without a word about it."""
+        import ast
+        import collections
+
+        with open(__file__) as fh:
+            tree = ast.parse(fh.read())
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Assign):
+                continue
+            if not any(isinstance(t, ast.Name) and t.id == "_PLAY_RUN"
+                       for t in node.targets):
+                continue
+            keys = [k.value for k in node.value.keys
+                    if isinstance(k, ast.Constant)]
+            twice = [k for k, n in collections.Counter(keys).items() if n > 1]
+            self.assertEqual(twice, [],
+                             "%s written more than once; Python keeps the "
+                             "last and drops the rest" % twice)
+            return
+        self.fail("could not find the _PLAY_RUN literal to check")
 
 
 class TestAnAlarmYouCanTrust(unittest.TestCase):
