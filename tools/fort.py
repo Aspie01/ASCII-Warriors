@@ -24,7 +24,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from ascii_warriors.data.calendar import TICKS_PER_DAY
 from ascii_warriors.engine.rng import RNG
-from ascii_warriors.fortress import buildings, sim
+from ascii_warriors.fortress import buildings, perform as perform_mod, sim
 from ascii_warriors.fortress.buildings import Building
 from ascii_warriors.fortress.fortress import Fortress
 from ascii_warriors.ui.fort.embark import suggest_site
@@ -254,7 +254,13 @@ def _clear_spot(fort, x, y, w, h, taken, *, soil=False):
 #: feed the fortress, the carpenter turns the felled trees into the beds, and
 #: the barracks is where the militia trains -- a squad with nowhere to train
 #: never picks up a weapon.
-PLAN = ["farm", "farm", "still", "carpenter", "barracks"] + ["bed"] * 7
+#: The tavern is the one building on this list that does nothing for
+#: survival. It is here because the ritual is the only place the game gets
+#: played end to end, and a driver that never builds one leaves gathering,
+#: performances, audience stress and the instrument pool running in no test
+#: at all -- a whole subsystem exercised only by unit fixtures. Measured over
+#: a settled fortnight before this: 0 performances in every ritual run ever.
+PLAN = ["farm", "farm", "still", "carpenter", "barracks", "tavern"] + ["bed"] * 7
 
 
 def _put_up_the_workshops(fort) -> Tuple[List[str], List[str], int, int]:
@@ -352,6 +358,33 @@ def _more_beds(fort) -> int:
     return put
 
 
+def _stock_the_tavern(fort) -> int:
+    """A small goods pile in the tavern, so the lute gets hauled to the music.
+
+    The carpenter finishes the lute at the workshop, and nothing moves an
+    item anywhere on its own: `_scan_stockpiles` posts hauling for goods a
+    stockpile wants, and a `goods` pile accepts category `tool`, which is
+    what every instrument is. The pile goes on the tavern's own walkable
+    cells -- within `TAVERN_RADIUS` of the spot `instruments()` measures
+    from -- so the haul that stocks the bar is the haul that stocks the band.
+
+    Returns how many cells of pile were laid.
+    """
+    from ascii_warriors.fortress.buildings import Stockpile
+
+    tavern = next((b for b in fort.buildings
+                   if b.kind == "tavern" and b.built), None)
+    if tavern is None:
+        return 0
+    cells = [c for c in tavern.cells() if fort.local.walkable(*c)]
+    if not cells:
+        return 0
+    x, y, z = cells[0]
+    pile = Stockpile("goods", x, y, z, 2, 2)
+    fort.stockpiles.append(pile)
+    return pile.w * pile.h
+
+
 def _queue_the_orders(fort) -> List[str]:
     """Standing orders at whatever got built."""
     queued = []
@@ -364,6 +397,13 @@ def _queue_the_orders(fort) -> List[str]:
         elif b.kind == "carpenter":
             b.orders.append({"recipe": "wood_bed", "count": 4, "repeat": False})
             queued.append("wood_bed")
+            # One lute, once. `instruments()` pools whatever lies within the
+            # tavern's radius, and a form played on the right instrument is
+            # worth `INSTRUMENT_BONUS` instead of `NO_INSTRUMENT` -- a
+            # twenty-two point swing nothing in the ritual had ever exercised.
+            b.orders.append({"recipe": "wood_lute", "count": 1,
+                             "repeat": False})
+            queued.append("wood_lute")
     return queued
 
 
@@ -462,6 +502,31 @@ class _Searches:
         }
 
 
+def _watch_the_tavern():
+    """Count performances as they happen, by quality band.
+
+    `perform.tick` returns a `Result` when somebody actually got up. The
+    result does not say what instrument the band played -- `score()` consults
+    the pool and discards the item -- so whether the lute mattered is read
+    off the *bands*: the right instrument is a twenty-two point swing, about
+    a band and a half, and `instruments()` says what was in the room. Wrapped
+    the same way the workshops are watched: events, not leftovers.
+    """
+    from ascii_warriors.game import performance as performance_mod
+
+    shows = collections.Counter()
+    real = perform_mod.tick
+
+    def counting(fort_, ticks):
+        result = real(fort_, ticks)
+        if result is not None:
+            shows[performance_mod.QUALITY_NAMES[result.band]] += 1
+        return result
+
+    perform_mod.tick = counting
+    return shows
+
+
 def _watch_the_workshops(fort):
     """Count what the workshops finish, by the kind of shop that finished it.
 
@@ -525,6 +590,7 @@ def play(seed: str, days: int, *, size: str = "small", history: int = 60,
     painted = dict(collections.Counter(fort.designations.cells.values()))
     built, unbuilt, felled, furthest = _put_up_the_workshops(fort)
     orders = _queue_the_orders(fort)
+    _stock_the_tavern(fort)
     militia = _raise_the_militia(fort)
     water = sum(1 for z in range(lm.zmin, lm.zmax + 1)
                 for y in range(lm.height) for x in range(lm.width)
@@ -545,6 +611,7 @@ def play(seed: str, days: int, *, size: str = "small", history: int = 60,
     # hour later are not the ones it died in.
     counted, stranded = set(), []
     made = _watch_the_workshops(fort)
+    shows = _watch_the_tavern()
     searches = _Searches()
     searches.__enter__()
     #: Days between the driver looking round for anybody without a bed.
@@ -589,6 +656,8 @@ def play(seed: str, days: int, *, size: str = "small", history: int = 60,
         "left": dict(left),
         "done": {k: painted[k] - left.get(k, 0) for k in painted},
         "idle": sum(1 for d in fort.dwarves() if d.fort.job is None),
+        "performances": dict(shows),
+        "instruments": [i.def_id for i in perform_mod.instruments(fort)],
         "alive": len(fort.dwarves()),
         "deaths": dict(causes),
         "low_food": low_food, "low_drink": low_drink,
@@ -620,7 +689,8 @@ REPORT_KEYS = (
     "water_cells", "aquifer", "thirst_in_reach", "made",
     "started_with", "alive", "idle", "deaths", "food", "drink",
     "low_food", "low_drink", "left_undug", "lost",
-    "wealth", "beds", "beds_added", "days", "searches",
+    "wealth", "beds", "beds_added", "days", "searches", "performances",
+    "instruments",
 )
 
 

@@ -10910,7 +10910,100 @@ Re-break: seven defects put back, seven caught, 0 misses — after one that
 missed because `sed` reports success when it replaces nothing, so an injection
 that never applied read as a guard that never fired. Injections assert now.
 
-## 166. Style
+## 166. The three quiet weeks (v4.06)
+
+Seed `fort` survives 28 days with all seven alive and works 85 designated
+cells — the same 85 it had worked by day 7. Three weeks in which nothing new
+happens. Chasing that answered §151.4's open question and closed a coverage
+hole the ritual has had since the fortress driver existed.
+
+### The quiet weeks are contentment, measured
+
+The first suspicion was the fortress failing to deliver work. It is the
+opposite: `left` is empty — the driver's plan is *finished*, everything
+painted got done. §151.1 already measured "keep marking" and reverted it
+(idleness unmoved, flood-fill cost ×88), so the question left was what the
+settled weeks feel like from inside. A traced settled day:
+
+| dwarf-turns | |
+| --- | --- |
+| stood still | 64% |
+| on a job | 28% |
+| moved without one | 8% |
+
+which looks damning and is not: over a settled fortnight the median stress is
+**−102** (deep contentment), all 21 pairs of founders hold a bond, and nobody
+dies. Three of four idle ticks stand still because `_idle` acts every fourth
+tick by design. §151.4 asked whether a settled fortress should be offered
+more to do; the measured answer is that it is *retired, not neglected*.
+
+### Two refutations worth the trip
+
+**A tavern is not a happiness machine.** With one built, four of seven
+dwarves end the week inside it and nine performances happen — and median
+stress *worsens* from −102 to −23. The swing is almost exactly the designed
+cost of nine bad shows (§`performance.AUDIENCE_STRESS`: a halting performance
+costs +3 per listener, and seven founders contain no musician). "A fortress
+with no musicians in it will hear some genuinely bad music" — it does, and it
+pays for it. Working as designed.
+
+**Bonds saturate without one.** 21 bonds either way, similar values. In a
+seven-dwarf fortress everybody already stands near everybody; the tavern's
+social value begins when the fortress is big enough to have strangers.
+
+(The first probe read `d.relationships` — a worldgen field — and reported
+zero bonds everywhere. Bonds live in `fort.bonds`. Measured twice.)
+
+### The coverage hole
+
+So the tavern earns its place in the driver's `PLAN` not for happiness but
+for **coverage**: the ritual is the only place the game is played end to end,
+and it had never once held a performance. Gathering, performances, audience
+stress, the instrument pool — all of it ran in unit fixtures only.
+
+The driver now builds a tavern, orders one `wood_lute` from the carpenter,
+and lays a 2×2 `goods` stockpile on the tavern's own cells. Every link is
+the game's own: the carpenter crafts the lute, `_scan_stockpiles` posts the
+haul because a `goods` pile accepts category `tool`, a hauler carries it in,
+and `instruments()` finds it within `TAVERN_RADIUS` of the spot it measures
+from. The haul that stocks the bar stocks the band.
+
+A fortnight of seed `fort` after the change:
+
+```
+performances  {'competent': 16, 'plain': 38, 'halting': 17, 'fine': 1}
+instruments   ['lute']
+```
+
+Seventy-two shows in four quality bands where every previous run had zero.
+Across the ritual's four seeds, three now hold performances every run; seed
+`alpha` builds the tavern and hauls the lute in and holds none — it spends
+its week with a breached magma pipe, an alarm and two dwarves bleeding to
+death, and a fortress under duress holding no concerts is the system reading
+the room, not a gap.
+
+`Result` carries no instrument field — `score()` consults the pool and
+discards the item — so the driver reports quality *bands* and the pool,
+rather than threading a new field through three tuned functions for a
+counter's sake.
+
+### Guards
+
+Five, in `TestTheDriverBuildsOneOfEverything`: the plan holds a tavern and
+the carpenter is ordered a lute; the goods pile lands on the tavern; a goods
+pile accepts a lute (the property the hauling chain hangs on — break any
+link and the lute sits at the carpenter for ever with nothing red anywhere);
+an instrument on the tavern floor is in the pool; and a settled fixture
+tavern holds a performance within 1500 steps, counted through `perform.tick`
+rather than by guessing at log strings — the first version grepped the log
+for "sings" and failed against a system that words its lines differently.
+
+`REPORT_KEYS` gains `performances` and `instruments`, and §152's stub guard
+forced the canned run to gain them in milliseconds, exactly as designed.
+
+Re-break: five defects put back, five caught, 0 misses.
+
+## 167. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

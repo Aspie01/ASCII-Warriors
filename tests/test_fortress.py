@@ -9553,6 +9553,7 @@ _DRIVER_RUN = {
     "searches": {"found": 1, "failed": 0, "nodes_per_success": 1,
                  "nodes_per_failure": 0, "nodes_total": 1, "fills": 0,
                  "fill_cells": 0, "nodes_and_fills": 1},
+    "performances": {"plain": 3}, "instruments": ["lute"],
 }
 
 
@@ -10633,6 +10634,123 @@ class TestBedsForWhoeverTurnsUp(unittest.TestCase):
         driver_fort._more_beds(fort)
         self.assertEqual(len(fort.jobs.jobs), before,
                          "putting up beds queued work for somebody")
+
+
+class TestTheDriverBuildsOneOfEverything(unittest.TestCase):
+    """The ritual is the only place the game is played end to end, and it
+    had never once held a performance.
+
+    The driver's `PLAN` was pure survival -- farms, still, carpenter,
+    barracks, beds -- so gathering, performances, audience stress and the
+    instrument pool ran in no ritual ever: measured over a settled fortnight,
+    **0 performances in every run the ritual has ever made**, against 72 the
+    fortnight after a tavern went on the list.
+
+    What the measurements around it settled is written in §166. The short
+    form: §151.4's open question -- should a settled fortress have more to do
+    -- got its answer, and the answer is that the three quiet weeks are
+    contentment (median stress −102, every pair of founders bonded, nobody
+    dead), not neglect. The tavern is on the list for *coverage*, not for
+    happiness: seven founders contain no musician, and nine bad performances
+    measurably cost the room more stress than standing in a corridor ever
+    did. That is the game working as designed, and now it is a game the
+    ritual actually plays.
+    """
+
+    def test_the_plan_has_a_tavern_and_the_carpenter_makes_a_lute(self):
+        """The configuration, so nobody trims either as an optimisation."""
+        self.assertIn("tavern", driver_fort.PLAN)
+        fort = embark("bandstand")
+        from ascii_warriors.fortress.buildings import Building
+
+        spot = _open_spot(fort, "carpenter")
+        carp = Building("carpenter", *spot)
+        carp.built = True
+        fort.buildings.append(carp)
+        driver_fort._queue_the_orders(fort)
+        recipes = [o["recipe"] for o in carp.orders]
+        self.assertIn("wood_lute", recipes)
+
+    def test_the_goods_pile_lands_on_the_tavern(self):
+        fort = embark("bandstand")
+        from ascii_warriors.fortress.buildings import Building
+
+        spot = _open_spot(fort, "tavern")
+        tavern = Building("tavern", *spot)
+        tavern.built = True
+        fort.buildings.append(tavern)
+        laid = driver_fort._stock_the_tavern(fort)
+        self.assertGreater(laid, 0, "no pile was laid")
+        pile = fort.stockpiles[-1]
+        self.assertEqual(pile.kind, "goods")
+        self.assertTrue(
+            any(pile.contains(*c) for c in tavern.cells()),
+            "the pile is nowhere on the tavern, so the haul that stocks it "
+            "does not stock the band")
+
+    def test_a_goods_pile_wants_a_lute(self):
+        """The property the whole hauling chain hangs on.
+
+        `_scan_stockpiles` posts hauling for what a pile `accepts`; a lute is
+        category `tool`; the `goods` pile lists `tool`. Break any link and
+        the lute stays at the carpenter for ever with nothing red anywhere.
+        """
+        from ascii_warriors.fortress.buildings import Stockpile
+        from ascii_warriors.game.item import make_item
+
+        pile = Stockpile("goods", 0, 0, 0, 2, 2)
+        lute = make_item(RNG("lute"), "lute")
+        self.assertTrue(pile.accepts(lute))
+
+    def test_an_instrument_on_the_tavern_floor_is_in_the_pool(self):
+        """`instruments()` measures from the spot, not the building's id."""
+        from ascii_warriors.fortress import perform
+        from ascii_warriors.fortress.buildings import Building
+        from ascii_warriors.fortress.dwarf import tavern_spot
+        from ascii_warriors.game.item import make_item
+
+        fort = embark("bandstand")
+        spot = _open_spot(fort, "tavern")
+        tavern = Building("tavern", *spot)
+        tavern.built = True
+        fort.buildings.append(tavern)
+        cell = tavern_spot(fort, tavern)
+        self.assertIsNotNone(cell)
+        fort.drop_item(make_item(RNG("lute"), "lute"), *cell)
+        pool = [i.def_id for i in perform.instruments(fort)]
+        self.assertIn("lute", pool)
+
+    def test_a_settled_tavern_holds_performances(self):
+        """The consequence, on the small fixture rather than the driver map."""
+        from ascii_warriors.fortress.buildings import Building
+
+        fort = embark("bandstand")
+        spot = _open_spot(fort, "tavern")
+        tavern = Building("tavern", *spot)
+        tavern.built = True
+        fort.buildings.append(tavern)
+        from ascii_warriors.fortress import perform
+
+        held = []
+        real = perform.tick
+
+        def counting(fort_, ticks):
+            result = real(fort_, ticks)
+            if result is not None:
+                held.append(result)
+            return result
+
+        perform.tick = counting
+        try:
+            for _ in range(1500):
+                sim.step(fort)
+                if held:
+                    break
+        finally:
+            perform.tick = real
+        self.assertTrue(held,
+                        "fifteen hundred settled steps around a tavern and "
+                        "nobody ever performed")
 
 
 class TestTheStubThatDriftedTwice(unittest.TestCase):
