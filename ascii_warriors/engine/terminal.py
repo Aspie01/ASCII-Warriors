@@ -21,13 +21,13 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 WINDOWS = sys.platform == "win32"
 
 CSI = "\x1b["
-ALT_SCREEN_ON = "\x1b[?1049h"
-ALT_SCREEN_OFF = "\x1b[?1049l"
-CURSOR_HIDE = "\x1b[?25l"
-CURSOR_SHOW = "\x1b[?25h"
-WRAP_OFF = "\x1b[?7l"
-WRAP_ON = "\x1b[?7h"
-SGR_RESET = "\x1b[0m"
+ALT_SCREEN_ON = CSI + "?1049h"
+ALT_SCREEN_OFF = CSI + "?1049l"
+CURSOR_HIDE = CSI + "?25l"
+CURSOR_SHOW = CSI + "?25h"
+WRAP_OFF = CSI + "?7l"
+WRAP_ON = CSI + "?7h"
+SGR_RESET = CSI + "0m"
 
 COLOR_MODES = ("auto", "truecolor", "256", "16", "mono")
 

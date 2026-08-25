@@ -145,6 +145,14 @@ def land_biomes() -> List[Biome]:
     return [b for b in BIOMES.values() if not b.is_water]
 
 
+#: Elevation above which a tile is mountain. Defined here, where the
+#: classification lives: worldgen carried its own copy of this number for
+#: the whole life of the project and `classify` never read it -- the two
+#: agreed by luck, which is the arrangement v4.05 catalogued for the
+#: water numbers. Worldgen imports it now.
+MOUNTAIN_LEVEL = 0.86
+
+
 def classify(
     elevation: float,
     rainfall: float,
@@ -162,7 +170,7 @@ def classify(
         if elevation < 0.18:
             return "deep_ocean"
         return "ocean"
-    if elevation > 0.86:
+    if elevation > MOUNTAIN_LEVEL:
         return "mountain"
     if temperature <= 5:
         return "glacier" if elevation > 0.55 else "tundra"

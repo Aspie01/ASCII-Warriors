@@ -12,7 +12,6 @@ from typing import Any, Dict, List, Mapping, Optional, Tuple
 from ..data.descriptors import skill_level_name
 
 MAX_LEVEL = 20
-LEVEL_NAMES: Tuple[str, ...] = tuple(skill_level_name(i) for i in range(MAX_LEVEL + 1))
 
 
 @dataclass(frozen=True)

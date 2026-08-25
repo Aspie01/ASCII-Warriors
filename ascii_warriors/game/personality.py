@@ -39,7 +39,6 @@ VALUE_NAMES: Dict[str, str] = {
     "sacrifice": "Sacrifice",
 }
 
-FACET_NAMES: Dict[str, str] = {f: f.replace("_", " ").title() for f in FACETS}
 
 #: Racial leanings applied on top of the neutral 50.
 RACE_BIAS: Dict[str, Dict[str, int]] = {

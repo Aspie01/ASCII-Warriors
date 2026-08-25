@@ -12,6 +12,7 @@ import math
 from typing import Any, Callable, Dict, List, Mapping, Optional, Set, Tuple
 
 from ..data import biomes as biome_data
+from ..data.biomes import MOUNTAIN_LEVEL  # noqa: F401 -- the map's number lives with the classifier
 from ..data import names as name_data
 from ..engine.noise import ValueNoise, erode, normalize_grid, smooth_grid
 from ..engine.rng import RNG
@@ -22,8 +23,6 @@ WORLD_SIZES: Dict[str, int] = {
 
 #: Elevation below which a tile is ocean.
 SEA_LEVEL = 0.42
-#: Elevation above which a tile is mountain.
-MOUNTAIN_LEVEL = 0.86
 
 Progress = Optional[Callable[[str, float], None]]
 

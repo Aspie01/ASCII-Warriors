@@ -97,7 +97,6 @@ TISSUES: Dict[str, Tissue] = {
 
 #: The usual outer stack for flesh-and-blood creatures.
 FLESH = ("skin", "fat", "muscle", "bone")
-FLESH_SOFT = ("skin", "fat", "muscle")
 SCALED = ("scale", "fat", "muscle", "bone")
 CHITINOUS = ("chitin", "fat", "muscle")
 FEATHERED = ("feather", "skin", "fat", "muscle", "bone")

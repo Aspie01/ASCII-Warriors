@@ -3736,6 +3736,199 @@ class TestTheCoinsNobodySpends(GameFixture):
         self.assertEqual(why["bought bandages"], 0)
 
 
+class TestTheConstantsNobodyReads(GameFixture):
+    """v4.12: a sweep for unread constants that nearly convicted a living
+    organ.
+
+    The sweep grepped for readers of `strain`, `SWELTER_THIRST`,
+    `FROSTBITE_ODDS` and found none -- and the first fix built a second
+    exposure producer in the game loop before the survey turned up
+    `heat.tick`: the facade that has fed `creature.exposure` for player,
+    NPC and dwarf alike since v3.18, calling all of those internally. The
+    duplicate was torn out the same day. What the sweep really convicted:
+    the v1 flat `is_cold` hunger line double-charging beside `heat.tick`'s
+    scaled one; `int()` truncation eating every weak exposure's surcharge
+    at one-tick turns; a mountain threshold the classifier never read; the
+    fuzz pool's hand-copied key list; the terminal spelling its escape
+    prefix eight times; and three constants -- FLESH_SOFT, LEVEL_NAMES,
+    FACET_NAMES -- that really were read by nothing and are gone.
+    """
+
+    def _wild_off(self):
+        for other in list(self.game.creatures.values()):
+            if not other.is_player:
+                self.game.creatures.pop(other.id, None)
+                self.game.scheduler.remove(other.id)
+
+    def _acclimatise(self, temp, calls=22):
+        """Let `heat.tick`'s gradual adjustment reach the strain: full
+        exposure takes ADJUST_TICKS (1600), and one big `player_acts`
+        call elapses about 77 ticks whatever is asked of it."""
+        tile = self.world.tile(self.game.player.wx, self.game.player.wy)
+        tile.temperature = temp
+        for _ in range(calls):
+            if self.game.game_over:
+                break
+            self.game.player_acts(60000)
+
+    def _window(self, turns=150):
+        p = self.game.player
+        before = (p.needs.thirst, p.needs.hunger)
+        for _ in range(turns):
+            if self.game.game_over:
+                break
+            self.game.player_acts(100)
+        return (p.needs.thirst - before[0], p.needs.hunger - before[1])
+
+    def _strip(self):
+        p = self.game.player
+        for slot, it in list(p.inventory.equipped.items()):
+            if it is not None and slot != "weapon":
+                p.inventory.unequip(slot)
+
+    def test_the_cold_now_reaches_the_one_tick_clock(self):
+        """A shivering local turn is one tick and its surcharge is a
+        fraction of a point; `int()` ate it whole, so an adventurer could
+        stand in a -30 winter for eighty combat turns and pay nothing
+        while a dwarf on the fortress's ten-tick step paid honestly."""
+        self._wild_off()
+        self._acclimatise(-40.0)
+        self.assertLess(self.game.player.exposure, -0.25)
+        thirst, hunger = self._window()
+        self.assertGreater(hunger, thirst,
+                           "the cold is not burning food any faster")
+
+    def test_the_heat_takes_your_water(self):
+        from ascii_warriors.world import heat
+
+        self._wild_off()
+        self._acclimatise(112.0)
+        self.assertGreater(self.game.player.exposure, 0.25)
+        self.assertNotEqual(heat.describe(self.game.player), "")
+        thirst, hunger = self._window()
+        self.assertGreater(thirst, hunger,
+                           "the manual promises heat takes your water")
+
+    def test_what_you_wear_keeps_it_off(self):
+        p = self.game.player
+        self._wild_off()
+        self._acclimatise(-40.0)
+        clothed = p.exposure
+        self._strip()
+        p.exposure = 0.0
+        p._exposure_debt = 0.0
+        self._acclimatise(-40.0)
+        stripped = p.exposure
+        self.assertLess(stripped, clothed - 0.15,
+                        "clothing kept nothing off: %.2f clothed, %.2f "
+                        "bare" % (clothed, stripped))
+
+    def test_a_worsening_stage_is_announced_not_droned(self):
+        self._wild_off()
+        self._acclimatise(-40.0, calls=30)
+        said = 0
+        for line in self.game.log.recent(400):
+            frags = line if isinstance(line, list) else [line]
+            text = " ".join(getattr(x, "text", str(x)) for x in frags)
+            said += text.count("You are cold.") + text.count(
+                "You are shivering.")
+        self.assertGreaterEqual(said, 1, "nobody was ever told")
+        self.assertLessEqual(said, 8,
+                             "the stage was droned %d times" % said)
+
+    def test_the_cold_takes_fingers_past_the_harm_line(self):
+        self._wild_off()
+        self._strip()
+        p = self.game.player
+        for _ in range(120):
+            if self.game.game_over:
+                break
+            digits = [part for pid, part in p.body.parts.items()
+                      if pid.endswith("_digits")]
+            if any(part.wounds for part in digits):
+                break
+            self._acclimatise(-75.0, calls=1)
+        digits = [part for pid, part in p.body.parts.items()
+                  if pid.endswith("_digits")]
+        self.assertTrue(digits, "this body has no fingers to lose")
+        self.assertTrue(any(part.wounds for part in digits),
+                        "nine thousand ticks bare at -75 and the cold "
+                        "never touched a finger")
+
+    def test_the_unaffected_read_zero(self):
+        from ascii_warriors.world import heat
+
+        self._wild_off()
+        real = heat.unaffected
+        heat.unaffected = lambda c: True
+        try:
+            self._acclimatise(-40.0, calls=5)
+        finally:
+            heat.unaffected = real
+        self.assertEqual(self.game.player.exposure, 0.0)
+
+    def test_a_cold_snap_is_charged_once_not_twice(self):
+        """The v1 flat `is_cold` line stood in the loop beside
+        `heat.tick`'s scaled charge from v3.18 on: snow on a mild day
+        double-charged hunger half a point a tick for no exposure at
+        all."""
+        self._wild_off()
+        p = self.game.player
+        self.game.weather.kind = "snow"
+        tile = self.world.tile(p.wx, p.wy)
+        tile.temperature = 40.0
+        for _ in range(5):
+            self.game.player_acts(100)
+        before = (p.needs.thirst, p.needs.hunger)
+        for _ in range(200):
+            if self.game.game_over:
+                break
+            self.game.player_acts(100)
+        thirst = p.needs.thirst - before[0]
+        hunger = p.needs.hunger - before[1]
+        self.assertLess(
+            hunger - thirst, 60,
+            "snow at a mild %d hunger over %d thirst: the flat "
+            "half-a-tick surcharge is back" % (hunger, thirst))
+
+    def test_the_map_and_the_classifier_share_the_mountain_line(self):
+        from ascii_warriors.data import biomes
+        from ascii_warriors.world import worldgen
+
+        self.assertIs(worldgen.MOUNTAIN_LEVEL, biomes.MOUNTAIN_LEVEL)
+        above = biomes.classify(biomes.MOUNTAIN_LEVEL + 0.01, 0.3, 40.0,
+                                0.5, is_water=False)
+        below = biomes.classify(biomes.MOUNTAIN_LEVEL - 0.01, 0.3, 40.0,
+                                0.5, is_water=False)
+        self.assertEqual(above, "mountain")
+        self.assertNotEqual(below, "mountain",
+                            "the classifier no longer turns at the line "
+                            "the map publishes")
+
+    def test_the_fuzz_pool_knows_every_named_key(self):
+        """F4 through F9, F11 and F12 existed in `keys.NAMED_KEYS` and no
+        fuzz run had ever pressed one: the pool was a hand copy."""
+        from ascii_warriors.engine import keys
+        from tools import fuzz
+
+        for k in keys.NAMED_KEYS:
+            self.assertIn(k, fuzz.POOL, "%s is a key no fuzz presses" % k)
+
+    def test_the_terminal_spells_escape_once(self):
+        import inspect
+
+        from ascii_warriors.engine import terminal
+
+        src = inspect.getsource(terminal)
+        head = src[:src.index("COLOR_MODES")]
+        self.assertEqual(
+            head.count("\\x1b["), 1,
+            "the escape prefix is spelled out %d times in the constants "
+            "that exist so it is spelled once"
+            % head.count("\\x1b["))
+        self.assertTrue(terminal.ALT_SCREEN_ON.startswith(terminal.CSI))
+
+
 class TestTheWild(GameFixture):
     """BENIGN, AMBUSHER and VERMIN, finally read by something."""
 

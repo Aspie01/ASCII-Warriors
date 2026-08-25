@@ -399,10 +399,20 @@ def tick(creature, temp: float, ticks: int, rng, log=None) -> List[str]:
             creature.needs.add_thought("caught out in the weather", 4 * now)
 
     mag = abs(have)
+    # Charged through a fractional carry: a shivering local turn is one
+    # tick, its surcharge is 0.29 of a point, and `int()` ate it whole --
+    # measured, an adventurer could stand in a -30 winter for eighty combat
+    # turns and pay nothing, while a dwarf on the fortress's ten-tick step
+    # paid honestly. The carry is transient by design: losing it in a save
+    # costs under a point.
+    debt = getattr(creature, "_exposure_debt", 0.0)
     if have < 0:
         # Keeping warm is expensive. This is the one cold effect that was
         # already here in v1, kept because it was right.
-        creature.needs.hunger += int(ticks * (CHILL_HUNGER - 1.0) * mag)
+        debt += ticks * (CHILL_HUNGER - 1.0) * mag
+        whole = int(debt)
+        debt -= whole
+        creature.needs.hunger += whole
         if mag >= HARM_AT:
             odds = FROSTBITE_ODDS * (ticks / 600.0) * (mag - HARM_AT) / 0.4
             if rng.chance(min(0.9, odds)):
@@ -411,9 +421,13 @@ def tick(creature, temp: float, ticks: int, rng, log=None) -> List[str]:
                     creature, "frostbite", "", rng=rng, log=log,
                     prefer=FROST_TARGET)
     elif have > 0:
-        creature.needs.thirst += int(ticks * (SWELTER_THIRST - 1.0) * mag)
+        debt += ticks * (SWELTER_THIRST - 1.0) * mag
+        whole = int(debt)
+        debt -= whole
+        creature.needs.thirst += whole
         if mag >= HARM_AT:
             creature.needs.exert(int(ticks * mag / 40.0))
+    creature._exposure_debt = debt
     return msgs
 
 

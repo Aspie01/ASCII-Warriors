@@ -11373,7 +11373,62 @@ Re-break: four defects put back — the shopping removed, bare stalls
 forgotten, shopping for its own sake, the purse never checked — four
 caught, 0 misses.
 
-## 172. Style
+## 172. The constants nobody reads (v4.12)
+
+v4.05's lesson, run as a sweep: grep every long-suspected constant for
+readers, and make each one either read or gone. The sweep's own instrument
+promptly demonstrated the §168 lesson at full size. `strain`,
+`SWELTER_THIRST`, `FROSTBITE_ODDS`, `insulation`, `stage` — all zero
+readers outside `world/heat.py` — and a first fix built a second exposure
+producer into the game loop before the survey turned up **`heat.tick`**:
+the façade that has fed `creature.exposure` for player, NPC and fortress
+dwarf alike since v3.18, reading every one of those names internally. The
+manual's COLD AND HEAT chapter was true all along; the duplicate producer
+was torn out the same day it was written. A name-grep calls a living
+façade dead: the readers of a system are not the readers of its parts.
+
+What the sweep really convicted, each fixed and each with a guard:
+
+- **The v1 double-charge.** `if weather.is_cold(): hunger += ticks // 2`
+  stood in the loop beside `heat.tick`'s scaled, clothing-aware
+  `CHILL_HUNGER` charge — `heat.tick`'s own comment calls the v1 effect
+  "kept because it was right", and it was: kept *there*. Snow on a mild
+  day double-charged half a point a tick for no exposure at all. Deleted.
+- **Truncation starving weak exposures.** A shivering local turn is one
+  tick and its surcharge 0.29 of a point; `int()` ate it whole, so an
+  adventurer could stand in a −30 winter for eighty combat turns and pay
+  nothing while a dwarf on the fortress's ten-tick step paid honestly.
+  `heat.tick` carries the fraction now (transient, under a point at
+  stake).
+- **The mountain line the classifier never read.** `worldgen` published
+  `MOUNTAIN_LEVEL = 0.86` and `biomes.classify` turned at a literal
+  `0.86` of its own — agreeing by luck, the water-numbers arrangement of
+  §165. The number lives with the classifier now and worldgen imports it.
+- **The hand-copied key list.** `keys.NAMED_KEYS` held F4–F9, F11 and
+  F12; the fuzz pool was a drifted copy and no fuzz run had ever pressed
+  them. The pool derives from the table.
+- **The escape prefix spelled eight times.** `terminal.CSI` existed so
+  "\x1b[" is spelled once; its own siblings spelled it out. They are
+  built from `CSI` now.
+- **Three constants read by nothing at all** — `FLESH_SOFT` (a tissue
+  stack no body plan uses), `LEVEL_NAMES` and `FACET_NAMES` (precomputed
+  copies of functions everyone calls directly) — deleted.
+
+The guard fixtures earned their §170-style footnotes: `player_acts`
+charges energy at about a tick per hundred and `advance` caps its
+creature loop, so one call elapses ~77 ticks whatever is asked — two
+fixture drafts thought they had bought six hundred; and the hour swings
+felt temperature enough that a clothing-severed build passed a
+same-question-later comparison, so the wear guard demands a margin no
+clock drift can fake.
+
+Recorded, not chased: `urists` and `melts_at` remain unread outside
+heat.py (the material-table bridge, †for the day fire meets inventory);
+and the fortress-mode HOT-biome creature table is thin.
+
+Re-break: ten defects put back, ten caught, 0 misses.
+
+## 173. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

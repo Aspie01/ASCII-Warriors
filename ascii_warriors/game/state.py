@@ -1081,10 +1081,16 @@ class Game:
             # nothing has ever cared whether it was raining; this is the
             # reason to set out after the storm rather than during it.
             tracks_mod.wipe(self, WASHOUT_PER_TICK * ticks)
-        if self.weather.is_cold() and self.local is not None \
-                and self.local.is_outside(p.x, p.y, p.z):
-            # Keeping warm burns food faster.
-            p.needs.hunger += ticks // 2
+        # v4.12 note: the flat `is_cold` hunger surcharge that stood here
+        # from v1 was a duplicate. `heat.tick`, three hundred lines up, has
+        # charged CHILL_HUNGER for cold -- scaled by exposure, through
+        # clothing -- since v3.18, and its own comment calls the v1 effect
+        # "kept because it was right": kept *there*. Standing here as well,
+        # a cold snap charged hunger twice. The sweep that found this
+        # started from a grep for readers of `strain` and `SWELTER_THIRST`,
+        # found none, and nearly convicted a living system: they are
+        # internal to the `heat.tick` facade, which player, NPC and dwarf
+        # loops all call. The instrument's grid, again.
 
         msgs = p.needs.tick(ticks, p, self)
         for m in msgs:

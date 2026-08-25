@@ -15,6 +15,7 @@ import sys
 import traceback
 from typing import List, Optional, Sequence
 
+from ascii_warriors.engine import keys
 from ascii_warriors.engine.terminal import HeadlessTerminal, QuitSignal
 from ascii_warriors.ui.app import App
 from tools import scratch_saves
@@ -25,10 +26,12 @@ POOL: List[str] = (
     + list("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
     + list("0123456789")
     + list("<>+-=?/.,;:'\"[]{}()!@#$%^&*_|\\~`")
-    + ["UP", "DOWN", "LEFT", "RIGHT", "ENTER", "TAB", "BACKTAB", "SPACE",
-       "HOME", "END", "PGUP", "PGDN", "BACKSPACE", "DELETE", "INSERT"]
+    # Every named key the engine knows, from the one table that names them.
+    # This used to be a hand-copied list that had drifted: F4 through F9,
+    # F11 and F12 existed in `keys.NAMED_KEYS` and no fuzz run had ever
+    # pressed one.
+    + [k for k in keys.NAMED_KEYS if k != keys.ESC]
     + ["ESC"] * 4
-    + ["F1", "F2", "F3", "F10"]
 )
 
 #: Enough to get into each mode before the random keys start.
