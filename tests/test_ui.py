@@ -1629,11 +1629,16 @@ class TestThePatienceNobodySpends(unittest.TestCase):
         wholesale would spray write-offs everywhere and move all four
         numbers.
         """
-        for seed, owed in (("play", 0), ("t", 0), ("hero", 2), ("quest", 0)):
+        # A bound, not a trajectory: v4.10 pinned seed `hero` at exactly
+        # its two earned write-offs and v4.11's shopping rerolled the life
+        # to zero within a milestone -- per-seed trajectories move whenever
+        # the driver learns anything. What must never happen is the spray:
+        # a patience broken wholesale writes off dozens per run.
+        for seed in ("play", "t", "hero", "quest"):
             out = self._play(seed)
-            self.assertEqual(out["gave_up"], owed,
-                             "%s wrote off %d target(s), %d earned"
-                             % (seed, out["gave_up"], owed))
+            self.assertLessEqual(out["gave_up"], 2,
+                                 "%s wrote off %d targets in one run"
+                                 % (seed, out["gave_up"]))
 
     def test_the_bound_is_looser_than_a_walk_across_the_map(self):
         """Or the driver gives up on things it was about to reach.

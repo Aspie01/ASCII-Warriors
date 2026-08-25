@@ -11314,7 +11314,66 @@ Re-break: nine defects put back — spray targeting, stickiness, the decline,
 the stall book, the muster, dry jobs, forgiveness, both halves of the
 board's judgement — nine caught, 0 misses.
 
-## 171. Style
+## 171. The coins nobody spends (v4.11)
+
+The road-death thread opened with a hypothesis and closed it honestly: the
+night is not the killer. Instrumented over the 24-seed census, 17 of 24
+deaths fall in daylight and night-outdoor exposure (0.29 of outdoor turns)
+is roughly night's share of the clock. What the counters had been saying
+all along stood up instead: of 24 lives, **nine ran out of bandages and
+spent 217 turns "bleeding, and nothing to bind it with"** — and died
+holding 17 to 175 coins. **1,784 coins died unspent** across the census,
+in a world where every general merchant and priest stocks the remedy at
+about seven coins a strip.
+
+Three defects stacked, each found by the fix for the last:
+
+- **The driver never shopped.** It now tops up to `KEEP_BANDAGES` in town,
+  through the game's own counter: `trade.stock_merchant`, `for_sale`,
+  `price_to_buy`, `trade.buy`.
+- **It topped up at the wrong moment.** The first draft bought when the
+  roll ran low — and low happens at the site, mid-fight, where no merchant
+  stands and no turn is free. Seed adv3 bled out its 55-turn famine with
+  the trigger armed and nobody to sell to it. Shopping is what the town is
+  for, while the town is underfoot.
+- **It browsed empty counters and grabbed the wrong roll.** Merchants
+  stock lazily — `stock_merchant` fills a stall the first time anybody
+  talks trade, so a driver that only browsed saw nothing for sale,
+  anywhere, ever. And the first bandage on a stocked counter is the
+  merchant's *own* (everybody carries one since v3.63), priced at ~45
+  coins of personal cloth: the first draft grabbed it, found it
+  unaffordable, and marked the whole stall bare. It buys the cheapest roll
+  on the counter now, and remembers stalls that truly have none.
+
+Same 24 seeds after: **four lives survive the full 16,000-turn budget**
+(there were zero); dead 24 → 20; median life 240 turns against v4.10's
+~200 and the original 122; 23 of 24 lives buy bandages; famine lives 9 →
+6. The residual famine (205 turns, most of it two long lives) is
+rate-capped bleeding in melees that outrun any binding — a fact about
+fights, not supply, and it is the recorded next thread along with
+overworld pack mortality.
+
+The fixtures had their own lesson to repeat: a hand-rolled
+`Item("bandage", "pig_tail_cloth")` prices at ~45 and the fixture's whole
+purse was 28, so the first guard draft watched the driver "refuse" a
+stall it could never afford; and a lazily-stocked test stall can honestly
+roll no bandages and hide a broken gate behind "no bandages". Both
+fixtures build their stalls the way `stock_merchant` does, pinned.
+
+The full suite then moved two fixtures pinned to trajectories: v4.10's
+muster guard now arrives with a full bandage roll, because the resupply
+rightly shops before the hire and the fixture's half-empty roll sent the
+errand to the counter instead; and the patience test — updated to seed
+`hero`'s exact two write-offs only one milestone ago — asserts the bound
+now (≤ 2 per run, never the spray), because per-seed trajectories move
+whenever the driver learns anything, and what the test exists to catch
+is a patience broken wholesale.
+
+Re-break: four defects put back — the shopping removed, bare stalls
+forgotten, shopping for its own sake, the purse never checked — four
+caught, 0 misses.
+
+## 172. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

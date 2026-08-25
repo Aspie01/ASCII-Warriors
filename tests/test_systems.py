@@ -3491,6 +3491,12 @@ class TestTheQuestsNobodyEverFinished(GameFixture):
         coin = Item("coin", "gold")
         coin.count = 2000
         p.inventory.add(coin)
+        # A full bandage roll, or v4.11's resupply -- which rightly runs
+        # before the muster; you shop for the road before you hire for it --
+        # takes this turn to go shopping and the hire never fires.
+        roll = Item("bandage", "pig_tail_cloth")
+        roll.count = play.KEEP_BANDAGES
+        p.inventory.add(roll)
         play._errand(self.game, why)
         self.assertEqual(why["hired a sword"], 1)
         self.assertEqual(len(companion_mod.companions_of(self.game)), 1,
@@ -3610,6 +3616,124 @@ class TestTheQuestsNobodyEverFinished(GameFixture):
         self.assertEqual(q.state, "done",
                          "the driver could not close a two-kobold site: %r"
                          % dict(why))
+
+
+class TestTheCoinsNobodySpends(GameFixture):
+    """v4.11: nine census lives bled out their famine holding a full purse.
+
+    Of 24 lives, the nine that ran out of bandages spent 217 turns
+    "bleeding, and nothing to bind it with" and died holding 17 to 175
+    coins, in a world where every general merchant and priest stocks the
+    remedy -- 1784 coins died unspent. Two defects met: the driver never
+    shopped, and merchants stock lazily (`stock_merchant` fills a stall the
+    first time anybody talks trade), so a driver that only browsed saw
+    empty counters everywhere.
+    """
+
+    def _merchant(self, dx=1, dy=0, seed="stall"):
+        m = make_creature(RNG(seed), "human", faction="citizen")
+        m.profession = "merchant"
+        p = self.game.player
+        m.x, m.y, m.z = p.x + dx, p.y + dy, p.z
+        self.game.add_creature(m)
+        return m
+
+    def _strip_bandages(self):
+        p = self.game.player
+        for it in list(p.inventory.items):
+            if it.def_id == "bandage":
+                p.inventory.items.remove(it)
+
+    def test_a_town_that_sells_bandages_gets_the_coin(self):
+        from tools import play
+
+        self._strip_bandages()
+        why = collections.Counter()
+        m = self._merchant()
+        # The stall's stock is 6-14 random rolls of a 38-item table, so a
+        # lazily-stocked fixture may honestly roll no bandages; this test is
+        # about the *buying*, so the counter is set deterministically.
+        m.speech["stocked"] = True
+        # Built the way `stock_merchant` builds it: a hand-rolled
+        # Item("bandage", "pig_tail_cloth") prices its cloth at ~45 coins a
+        # strip and the fixture's whole purse is 28 -- the first draft of
+        # this test discovered the driver "refusing" a stall it could
+        # never afford.
+        from ascii_warriors.game.item import make_item
+        m.inventory.add(make_item(RNG("roll"), "bandage", count=6))
+        p = self.game.player
+        before = sum(i.count for i in p.inventory.items
+                     if i.def_id == "coin")
+        self.assertGreaterEqual(before, 10, "the fixture arrived broke")
+        play._errand(self.game, why)
+        self.assertEqual(why["bought bandages"], 1)
+        self.assertGreater(
+            sum(i.count for i in p.inventory.items
+                if i.def_id == "bandage"), 0,
+            "paid and got nothing")
+        self.assertLess(sum(i.count for i in p.inventory.items
+                            if i.def_id == "coin"), before,
+                        "got bandages and kept the coin")
+
+    def test_a_stall_with_nothing_to_sell_is_remembered(self):
+        from tools import play
+
+        self._strip_bandages()
+        why = collections.Counter()
+        m = self._merchant()
+        # Stocked, and stocked with nothing: the lazy-stocking flag is set
+        # so the driver's own stocking call is a no-op and the counter is
+        # honestly bare.
+        m.speech["stocked"] = True
+        play._errand(self.game, why)
+        self.assertEqual(why["the stall had no bandages"], 1)
+        self.assertIn(m.id, play._patience(self.game)["bare_stalls"])
+        why2 = collections.Counter()
+        play._errand(self.game, why2)
+        self.assertEqual(why2["the stall had no bandages"], 0,
+                         "it went back to the counter it knows is bare")
+
+    def test_a_full_roll_is_not_topped_up(self):
+        from tools import play
+
+        p = self.game.player
+        self._strip_bandages()
+        roll = Item("bandage", "pig_tail_cloth")
+        roll.count = play.KEEP_BANDAGES
+        p.inventory.add(roll)
+        why = collections.Counter()
+        m = self._merchant()
+        # A stall guaranteed to sell, so the only thing keeping the coin in
+        # the purse is the full roll -- a random stall can be honestly bare
+        # and hide a broken gate behind "no bandages".
+        from ascii_warriors.game.item import make_item
+        m.speech["stocked"] = True
+        m.inventory.add(make_item(RNG("roll3"), "bandage", count=6))
+        play._errand(self.game, why)
+        self.assertEqual(why["bought bandages"], 0,
+                         "shopping for its own sake")
+
+    def test_an_empty_purse_stays_home(self):
+        from tools import play
+
+        p = self.game.player
+        self._strip_bandages()
+        for it in list(p.inventory.items):
+            if it.def_id == "coin":
+                p.inventory.items.remove(it)
+        # Nobody else on the map: with only a stall in walking range and
+        # nothing in the purse, the whole errand must have no move to make
+        # -- a walk toward that counter is the coins gate broken.
+        for other in list(self.game.creatures.values()):
+            if not other.is_player:
+                self.game.creatures.pop(other.id, None)
+                self.game.scheduler.remove(other.id)
+        why = collections.Counter()
+        m = self._merchant(dx=5)
+        m.ai = None
+        cost = play._errand(self.game, why)
+        self.assertIsNone(cost, "broke, and it still went shopping")
+        self.assertEqual(why["bought bandages"], 0)
 
 
 class TestTheWild(GameFixture):

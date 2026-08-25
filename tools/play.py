@@ -44,6 +44,7 @@ from ascii_warriors.engine.rng import RNG
 from ascii_warriors.game import actions
 from ascii_warriors.game import conversation as conv
 from ascii_warriors.game import companions as companion_mod
+from ascii_warriors.game import trade
 from ascii_warriors.game.state import Game
 from ascii_warriors.world.worldgen import generate_world
 from tools import scratch_saves
@@ -836,6 +837,16 @@ def _sign(n: int) -> int:
     return (n > 0) - (n < 0)
 
 
+#: Bandages the driver keeps stocked when a town can sell them. Four is the
+#: starting kit's worth, and the census line it comes from is sharp: of 24
+#: lives, the nine that ran dry spent 217 turns "bleeding, and nothing to
+#: bind it with" and died holding 17 to 175 coins -- a purse that buys the
+#: remedy several times over -- while no life that died still holding
+#: bandages ever logged a famine turn. Topped up to this whenever a town
+#: that sells them is underfoot.
+KEEP_BANDAGES = 4
+
+
 #: Fight turns against the same foe with nothing on its body changing before
 #: the driver stops swinging at it. A skeleton against a sword is the case in
 #: the data -- "swords and hammers still glance off it" is a designed fact
@@ -1001,6 +1012,57 @@ def _errand(game, why) -> Optional[int]:
         if cost is not None:
             why["working"] += 1
             return cost
+
+    # The one cause of death in the whole census is bleeding, the world
+    # sells bandages in every town, and 1784 coins died unspent across 24
+    # lives before anybody thought to shop. Topped up *in town*, any time
+    # under the bound: the first draft waited for the roll to run low, and
+    # low happens at the site, mid-fight, where no merchant stands and no
+    # turn is free. And the stall is stocked the way the shop screen does it
+    # -- `stock_merchant` fills a trader the first time anybody talks trade,
+    # so a driver that only ever browsed saw empty counters everywhere.
+    have = sum(i.count for i in p.inventory.items if i.def_id == "bandage")
+    coins = sum(i.count for i in p.inventory.items if i.def_id == "coin")
+    if have < KEEP_BANDAGES and coins >= 10:
+        book = _patience(game)
+        bare = book.setdefault("bare_stalls", set())
+        stalls = [
+            c for c in game.creatures.values()
+            if not c.is_player and not c.body.dead and c.id not in bare
+            and trade.is_trader(c) and not c.is_hostile_to(p)
+            and "bandage" in trade.STOCK_TABLES.get(
+                trade.trader_kind(c) or "merchant", ())
+        ]
+        if stalls:
+            merchant = min(stalls, key=lambda c: max(abs(c.x - p.x),
+                                                     abs(c.y - p.y)))
+            if _beside(game, merchant):
+                trade.stock_merchant(merchant, game.rng)
+                # The cheapest roll on the counter, not the first: everybody
+                # in the world carries a personal bandage (v3.63), a
+                # merchant's own is on the counter too, and its cloth prices
+                # at ~45 a strip against ~7 for shop stock. The first draft
+                # grabbed it, found it unaffordable, and called the whole
+                # stall bare.
+                rolls = [i for i in trade.for_sale(merchant)
+                         if i.def_id == "bandage"]
+                roll = min(rolls, key=lambda i: trade.price_to_buy(
+                    i, merchant, p, game)) if rolls else None
+                unit = (trade.price_to_buy(roll, merchant, p, game)
+                        if roll is not None else 0)
+                if roll is None or unit > coins:
+                    bare.add(merchant.id)
+                    why["the stall had no bandages"] += 1
+                    return actions.wait(game)
+                count = max(1, min(roll.count, KEEP_BANDAGES - have,
+                                   coins // max(1, unit)))
+                ok, _message = trade.buy(game, merchant, roll, count)
+                why["bought bandages" if ok else "the shop refused"] += 1
+                if not ok:
+                    bare.add(merchant.id)
+                return actions.wait(game)
+            if _worth_chasing(game, merchant):
+                return _walk_toward(game, merchant.x, merchant.y, merchant.z)
 
     # Work that means fighting several of them means not going alone. A
     # clear_site is three to eight foes and a slay_beast is a megabeast; the
