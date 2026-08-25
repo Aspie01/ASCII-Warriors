@@ -11075,7 +11075,91 @@ apart from "died first". The crediting is now sound either way; the
 completion rates belong to a later look at why adventurers die at median 143
 turns.
 
-## 168. Style
+## 168. The raid the ritual never saw (v4.08)
+
+Grepped over a full ritual's fortress logs: **zero sieges, zero thieves, zero
+beasts, zero alarms, four seeds.** Sieges and thieves run on a clock measured
+in seasons and the driver runs seven days, so the militia raised in v3.80,
+the alarm watch fixed in v3.93, the burrow, the traps and everything in
+`war.py` ran in no end-to-end test at all. The defence half of the game had
+unit fixtures and nothing else — the same shape as §166's tavern, for the
+half of the game that kills fortresses.
+
+The driver stages a raid on day three now, through `sim.spawn_attack` — the
+game's own raid entry — and the report carries what happened:
+
+```
+raid  {'foes': 3, 'day': 3, 'alarm_rose': True, 'cleared_by': 3,
+       'dwarves_lost': 1}
+```
+
+Seed `fort`, first staged run: three goblins landed, the alarm rose, the raid
+was cleared the same day, one dwarf died doing it. A real battle in every
+ritual run from now on.
+
+The driver holds §153's guarantee — something hostile arrives and the watch
+raises the alarm — and deliberately does not assert the fight is *won*:
+whether seven dwarves beat three goblins is the fortress playing well or
+badly, and the driver's charter is to report that, not to demand it.
+
+### The instrument libelled the alarm
+
+The first cut polled `fort.military.alarm` at the end of each day, and its
+very first run printed:
+
+> FORT PROBLEM: a raid of 3 landed on day 3 and the alarm never rose
+
+over a fortress that had raised the alarm, fought under it, and stood down
+correctly — the whole battle fit inside day three, and §153's watch had
+called all-clear before the sample. The defect v3.93 fixed was reported as
+having returned, by a measurement grid too coarse to see it working. Same
+lesson as §159's flood fill from a treetop: the instrument's grid, not the
+game. The driver hooks `sound_alarm` now, so the record is of the event,
+whenever inside the day it happened.
+
+`deaths` in the report counts every creature on the map, raiders included —
+so the raid line carries `dwarves_lost` separately, measured across the
+fight, and the two cannot be conflated.
+
+### Guards
+
+Five, in `TestTheRaidTheRitualNeverSaw`: the raid constants keep it inside
+the ritual window; a raid whose bell never rang is a problem; a run too short
+to reach the raid is not blamed; the alarm is read from the event and not a
+sample; and `play` actually calls `spawn_attack` — added by the re-break,
+because every reporting test replays a canned result, so a driver that
+quietly stopped spawning would keep them all green while the ritual went
+back to never seeing a hostile.
+
+### The seed that cost twenty-one minutes, found by a timeout
+
+Verifying the raid across the seeds, `alpha` hit a fifteen-minute cap that
+the other three finished inside two. Profiled: **day one alone takes ~300
+seconds**, before the raid ever lands — the raid was innocent. The ritual
+logs still on disk carried the history:
+
+| | failed searches | nodes | fills |
+| --- | --- | --- | --- |
+| `alpha`, r401 through r405 | 3747 | 22.6M | 2035 |
+| `alpha`, r406–r407 | 3575 | 21.6M | 1730 |
+| `fort`, same ritual | **0** | 36k | **4** |
+
+Constant since at least v4.01 — this predates the raid, the tavern and the
+crediting, and it was ruled out as the stockpile and as §159's second-pass
+`path_to` by profiling with each removed. One seed has been spending
+twenty-one minutes per ritual failing the same searches at full budget, and
+nothing noticed, because the ritual reports OK or FAIL and never how long a
+seed took.
+
+So the driver reports `seconds` now. The pathology itself — 3747 searches
+failing at the full 6000-node budget on the map whose magma keeps moving the
+walls — is deliberately **not** chased inside this milestone: §151 is a
+standing warning about exactly this economics, and it deserves its own
+measurement, not a rider. It is the named candidate for the next milestone.
+
+Re-break: four defects put back, four caught, 0 misses.
+
+## 169. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

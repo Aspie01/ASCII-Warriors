@@ -20,6 +20,7 @@ from __future__ import annotations
 import argparse
 import collections
 import sys
+import time
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from ascii_warriors.data.calendar import TICKS_PER_DAY
@@ -31,6 +32,13 @@ from ascii_warriors.ui.fort.embark import suggest_site
 from ascii_warriors.world import tiles as tile_data
 from ascii_warriors.world.worldgen import generate_world
 from tools import scratch_saves
+
+#: When the staged raid lands, and how many come. Day three of seven: the
+#: militia has had two days to equip and train, and four days remain for the
+#: fight and the burying. Three raiders against seven dwarves and a two-dwarf
+#: militia is the fight `spawn_attack`'s own tests call survivable.
+RAID_DAY = 3
+RAID_STRENGTH = 3
 
 #: One simulation step is `sim.STEP_TICKS`; a day is this many steps.
 STEPS_PER_DAY = TICKS_PER_DAY // sim.STEP_TICKS
@@ -586,6 +594,7 @@ def play(seed: str, days: int, *, size: str = "small", history: int = 60,
     fort = Fortress.embark(world, wx, wy, RNG(seed).sub("f"))
     lm = fort.local
 
+    began = time.time()
     dug = _dig_out_the_fortress(fort)
     painted = dict(collections.Counter(fort.designations.cells.values()))
     built, unbuilt, felled, furthest = _put_up_the_workshops(fort)
@@ -617,8 +626,40 @@ def play(seed: str, days: int, *, size: str = "small", history: int = 60,
     #: Days between the driver looking round for anybody without a bed.
     season = 28
     made_beds = 0
+    #: The raid. Real sieges and thieves arrive on a clock measured in
+    #: seasons, and this driver runs seven days -- so across every ritual run
+    #: ever made, no fortress once saw a hostile: the militia, the alarm
+    #: watch, the burrow, the traps and everything in `war.py` ran in no
+    #: end-to-end test at all. Day three, through `sim.spawn_attack`, which
+    #: is the game's own raid entry: late enough that the militia has kitted
+    #: up, small enough that a seven-dwarf fortress is meant to survive it.
+    raid = {"foes": 0, "day": RAID_DAY, "alarm_rose": False,
+            "cleared_by": None, "dwarves_lost": 0}
+    raiders: List[Any] = []
+    # Event-true, not sampled. The first cut of this polled
+    # `fort.military.alarm` at the end of each day, and the raid was met,
+    # fought and cleared inside day three -- the watch had already called
+    # all-clear by the sample, so the driver's very first run reported "the
+    # alarm never rose" over a fortress that had raised it, fought under it
+    # and stood down correctly. The same mistake as measuring reachability
+    # from a treetop: the instrument's grid, not the game.
+    real_alarm = fort.military.sound_alarm
+
+    def noting_alarm(log=None):
+        raid["alarm_rose"] = True
+        return real_alarm(log)
+
+    fort.military.sound_alarm = noting_alarm
+    dwarves_at_raid = 0
     for day in range(days):
+        if day + 1 == RAID_DAY and days >= RAID_DAY:
+            dwarves_at_raid = len(fort.dwarves())
+            raiders = sim.spawn_attack(fort, RAID_STRENGTH)
+            raid["foes"] = len(raiders)
         sim.run(fort, STEPS_PER_DAY)
+        if raiders and raid["cleared_by"] is None and not fort.hostiles():
+            raid["cleared_by"] = day + 1
+            raid["dwarves_lost"] = dwarves_at_raid - len(fort.dwarves())
         out["days"] = day + 1
         if (day + 1) % season == 0:
             made_beds += _more_beds(fort)
@@ -657,6 +698,13 @@ def play(seed: str, days: int, *, size: str = "small", history: int = 60,
         "done": {k: painted[k] - left.get(k, 0) for k in painted},
         "idle": sum(1 for d in fort.dwarves() if d.fort.job is None),
         "performances": dict(shows),
+        "raid": raid,
+        # Wall time. Seed `alpha` spent versions costing twenty-one minutes
+        # per ritual -- 3747 failed searches at the full 6000-node budget and
+        # 2035 flood fills, constant from at least v4.01 -- and nothing
+        # noticed, because the ritual reports OK or FAIL and never how long a
+        # seed took. A number nobody prints is a number nobody sees move.
+        "seconds": round(time.time() - began, 1),
         "instruments": [i.def_id for i in perform_mod.instruments(fort)],
         "alive": len(fort.dwarves()),
         "deaths": dict(causes),
@@ -690,7 +738,7 @@ REPORT_KEYS = (
     "started_with", "alive", "idle", "deaths", "food", "drink",
     "low_food", "low_drink", "left_undug", "lost",
     "wealth", "beds", "beds_added", "days", "searches", "performances",
-    "instruments",
+    "instruments", "raid", "seconds",
 )
 
 
@@ -718,6 +766,15 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     # script above plays; whether painted work that can be reached ever gets
     # done does not.
     problems = []
+    # §153's guarantee, held on every run: something hostile arrives and the
+    # watch raises the alarm. The driver does not assert the fight is *won* --
+    # whether seven dwarves beat three goblins is the fortress playing well or
+    # badly -- but an alarm that never rose over a raid is the defect v3.93
+    # fixed, arrived back.
+    raid_out = out["raid"]
+    if raid_out["foes"] and not raid_out["alarm_rose"]:
+        problems.append("a raid of %d landed on day %d and the alarm never "
+                        "rose" % (raid_out["foes"], raid_out["day"]))
     done = out["done"]
     if out["unbuilt"]:
         # A building the driver could not put up is a building the player

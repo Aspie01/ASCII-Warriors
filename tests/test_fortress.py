@@ -9554,6 +9554,9 @@ _DRIVER_RUN = {
                  "nodes_per_failure": 0, "nodes_total": 1, "fills": 0,
                  "fill_cells": 0, "nodes_and_fills": 1},
     "performances": {"plain": 3}, "instruments": ["lute"],
+    "raid": {"foes": 3, "day": 3, "alarm_rose": True, "cleared_by": 3,
+             "dwarves_lost": 0},
+    "seconds": 60.0,
 }
 
 
@@ -10634,6 +10637,80 @@ class TestBedsForWhoeverTurnsUp(unittest.TestCase):
         driver_fort._more_beds(fort)
         self.assertEqual(len(fort.jobs.jobs), before,
                          "putting up beds queued work for somebody")
+
+
+class TestTheRaidTheRitualNeverSaw(unittest.TestCase):
+    """Across every ritual fortress run ever made, nothing hostile arrived.
+
+    Sieges, thieves and beasts run on a clock measured in seasons, and the
+    driver runs seven days -- so the militia raised in v3.80, the alarm watch
+    fixed in v3.93, the burrow, the traps and everything in `war.py` ran in
+    no end-to-end test at all. Grepped over a full ritual's fortress logs:
+    zero sieges, zero thieves, zero beasts, zero alarms, four seeds.
+
+    The driver stages a raid on day three now, through `sim.spawn_attack` --
+    the game's own raid entry -- and holds v3.93's guarantee on every run:
+    something hostile arrives, and the watch raises the alarm. It does not
+    assert the fight is won; whether seven dwarves beat three goblins is the
+    fortress playing well or badly, and the driver's charter (§«the job
+    board») is to report that, not to demand it.
+    """
+
+    def test_the_raid_is_staged_and_the_constants_are_sane(self):
+        self.assertGreaterEqual(driver_fort.RAID_DAY, 2,
+                                "a raid before day two lands on an unarmed "
+                                "fortress")
+        self.assertLessEqual(driver_fort.RAID_DAY, 7,
+                             "the ritual runs seven days; a raid after that "
+                             "never happens in it")
+        self.assertGreaterEqual(driver_fort.RAID_STRENGTH, 1)
+
+    def test_a_raid_that_never_rang_the_bell_is_a_problem(self):
+        """The invariant, on the canned run."""
+        bad = dict(_DRIVER_RUN)
+        bad["raid"] = {"foes": 3, "day": 3, "alarm_rose": False,
+                       "cleared_by": 3, "dwarves_lost": 0}
+        code, text = _run_driver(bad)
+        self.assertEqual(code, 1, text)
+        self.assertIn("alarm never rose", text)
+
+    def test_a_quiet_run_is_not_blamed_for_it(self):
+        """`--days 2` never reaches the raid, and must not be scolded."""
+        quiet = dict(_DRIVER_RUN)
+        quiet["raid"] = {"foes": 0, "day": 3, "alarm_rose": False,
+                         "cleared_by": None, "dwarves_lost": 0}
+        code, text = _run_driver(quiet)
+        self.assertEqual(code, 0, text)
+
+    def test_the_alarm_is_read_from_the_event_and_not_a_sample(self):
+        """The mistake the first cut made, pinned.
+
+        The raid on seed `fort` lands, is fought and is cleared inside one
+        day. A driver that polls `fort.military.alarm` at the end of each day
+        reads "all clear" and reports the defect v3.93 fixed as having
+        returned -- over a fortress that raised the alarm, fought under it
+        and stood down correctly. The driver hooks `sound_alarm` instead, so
+        the record is of the event, whenever inside the day it happened.
+        """
+        import inspect
+
+        source = inspect.getsource(driver_fort.play)
+        self.assertIn("sound_alarm", source,
+                      "the driver no longer hooks the alarm event")
+        self.assertIn("noting_alarm", source,
+                      "the event hook is gone; if the alarm is being polled "
+                      "on a day grid again, a same-day raid reads as silent")
+
+    def test_the_driver_actually_spawns_the_raid(self):
+        """Every reporting test replays a canned result, so a driver that
+        quietly stopped calling `spawn_attack` would keep all of them green
+        while the ritual went back to never seeing a hostile. Read out of
+        `play`'s source, the way §152 reads the report keys."""
+        import inspect
+
+        source = inspect.getsource(driver_fort.play)
+        self.assertIn("sim.spawn_attack(fort, RAID_STRENGTH)", source,
+                      "the raid is reported but never spawned")
 
 
 class TestTheDriverBuildsOneOfEverything(unittest.TestCase):
