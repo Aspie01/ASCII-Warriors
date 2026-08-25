@@ -29,6 +29,19 @@ from .nobles import Court
 
 Cell = Tuple[int, int, int]
 
+
+def _reach_key(tile_id: str):
+    """The properties of a tile that the walking graph is built from.
+
+    `neighbours()` asks exactly these: `walk` for standing, the stair flags
+    and RAMP for level changes, WATER for the wading edge v4.00 added. Two
+    tiles with the same key hang the same edges on the map, so swapping one
+    for the other cannot invalidate a route or a reach fill.
+    """
+    t = tile_data.get(tile_id)
+    return (t.walk, t.has("STAIR_UP"), t.has("STAIR_DOWN"), t.has("RAMP"),
+            t.has("WATER"))
+
 #: How much fortress time passes per simulation step.
 STEP_TICKS = 10
 
@@ -1090,15 +1103,33 @@ class Fortress:
         """
         was_aquifer = cell in self.aquifer
         was_hollow = cell in self.hollow
-        warm = self.local.tile(*cell) == "warm_stone"
+        old_tile = self.local.tile(*cell)
+        warm = old_tile == "warm_stone"
         held_before = can_hold(self.local, cell)
         self.local.set_tile(cell[0], cell[1], cell[2], tile)
         self._water_cache = None
         # Somewhere that could not be reached may be reachable now: digging is
         # the answer to "nobody can get there", so it cannot be the one thing
         # that leaves the note saying so in place.
-        self.unreachable.clear()
-        self.invalidate_reach()
+        #
+        # But only when the change moves an *edge* of the walking graph. The
+        # water half of this function learned that lesson in v2.5 -- smoothing
+        # a wall changes nothing the water cares about -- and the reach half
+        # never did: every tile change cleared the fill cache and the
+        # unreachable memory, unconditionally. On seed `alpha`, water and
+        # magma wet floors into mud all day long: measured, 1820 calls in one
+        # day, 1653 of them `stone_floor -> mud`, 1740 of the 1820 changing
+        # nothing a walker cares about -- and every one threw away a cache
+        # that costs a third of a second to rebuild. That one seed spent 223
+        # of its 242-second day inside `reach_from`, and had been spending
+        # twenty-two minutes per ritual since at least v4.01.
+        #
+        # The key is exactly the properties `neighbours()` reads: whether you
+        # can stand on it, the stairs through it, the ramp on it, and -- since
+        # v4.00 -- the water you could wade out of.
+        if _reach_key(old_tile) != _reach_key(tile):
+            self.unreachable.clear()
+            self.invalidate_reach()
         if held_before or not can_hold(self.local, cell):
             # Smoothing a wall, or turning a floor into a farm plot, changes
             # nothing the water cares about. The bank still holds.

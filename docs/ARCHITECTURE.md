@@ -11159,7 +11159,77 @@ measurement, not a rider. It is the named candidate for the next milestone.
 
 Re-break: four defects put back, four caught, 0 misses.
 
-## 169. Style
+## 169. The seed that paid full price to fail (v4.09)
+
+§168's `seconds` column paid for itself on its first read: fort 25.1, beta
+22.5, gamma 23.9 — and alpha **1331**. One seed was spending twenty-two
+minutes on a seven-day week the others finish in twenty-five seconds, had
+been since at least v4.01, and the ritual had reported OK over it every time.
+
+Attribution, not guessing, three layers down:
+
+- **The searches.** 3747 route plans failed at the full 6000-node budget in
+  alpha's week; 530 in day one alone, and every one of day one's traced back
+  to `path_to`. 476 of those came from one caller: `_flee_water`'s widening
+  dry-land search, which ran a full route plan per candidate cell — about
+  twenty per attempt — every turn the danger lasted. Alpha breaches a magma
+  pipe on day one; the danger lasts all week.
+- **The wall time.** Wrapping `astar` and `reach_from` with wall-clock
+  counters (cProfile doubled the runtime and timed out — the cheap
+  instrument finished, the good one didn't) showed the money was not even in
+  A*: **223 of day one's 242 seconds were inside `reach_from`**, across 582
+  fills of an ~18,500-cell component at about a third of a second each.
+- **The invalidations.** `dig_out` cleared the reach cache and the
+  `unreachable` memory on *every* tile change. Alpha's loose water and magma
+  wet floors into mud all day: 1820 `dig_out` calls in one day, **1653 of
+  them `stone_floor -> mud`**, 1740 of the 1820 changing nothing a walker
+  cares about. The water half of the same function learned this exact lesson
+  in v2.5 — smoothing a wall changes nothing the water cares about — and the
+  reach half never did.
+
+Two fixes, one per defect:
+
+- `_reach_key(tile_id)` — walkability, the stair flags, RAMP, WATER: exactly
+  the properties `neighbours()` hangs edges on. `dig_out` clears the cache
+  and the unreachable memory only when the old and new tiles' keys differ.
+  Mud keeps the cache; a wall coming down still clears it.
+- `_flee_water` asks the fill once and plans only to cells it blesses; a
+  total failure stamps `flee_blocked_until` (`FLEE_REPATH = 600`), and until
+  it passes only the cheap neighbour-step runs — the half that actually walks
+  anybody out of danger. The first draft of this fix was the stamp alone,
+  and it changed nothing: the 476 failures were already only ~24 attempts.
+  The cost was per candidate, not per attempt — measure the fix, not the
+  intention.
+
+Alpha: **1331 s → 376 s**, A* nodes 21.6M → 2.8M, full-budget failures 3747
+→ 434, and the same fortress at the end of the week — the same survivors,
+the same raid cleared, the same cells worked. Fort and beta: unchanged to
+the tenth of a second, which is the other half of the proof.
+
+The re-break pass earned its keep twice. Putting the fill filter back to
+per-candidate plans turned **nothing red**: both flee fixtures flooded the
+dwarf's cell but left dry walkable floors beside it, so the cheap
+neighbour-step took the turn and the expensive half — the thing on trial —
+never ran at all. Two guards were agreeing with broken builds. The fixtures
+wall the dwarf in at both rings now (`_seal_in`), and all four injections
+are caught. A guard is not "the code ran and the assert held"; it is "the
+path under suspicion ran".
+
+The full suite then caught the one place the old rule had been written
+down. The v3.x unreachable-memory test "proved" that digging clears the
+notes by digging the floor under the dwarf's own feet into `floor` — a
+change that hangs no new edge on the walking graph, the mud case itself —
+and it passed only because the clear used to be unconditional. Its own
+assertion message says "the note outlived the wall it was about"; the
+fixture never took down a wall. It digs a real wall of the sealed pocket
+now. §167 found fixtures killing by fiat; this is the same species —
+a fixture doing the *gesture* of the mechanism rather than the mechanism.
+
+The residual 434 failures and alpha's remaining 376 seconds are recorded,
+not chased: the magma keeps genuinely reshaping alpha's map, and some
+invalidation is the truth.
+
+## 170. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

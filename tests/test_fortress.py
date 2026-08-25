@@ -6606,7 +6606,13 @@ class TestTheUnreachableJob(unittest.TestCase):
         fort, d, cell = self._sealed_job("dugout")
         dwarf_mod._claim_job(fort, d)
         self.assertIn(cell, fort.unreachable)
-        fort.dig_out((d.x, d.y, d.z), "floor")
+        # Dig an actual wall of the pocket. The first version of this dug the
+        # floor under the dwarf's own feet into "floor" -- a change that hangs
+        # no new edge on the walking graph, the mud case itself -- and it
+        # "worked" only because dig_out cleared the notes unconditionally.
+        # v4.09 made the clear conditional on the walking graph changing, and
+        # this fixture was the one place the old rule had been written down.
+        fort.dig_out((5, 6, cell[2]), "floor")
         self.assertEqual(fort.unreachable, {},
                          "the note outlived the wall it was about")
         self.assertGreater(self._searches(lambda: dwarf_mod._claim_job(fort, d)),
@@ -10637,6 +10643,148 @@ class TestBedsForWhoeverTurnsUp(unittest.TestCase):
         driver_fort._more_beds(fort)
         self.assertEqual(len(fort.jobs.jobs), before,
                          "putting up beds queued work for somebody")
+
+
+def _seal_in(fort, d) -> None:
+    """Wall a dwarf in so the flee's cheap neighbour-step cannot answer.
+
+    Both rings are rock_wall: the first draft left dry floors at radius one,
+    the neighbour-step happily stepped onto them, and the expensive half these
+    fixtures exist to measure never ran -- the re-break pass caught both
+    guards agreeing with a broken build.
+    """
+    for dx in range(-2, 3):
+        for dy in range(-2, 3):
+            if (dx, dy) != (0, 0):
+                fort.dig_out((d.x + dx, d.y + dy, d.z), "rock_wall")
+    for z in (d.z + 1, d.z - 1):
+        for dx in range(-2, 3):
+            for dy in range(-2, 3):
+                fort.dig_out((d.x + dx, d.y + dy, z), "rock_wall")
+
+
+class TestTheSeedThatPaidFullPriceToFail(unittest.TestCase):
+    """Seed `alpha` spent 1331 seconds per ritual run. Seed `fort` spends 21.
+
+    Two defects, found by attribution rather than guessing, fixed in v4.09:
+
+    **Mud cleared the map.** `dig_out` is the funnel for every tile change,
+    and it cleared the reach cache and the unreachable memory on all of them.
+    On `alpha`, water and magma wet floors into mud all day: 1820 calls in one
+    day, **1653 of them `stone_floor -> mud`**, 1740 of the 1820 changing
+    nothing a walker cares about — and each one threw away a cache that costs
+    a third of a second to rebuild. 223 of the day's 242 seconds were inside
+    `reach_from`. The water half of the same function learned this exact
+    lesson in v2.5; the reach half never had.
+
+    **Fleeing paid per candidate.** `_flee_water`'s widening dry-land search
+    ran a full route plan per candidate cell, every turn the danger lasted:
+    476 failed plans in a day, every one at the full budget, every one paying
+    §159's second pass on the cache the mud kept clearing. It asks the fill
+    once now and plans only to cells it blesses, with a retry stamp so a
+    sealed-in dwarf is not re-proving its prison every turn.
+
+    After both: alpha 1331s -> 376s, nodes 21.6M -> 2.8M, failures 3747 ->
+    434, and the same fortress at the end of the week — 2 alive, raid
+    cleared, the same cells worked.
+    """
+
+    def test_two_tiles_that_hang_the_same_edges_share_a_key(self):
+        from ascii_warriors.fortress.fortress import _reach_key
+
+        self.assertEqual(_reach_key("stone_floor"), _reach_key("mud"),
+                         "mud differs from the floor it was, so every wet "
+                         "footprint clears the reach cache again")
+        self.assertEqual(_reach_key("wall_constructed"), _reach_key("rock_wall"))
+
+    def test_the_changes_a_walker_cares_about_still_differ(self):
+        from ascii_warriors.fortress.fortress import _reach_key
+
+        self.assertNotEqual(_reach_key("rock_wall"), _reach_key("floor"))
+        self.assertNotEqual(_reach_key("floor"), _reach_key("stair_down"))
+        self.assertNotEqual(_reach_key("floor"), _reach_key("ramp_up"))
+        self.assertNotEqual(_reach_key("floor"), _reach_key("shallow_water"))
+
+    def test_mud_does_not_clear_the_reach_cache(self):
+        # The map owes this fixture nothing: the embark surface is grass and
+        # soil, and stone_floor lives underground. Mint the tile first, then
+        # build the cache the mud must not be allowed to clear.
+        fort = embark("mudcache")
+        d = fort.dwarves()[0]
+        spot = (d.x + 1, d.y, d.z)
+        fort.dig_out(spot, "stone_floor")
+        fort.reach_from((d.x, d.y, d.z))
+        self.assertTrue(fort._reach, "no cache was built to protect")
+        fort.unreachable[(1, 1, 0)] = 999999
+        fort.dig_out(spot, "mud")
+        self.assertTrue(fort._reach,
+                        "a wet footprint threw away the whole reach cache")
+        self.assertIn((1, 1, 0), fort.unreachable,
+                      "a wet footprint forgot what was unreachable")
+
+    def test_digging_still_clears_it(self):
+        """The other direction, which is the correctness direction."""
+        fort = embark("mudcache")
+        d = fort.dwarves()[0]
+        wall = (d.x + 1, d.y, d.z)
+        fort.dig_out(wall, "rock_wall")
+        fort.reach_from((d.x, d.y, d.z))
+        fort.unreachable[(1, 1, 0)] = 999999
+        fort.dig_out(wall, "floor")
+        self.assertFalse(fort._reach,
+                         "a wall came down and the reach cache kept the old "
+                         "shape of the world")
+        self.assertNotIn((1, 1, 0), fort.unreachable,
+                         "digging is the answer to unreachable, and the note "
+                         "stayed")
+
+    def test_fleeing_asks_the_fill_before_it_plans(self):
+        """A sealed-in dwarf must not pay a route plan per candidate.
+
+        The fixture rings a dwarf with walls, floods its cell, and counts
+        `astar` calls across one flee turn: the fill says no candidate is
+        reachable, so the answer must come without a single plan.
+        """
+        from ascii_warriors.engine import pathfind
+        from ascii_warriors.fortress import dwarf as dwarf_mod
+
+        fort = embark("sealed")
+        d = fort.dwarves()[0]
+        _seal_in(fort, d)
+        fort.water.depth[(d.x, d.y, d.z)] = 7
+        d.fort.flee_blocked_until = 0
+
+        calls = []
+        real = dwarf_mod.astar
+
+        def counting(*a, **kw):
+            calls.append(1)
+            return real(*a, **kw)
+
+        dwarf_mod.astar = counting
+        try:
+            took = dwarf_mod._flee_water(fort, d)
+        finally:
+            dwarf_mod.astar = real
+        self.assertTrue(took, "a dwarf in deep water did not spend its turn "
+                        "on the water")
+        self.assertLessEqual(
+            len(calls), 2,
+            "%d route plans for a flee the fill already answered"
+            % len(calls))
+
+    def test_the_flee_retry_stamp_is_honoured(self):
+        from ascii_warriors.fortress import dwarf as dwarf_mod
+
+        fort = embark("sealed")
+        d = fort.dwarves()[0]
+        _seal_in(fort, d)
+        d.fort.flee_blocked_until = fort.ticks + 10000
+        fort.water.depth[(d.x, d.y, d.z)] = 7
+        before = fort.reach_fills
+        dwarf_mod._flee_water(fort, d)
+        self.assertEqual(fort.reach_fills, before,
+                         "the stamp was set and the expensive half ran anyway")
 
 
 class TestTheRaidTheRitualNeverSaw(unittest.TestCase):

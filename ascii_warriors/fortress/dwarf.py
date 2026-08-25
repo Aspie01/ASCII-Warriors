@@ -51,11 +51,17 @@ class DwarfState:
     __slots__ = ("labors", "job", "path", "path_goal", "nickname", "bed",
                  "mood", "mood_ticks", "idle_ticks", "praying", "squad",
                  "carrying", "errand",
-                 "workshop", "blocked", "sleeping", "lonely")
+                 "workshop", "blocked", "sleeping", "lonely",
+                 "flee_blocked_until")
 
     def __init__(self, labors: Optional[LaborSet] = None) -> None:
         self.labors = labors or LaborSet()
         self.job: Optional[Job] = None
+        #: Tick before which the *expensive* half of fleeing -- the widening
+        #: dry-land search that runs a full route plan per candidate cell --
+        #: is not tried again. Transient, like `path`: losing it in a save
+        #: costs one extra search on load. See `_flee_water`.
+        self.flee_blocked_until = 0
         self.path: List[Cell] = []
         self.path_goal: Optional[Cell] = None
         self.blocked = 0
@@ -576,6 +582,14 @@ def _keep(fort, dwarf, ticks: int) -> None:
 SOLDIER_SIGHT = 24
 CIVILIAN_SIGHT = 10
 
+#: Ticks between attempts at the expensive half of fleeing. The cheap half --
+#: stepping to the driest neighbour -- still runs every turn, so a dwarf that
+#: can walk out of danger always does; this only paces the widening dry-land
+#: search that plans a route per candidate. Sixty steps: long enough that a
+#: dwarf sealed in by magma is not re-proving it every turn, short enough
+#: that a corridor opening is noticed within a minute of game time.
+FLEE_REPATH = 600
+
 
 def _handle_danger(fort, dwarf) -> bool:
     """Fight, chase or run. True if it took the turn."""
@@ -712,15 +726,45 @@ def _flee_water(fort, dwarf) -> bool:
         return True
 
     # Otherwise look further for dry land, and if there is none, swim for it.
-    for radius in (4, 10):
-        for dx in range(-radius, radius + 1):
-            for dy in range(-radius, radius + 1):
-                cell = (dwarf.x + dx, dwarf.y + dy, dwarf.z)
-                if fort.water.at(*cell) > 0 or not lm.walkable(*cell):
-                    continue
-                if path_to(fort, dwarf, cell, adjacent=False):
-                    step_along(fort, dwarf)
-                    return True
+    #
+    # This half is *expensive* -- a route plan per candidate over up to five
+    # hundred cells -- and it used to run every turn for as long as the
+    # danger lasted. Seed `alpha` breaches a magma pipe on day one, the
+    # magma rings a dwarf, and every candidate fails at the full node budget:
+    # measured, 476 failed plans in one day, all from this loop, costing the
+    # seed 1331 seconds of a ritual whose other fortresses take twenty. The
+    # dwarf learned nothing from failing five hundred times that it had not
+    # learned failing once. So a total failure stamps a retry tick, the same
+    # shape as the tavern backoff, and until it passes only the cheap
+    # neighbour-step above keeps running -- which is the half that actually
+    # walks anybody out of danger.
+    state = dwarf.fort
+    if fort.ticks >= state.flee_blocked_until:
+        # One fill, then plan only to cells it blesses. The old shape ran a
+        # full route plan per dry candidate -- about twenty per attempt on
+        # `alpha`, every one failing at the full budget and every failure
+        # paying §159's second pass on a cache the day's digging keeps
+        # invalidating. The fill answers "which of these can be walked to at
+        # all" for every candidate at once; what it blesses, one plan
+        # confirms, and what it refuses was never worth a plan.
+        within = fort.reach_from(here)
+        for radius in (4, 10):
+            found = False
+            for dx in range(-radius, radius + 1):
+                for dy in range(-radius, radius + 1):
+                    cell = (dwarf.x + dx, dwarf.y + dy, dwarf.z)
+                    if fort.water.at(*cell) > 0 or not lm.walkable(*cell):
+                        continue
+                    if cell not in within:
+                        continue
+                    if path_to(fort, dwarf, cell, adjacent=False):
+                        state.flee_blocked_until = 0
+                        step_along(fort, dwarf)
+                        return True
+                    found = True
+            if found:
+                break
+        state.flee_blocked_until = fort.ticks + FLEE_REPATH
     dwarf.add_exp("swimming", 6)
     return True
 
