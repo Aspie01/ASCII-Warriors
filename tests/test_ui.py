@@ -1231,6 +1231,118 @@ def _run_play(out, argv=("--seed", "t")):
     return code, buf.getvalue()
 
 
+class TestTheNumbersTheManualQuotes(unittest.TestCase):
+    """The manual quotes constants. Constants move.
+
+    Two milestones running were this failure: §163 found the combat chapter
+    teaching the physics §162 had just corrected, and §164 found four
+    sentences naming keys it had itself just rebound. Both were caught by
+    reading, not by a test, and both were noticed only because somebody went
+    looking that day.
+
+    So the fortress chapter's eight checkable numbers are tied to the code
+    they describe. Checked when this was written, every one of them was
+    already right -- which is the point: the guard is not fixing a defect, it
+    is stopping the two that already happened from happening a third time in
+    a place nobody thinks to re-read.
+    """
+
+    def _fortress_text(self):
+        from ascii_warriors.ui import help_screen
+
+        return " ".join(help_screen.FORTRESS_TEXT.split())
+
+    def test_the_alarm_trap_reaches_as_far_as_it_says(self):
+        from ascii_warriors.game import traps
+
+        self.assertIn("within forty tiles", self._fortress_text())
+        self.assertEqual(traps.ALARM_RANGE, 40)
+
+    def test_a_sheriff_needs_the_dwarves_it_says(self):
+        from ascii_warriors.fortress import nobles
+
+        self.assertIn("a sheriff needs eighteen dwarves", self._fortress_text())
+        self.assertEqual(nobles.POSITIONS["sheriff"].at_population, 18)
+
+    def test_a_conviction_costs_what_it_says(self):
+        from ascii_warriors.fortress import justice
+
+        said = self._fortress_text()
+        self.assertIn("four days off the roster per point of severity", said)
+        self.assertIn("murder is worth four", said)
+        self.assertEqual(justice.JAIL_TICKS // justice.TICKS_PER_DAY, 4)
+        self.assertEqual(justice.CRIMES["murder"][1], 4)
+
+    def test_a_case_goes_cold_when_it_says(self):
+        from ascii_warriors.fortress import justice
+
+        self.assertIn("stays open for three months", self._fortress_text())
+        self.assertEqual(justice.COLD_CASE // justice.TICKS_PER_DAY, 90)
+
+    def test_children_grow_up_when_it_says(self):
+        from ascii_warriors.fortress import social
+
+        self.assertIn("at twelve they take up a profession",
+                      self._fortress_text())
+        self.assertEqual(social.CHILD_AGE, 12)
+
+    def test_venom_needs_the_skill_it_says(self):
+        from ascii_warriors.engine.rng import RNG
+        from ascii_warriors.game import venom
+        from ascii_warriors.game.entity import make_creature
+
+        self.assertIn("Diagnostician 2 or better", self._fortress_text())
+        patient = make_creature(RNG("bitten"), "human", faction="player",
+                                level=1)
+        healer = make_creature(RNG("healer"), "human", faction="player",
+                               level=1)
+        healer.skills.set_level(venom.TREAT_SKILL, 1)
+        ok, _why = venom.treat(healer, patient)
+        self.assertFalse(ok, "Diagnostician 1 could treat a bite")
+
+    def test_an_instrument_is_worth_about_what_it_says(self):
+        """"Two grades of quality" against the bands it is measured in."""
+        from ascii_warriors.game import performance
+
+        self.assertIn("two grades of quality", self._fortress_text())
+        gain = performance.INSTRUMENT_BONUS - performance.NO_INSTRUMENT
+        widths = [b - a for a, b in zip(performance.THRESHOLDS,
+                                        performance.THRESHOLDS[1:])
+                  if b - a < 100]
+        narrow, wide = min(widths), max(widths)
+        self.assertGreaterEqual(gain / wide, 1.0,
+                                "the right instrument is worth %d points and "
+                                "the widest band is %d" % (gain, wide))
+        self.assertLessEqual(gain / narrow, 3.0,
+                             "the right instrument is worth %d points and the "
+                             "narrowest band is %d" % (gain, narrow))
+
+    def test_the_module_says_what_the_constants_say(self):
+        """`perform.py` conflated two of the three instrument cases.
+
+        It read "a dwarf without one is playing it wrong for a fourteen-point
+        penalty", which is the value of `NO_INSTRUMENT` attached to the case
+        `WRONG_INSTRUMENT` covers -- and playing it wrong is a small bonus,
+        not a penalty at all.
+        """
+        from ascii_warriors.fortress import perform
+        from ascii_warriors.game import performance
+
+        said = " ".join((perform.__doc__ or "").split())
+        self.assertGreater(performance.WRONG_INSTRUMENT, 0,
+                           "the wrong instrument is a penalty now, and the "
+                           "module text says it is a bonus")
+        self.assertLess(performance.NO_INSTRUMENT, 0)
+        # Named positively. Checking for the *absence* of the old sentence
+        # failed the moment the corrected text quoted it to explain itself,
+        # which is a guard measuring its own footnote.
+        for const in ("INSTRUMENT_BONUS", "WRONG_INSTRUMENT", "NO_INSTRUMENT"):
+            self.assertIn(const, said,
+                          "the module describes the instrument rule without "
+                          "naming %s, so the words and the number can part "
+                          "company again" % const)
+
+
 class TestTheKeysTheRunKeysAte(UITestBase):
     """Four things the game could do and the player could not reach.
 

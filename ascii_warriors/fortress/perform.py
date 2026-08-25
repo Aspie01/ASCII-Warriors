@@ -19,8 +19,13 @@ system and free happiness:
   and a bad performance costs the room stress rather than saving it. That is
   what makes a legendary bard worth having migrate in.
 * **Instruments are a real constraint.** A musical form asks for an instrument
-  by name, and a dwarf without one is playing it wrong for a fourteen-point
-  penalty. A fortress that never builds a carpenter's shop hears poetry.
+  by name. The right one is worth `INSTRUMENT_BONUS`; the wrong one is still
+  worth `WRONG_INSTRUMENT`, because a drum song on a harp is a real
+  performance of the wrong thing; and none at all is `NO_INSTRUMENT`, a
+  fourteen-point penalty. This used to read "a dwarf without one is playing it
+  wrong for a fourteen-point penalty", which folded two of those three into
+  each other -- playing it wrong is a small *bonus*. A fortress that never
+  builds a carpenter's shop hears poetry.
 """
 
 from __future__ import annotations

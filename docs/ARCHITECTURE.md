@@ -10854,7 +10854,63 @@ fortress-mode chapter answers confidently and wrongly.
 
 Re-break: five defects put back, five caught, 0 misses.
 
-## 165. Style
+## 165. The numbers the manual quotes (v4.05)
+
+Two milestones running were the same failure. §163 found the combat chapter
+teaching the physics §162 had just corrected. §164 found four sentences
+naming keys it had itself just rebound, *with §163 already written*. Both were
+caught by reading, and both only because somebody went looking that day.
+
+So the fortress chapter's checkable numbers are tied to the code they
+describe. All eight were already right:
+
+| the manual says | the code says | |
+| --- | --- | --- |
+| an alarm tells everything within forty tiles | `traps.ALARM_RANGE = 40` | ✓ |
+| a sheriff needs eighteen dwarves | `POSITIONS["sheriff"].at_population = 18` | ✓ |
+| four days off the roster per point of severity | `JAIL_TICKS = TICKS_PER_DAY * 4`, applied as `JAIL_TICKS * severity` | ✓ |
+| murder is worth four | `CRIMES["murder"] = (..., 4)` | ✓ |
+| it stays open for three months | `COLD_CASE = TICKS_PER_DAY * 90` | ✓ |
+| at twelve they take up a profession | `social.CHILD_AGE = 12` | ✓ |
+| Diagnostician 2 or better ... halve what is left | `venom.treat` refuses below 2, halves each dose | ✓ |
+| worth two grades of quality | 22 points against bands 10–20 wide | ✓ |
+
+**Nothing was broken.** That is the point: this milestone is not a fix, it is
+the two regressions that already happened being stopped from happening a third
+time somewhere nobody thinks to re-read. A number in prose is a copy of a
+constant, and copies drift — §152 said the same thing about a canned test
+fixture and it drifted twice more before anyone guarded it.
+
+### The one thing that was wrong
+
+`fortress/perform.py` said "a dwarf without one is playing it wrong for a
+fourteen-point penalty", which folds two of three cases into each other:
+
+| | |
+| --- | --- |
+| the right instrument | `INSTRUMENT_BONUS = 8` |
+| the wrong instrument | `WRONG_INSTRUMENT = 3` — a *bonus* |
+| none at all | `NO_INSTRUMENT = -14` |
+
+Fourteen is the penalty for having none. Playing the wrong one is a small
+bonus, because a drum song on a harp is a real performance of the wrong thing.
+The sentence attached the first number to the second case.
+
+### Guards
+
+`TestTheNumbersTheManualQuotes`, eight tests, each asserting the sentence *and*
+the constant so neither can move alone.
+
+The last one could not fail as first written: it checked that the module text
+no longer contains the old sentence, and the corrected text **quotes the old
+sentence to explain itself**. A guard measuring its own footnote. It names the
+three constants positively now.
+
+Re-break: seven defects put back, seven caught, 0 misses — after one that
+missed because `sed` reports success when it replaces nothing, so an injection
+that never applied read as a guard that never fired. Injections assert now.
+
+## 166. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).
