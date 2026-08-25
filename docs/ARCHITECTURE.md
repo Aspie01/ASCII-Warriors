@@ -11229,7 +11229,92 @@ The residual 434 failures and alpha's remaining 376 seconds are recorded,
 not chased: the magma keeps genuinely reshaping alpha's map, and some
 invalidation is the truth.
 
-## 170. Style
+## 170. The quests nobody has ever finished (v4.10)
+
+Across every ritual play run ever made: clear_site 0 for 7, slay_beast 0
+for 4. A 24-seed census put numbers under it: 22 dead of 24, **every death
+"bled to death"**, median life 122 turns of a 16,000-turn budget, 0 quests
+finished of 22 taken. The strike log's verdict was stranger: 363 landed
+player hits across five dissected lives at 69–81% to hit, and **nothing
+ever killed** — not one wolf, bat, or goblin.
+
+Not one mechanism but a family, each measured before it was touched:
+
+- **The duel the tests trusted was the wrong grid.** `_duel` alternates
+  strikes 1:1 and ticks bodies 10 per round; "a starting warrior beats a
+  wolf forty of forty in seven exchanges" is true there. The game's
+  scheduler gives a wolf 1.6 actions to a human's 1. Re-measured at real
+  cadence: **every 1-on-1 in the bestiary is still a win** (wolf 20/20 in
+  ~29 rounds, ghoul 20/20, vampire 20/20) except the sword-proof skeleton
+  (9/20) — the game's fights were fair all along. The deaths were *melees*:
+  seed `play` was not "a warrior lost to a wolf", it was a lone traveller
+  and **a pack of four** (ids 23, 24, 28, 29 in the trace).
+- **The driver sprayed its damage.** It hit the first foe in scan order,
+  re-rolled every turn as the melee shuffled: the trace shows the most
+  wounded wolf abandoned at 84% blood for a pristine one. It keeps its
+  target now, opens on the most wounded, and `_health_of` reads structure
+  for the bloodless.
+- **It counted the odds only once dying.** `_run_away` woke at 62% blood —
+  an answer about a fight already lost. `_decline_the_melee` asks at full
+  health: more of them in reach than you and yours, and the next step
+  leaves. Wolf-pack ambushes still kill — a fighting retreat against
+  something 1.6× your speed is DF being DF — but the melees a step refuses
+  stopped being entered.
+- **It fought what its sword cannot mark.** "Swords and hammers still
+  glance off it" is a designed fact about skeletons with a test to its
+  name, and seeds `t` and `adv2` spent 97 and 64 strikes discovering it
+  the hard way. The stall book judges the fight, not the bestiary: a dozen
+  swings that move neither blood nor structure write the foe off for the
+  run.
+- **It went alone to party-sized work.** clear_site is three to eight
+  foes; the game has sold companions since v3.5x (49 starting coins, hire
+  prices from a few dozen, rewards from 80) and no driver ever spent a
+  coin. It musters one sword before setting out for fight-quests now.
+- **Its patience was a fact about a creature, recorded forever, in a world
+  that moves.** Seed `hero` wrote off a bounty vampire standing where no
+  path goes, then wandered the site for **2772 turns** with the quest still
+  pointing at it. Written-off creatures that move are forgiven
+  (`_forgiven`); jobs that run dry at their own square for `LOCAL_PATIENCE`
+  turns are written off whole (`_job_ran_dry`), and the ask-for-work gate
+  looks past them.
+- **The board sold suicide.** Every megabeast in the game is tier 4 or 5;
+  every fresh warrior is prowess 4 (`fighter` skill plus proven kills);
+  `_quest_slay_beast` picked `rng.choice(monsters)` regardless. Census
+  autopsies: one taker dismembered by a hydra at the lair it was sent to,
+  another by a named megabeast — "upper body destroyed". The board reads
+  the asker now: tier-4 work from about prowess 9, tier-5 from 12, and
+  kobold caves and bandit camps for strangers, with the tombs and goblin
+  pits gated the same way (`generate_quest` already paid a name what a name
+  is worth; this is the other half of that sentence).
+
+After, same 24 seeds: **5 quests finished** (three bounties, a retrieval,
+an explore) against the all-time 0; median life ~200; longest 4,783 turns;
+no slay_beast handed to a nobody anywhere; and a deterministic guard
+drives a two-kobold clear_site to `"done"` through `_press` — the policy
+factored to one entry point so the test drives the driver, not a replica.
+
+Recorded, not chased: census clear_sites still die on the road (overworld
+travel mortality — packs, and one honest death of thirst on a dry route,
+"went for a drink" 88, "nothing to drink" 88); bandage economy in long
+fights ("bleeding, and nothing to bind it with", 55 times in one life);
+and combat monopolising the turn budget at hostile sites so leaving is
+harder than arriving. Those are the adventure thread's next measurements.
+
+The full suite then caught four fixtures living by the old rules, the
+same species §169 caught one of: two slay-beast tests and the
+every-kind-generates test asked the board as prowess-4 strangers and
+expected megabeast errands — they arrive as veterans now, since their
+claims are about the quest once granted; and the patience test demanded
+"gave up on nothing, every seed", written before v4.10 measured seed
+`hero`'s world properly — its last bounty vampire stands where no path
+goes and never moves, so that seed's two write-offs are earned and now
+pinned exactly, with the other seeds still owing zero.
+
+Re-break: nine defects put back — spray targeting, stickiness, the decline,
+the stall book, the muster, dry jobs, forgiveness, both halves of the
+board's judgement — nine caught, 0 misses.
+
+## 171. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

@@ -342,6 +342,21 @@ def generate_quest(rng: RNG, game, giver) -> Optional[Quest]:
     return None
 
 
+def _prowess(player) -> int:
+    """How much of a fight the asker has proven they can be.
+
+    Skill they walked in with, plus what they have actually put down. The
+    reward line in `generate_quest` already pays a name what a name is
+    worth; this is the other half of the same fact about a living world --
+    nobody hands the hydra job to a stranger with a clean sword. Measured
+    before this existed: every slay_beast in the game names a tier-4 or
+    tier-5 monster, every adventurer the census drove was prowess 4 on the
+    day it asked, and the four slay_beast quests the ritual's history ever
+    handed out ended 0 for 4 with two of the takers dismembered at the lair.
+    """
+    return player.skills.level("fighter") + len(player.kills)
+
+
 def _living_monsters(world) -> List[Any]:
     return [
         f for f in world.figures.values()
@@ -353,6 +368,13 @@ def _quest_slay_beast(rng: RNG, game, giver) -> Optional[Quest]:
     """Kill a named megabeast that is terrorising the region."""
     world = game.world
     monsters = _living_monsters(world)
+    # The board reads the asker: tier 4 -- the ogres -- from about nine
+    # proven points of prowess, the tier-5 dragons and hydras from twelve.
+    # A fresh warrior is prowess 4 and is offered none of them, and the
+    # builder returns None so the giver reaches for other work instead.
+    cap = 1 + _prowess(game.player) // 3
+    monsters = [m for m in monsters
+                if creature_data.get(m.creature_id).tier <= cap]
     if not monsters:
         return None
     beast = rng.choice(monsters)
@@ -384,9 +406,18 @@ def _quest_slay_beast(rng: RNG, game, giver) -> Optional[Quest]:
 def _quest_clear_site(rng: RNG, game, giver) -> Optional[Quest]:
     """Clear out a nest of bandits, goblins or the undead."""
     world = game.world
+    # What a site takes to clear is who holds it. Kobold caves and bandit
+    # camps are a fresh pair's work; goblin pits and the restless dead are
+    # not -- the census sent prowess-4 adventurers at zombies and the runs
+    # ended in bandage famine ("bleeding, and nothing to bind it with", 55
+    # times in one life). The undead do not bleed and do not stop; they are
+    # work for the proven.
+    dares = {"cave": 0, "camp": 0, "dark_pits": 6, "ruin": 6, "tomb": 9}
+    p = _prowess(game.player)
     candidates = [
         s for s in world.sites
         if s.kind in ("camp", "ruin", "cave", "tomb", "dark_pits")
+        and dares[s.kind] <= p
         and not (s.kind == "ruin" and rng.chance(0.3))
     ]
     if not candidates:

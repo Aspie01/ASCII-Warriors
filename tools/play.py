@@ -43,6 +43,7 @@ from ascii_warriors.engine.pathfind import astar
 from ascii_warriors.engine.rng import RNG
 from ascii_warriors.game import actions
 from ascii_warriors.game import conversation as conv
+from ascii_warriors.game import companions as companion_mod
 from ascii_warriors.game.state import Game
 from ascii_warriors.world.worldgen import generate_world
 from tools import scratch_saves
@@ -294,15 +295,21 @@ def _run_away(game, why) -> Optional[int]:
     if len(touching) < 2 and not _can_outrun(game, foes):
         return None
 
-    def room(x, y):
-        """Ground gained on the nearest of them, then on all of them.
+    return _step_away(game, foes, why)
 
-        The second half matters when the first cannot move: hemmed in on
-        four sides every step still leaves you next to somebody, so the
-        nearest distance stays at one whichever way you go. Stepping
-        diagonally out of a cross puts two of them behind you even so, and
-        the total distance is what says that.
-        """
+
+def _step_away(game, foes, why, label: str = "ran") -> Optional[int]:
+    """The step that puts the most ground between you and *foes*.
+
+    Ground gained on the nearest of them, then on all of them. The second
+    half matters when the first cannot move: hemmed in on four sides every
+    step still leaves you next to somebody, so the nearest distance stays at
+    one whichever way you go. Stepping diagonally out of a cross puts two of
+    them behind you even so, and the total distance is what says that.
+    """
+    p = game.player
+
+    def room(x, y):
         dists = [max(abs(c.x - x), abs(c.y - y)) for c in foes]
         return (min(dists), sum(dists))
 
@@ -324,8 +331,31 @@ def _run_away(game, why) -> Optional[int]:
     cost = actions.move_or_attack(game, *best)
     if cost <= 0:
         return None
-    why["ran"] += 1
+    why[label] += 1
     return cost
+
+
+def _decline_the_melee(game, why) -> Optional[int]:
+    """Step out of a fight the odds refuse, while the blood is still in you.
+
+    `_run_away` asks its question at 62% blood, which is an answer about a
+    fight already lost. This one is asked at full health: 22 of 24 census
+    adventurers died of accumulated wounds, none of them to a foe they
+    could not beat alone -- the strike-by-strike duel wins every 1-on-1 in
+    the game at real cadence except the skeleton -- and every one of them
+    died in a melee of two or more. Seed `play` was a four-wolf pack. So the
+    driver refuses the outnumbered melee outright: more of them in reach
+    than there are of you and yours, and the next step is the one that
+    leaves.
+    """
+    p = game.player
+    foes = [c for c in game.creatures.values()
+            if not c.body.dead and not c.is_player and c.is_hostile_to(p)
+            and max(abs(c.x - p.x), abs(c.y - p.y)) <= 2 and c.z == p.z]
+    party = 1 + len(companion_mod.companions_of(game))
+    if len(foes) <= party:
+        return None
+    return _step_away(game, foes, why, label="declined the melee")
 
 
 #: What is worth stopping to pick up off a body.
@@ -629,7 +659,22 @@ def _patience(game) -> dict:
     """
     book = getattr(game, "_play_patience", None)
     if book is None:
-        book = game._play_patience = {"tries": {}, "gave_up": set()}
+        book = game._play_patience = {
+            "tries": {}, "gave_up": set(),
+            # v4.10: who the driver is currently fighting, so a melee is one
+            # fight finished and not a spray; what that target's body looked
+            # like when the fight started, and how long it has looked the
+            # same, so a fight the weapon cannot win is walked away from.
+            "fight_target": None, "stall": {}, "stalled": set(),
+            # Where each written-off target was standing when the patience
+            # ran out, so a target that has since moved earns it back.
+            "written_off_at": {},
+            # Turns spent standing at a quest's own square with nothing the
+            # quest wants doable, per quest. Past the bound the job itself is
+            # written off, or it becomes the sink `hero` measured: 2772 turns
+            # wandering a site whose last target stands where no path goes.
+            "site_dry": {},
+        }
     return book
 
 
@@ -640,7 +685,9 @@ def _worth_chasing(game, target) -> bool:
     step by step, from something that is nearly in reach: the walk always
     finds a next square, and the distance never closes. This is what notices.
     """
-    return target.id not in _patience(game)["gave_up"]
+    if target.id not in _patience(game)["gave_up"]:
+        return True
+    return hasattr(target, "x") and _forgiven(game, target)
 
 
 def _gave_up_on(game, target, why) -> None:
@@ -649,7 +696,52 @@ def _gave_up_on(game, target, why) -> None:
     book["tries"][target.id] = book["tries"].get(target.id, 0) + 1
     if book["tries"][target.id] > LOCAL_PATIENCE:
         book["gave_up"].add(target.id)
+        if hasattr(target, "x"):
+            book["written_off_at"][target.id] = (target.x, target.y, target.z)
         why["gave up on something it could not reach"] += 1
+
+
+def _forgiven(game, target) -> bool:
+    """A written-off creature that has moved gets its patience back.
+
+    The write-off was built for the target standing somewhere no path goes
+    -- a z-level up, the far side of rock -- and that is a fact about a
+    *position*, not a creature. Seed `hero`'s last bounty vampire spent the
+    day indoors where two hundred approaches failed, was written off, then
+    walked out at nightfall; the driver wandered the site for 2772 turns
+    with the quest's own target hunting it, because the book said that
+    vampire did not exist. If it has moved, the fact the book recorded is
+    gone, and the chase is worth what a fresh chase is worth.
+    """
+    book = _patience(game)
+    was = book["written_off_at"].get(target.id)
+    here = (target.x, target.y, target.z)
+    if was is None or max(abs(here[0] - was[0]), abs(here[1] - was[1])) <= 2 \
+            and here[2] == was[2]:
+        return False
+    book["gave_up"].discard(target.id)
+    book["written_off_at"].pop(target.id, None)
+    book["tries"].pop(target.id, None)
+    return True
+
+
+def _job_ran_dry(game, quest, why) -> None:
+    """Spend a turn of quest-level patience at the quest's own square.
+
+    Per-creature patience already writes off the target no path reaches --
+    but the quest kept pointing at the square, `_do_here` kept answering
+    "nothing to hunt", and the driver wandered seed `hero`'s site for 2772
+    turns between its third kill and a fourth that arrived by luck. The job
+    gets the same `LOCAL_PATIENCE` a single chase gets; past that it goes in
+    the same `gave_up` book `_worth_travelling` already reads, and the
+    ask-for-work gate looks past it.
+    """
+    book = _patience(game)
+    dry = book["site_dry"].get(quest.id, 0) + 1
+    book["site_dry"][quest.id] = dry
+    if dry > LOCAL_PATIENCE and quest.id not in book["gave_up"]:
+        book["gave_up"].add(quest.id)
+        why["wrote the job off: what it wants is past reaching"] += 1
 
 
 def _worth_travelling(game, quest, why) -> bool:
@@ -685,28 +777,101 @@ def _quarry(game, quest) -> list:
     ]
 
 
-def _adjacent_foe(game):
-    """A hostile standing next to the player, if there is one.
-
-    `is_hostile_to` rather than `faction == "hostile"`, which is what this
-    asked since v3.51 and is not the same question: a wolf's faction is
-    `"wild"`. The driver could not hit an animal, so a wolf could chew
-    through an adventurer who never once swung back -- and the counter said
-    `fought: 0` while the log filled with bites.
-    """
+def _adjacent_foes(game) -> list:
+    """Every hostile standing next to the player."""
     p = game.player
+    out = []
     for dx in (-1, 0, 1):
         for dy in (-1, 0, 1):
             if dx == dy == 0:
                 continue
             c = game.creature_at(p.x + dx, p.y + dy, p.z)
             if c is not None and not c.body.dead and c.is_hostile_to(p):
-                return dx, dy
-    return None
+                out.append(c)
+    return out
+
+
+def _health_of(c) -> float:
+    """One number for "how close to beaten", whatever the body runs on."""
+    return (c.body.structure_fraction() if c.body.bloodless
+            else c.body.blood_fraction())
+
+
+def _adjacent_foe(game):
+    """The direction of the one adjacent hostile worth hitting.
+
+    `is_hostile_to` rather than `faction == "hostile"`, which is what this
+    asked since v3.51 and is not the same question: a wolf's faction is
+    `"wild"`. The driver could not hit an animal, so a wolf could chew
+    through an adventurer who never once swung back -- and the counter said
+    `fought: 0` while the log filled with bites.
+
+    And since v4.10, *one* hostile, held onto: this used to return the first
+    foe in scan order, re-rolled every turn as the melee shuffled. Traced on
+    seed `play` -- a four-wolf pack, 30 landed sword hits, the most wounded
+    wolf abandoned at 84% blood for a pristine one, nothing killed, dead on
+    turn 45. Every strike-by-strike duel says the same sword kills a wolf in
+    about ten landed hits when they all land on the same wolf. So the driver
+    keeps its target while the target stands, and picks fights it has
+    already half-won -- the most wounded foe -- when it picks at all. Foes
+    the fight has proven unhurtable (`stalled`, below) come last.
+    """
+    p = game.player
+    foes = _adjacent_foes(game)
+    if not foes:
+        return None
+    book = _patience(game)
+    target = next((c for c in foes if c.id == book["fight_target"]), None)
+    if target is None or target.id in book["stalled"]:
+        fresh = [c for c in foes if c.id not in book["stalled"]]
+        if not fresh:
+            book["fight_target"] = None
+            return None
+        target = min(fresh, key=_health_of)
+        book["fight_target"] = target.id
+    return _sign(target.x - p.x), _sign(target.y - p.y)
 
 
 def _sign(n: int) -> int:
     return (n > 0) - (n < 0)
+
+
+#: Fight turns against the same foe with nothing on its body changing before
+#: the driver stops swinging at it. A skeleton against a sword is the case in
+#: the data -- "swords and hammers still glance off it" is a designed fact
+#: with a test to its name, and seeds `t` and `adv2` spent 97 and 64 strikes
+#: proving it the hard way. Judged by the fight, not by a bestiary: anything
+#: this weapon cannot mark in a dozen tries, it will not mark in a hundred.
+STALL_PATIENCE = 12
+
+
+def _fight_adjacent(game, why) -> Optional[int]:
+    """Swing at the chosen adjacent foe, and notice when nothing lands.
+
+    The stall book samples the target's health -- blood, or structure for
+    the bloodless -- before each swing. `STALL_PATIENCE` consecutive swings
+    that move neither marks the foe unhurtable for the rest of the run, and
+    `_adjacent_foe` stops offering it.
+    """
+    direction = _adjacent_foe(game)
+    if direction is None:
+        return None
+    p = game.player
+    book = _patience(game)
+    target = game.creature_at(p.x + direction[0], p.y + direction[1], p.z)
+    if target is not None:
+        health = _health_of(target)
+        last, same = book["stall"].get(target.id, (None, 0))
+        same = same + 1 if last is not None and health >= last - 1e-9 else 0
+        book["stall"][target.id] = (health, same)
+        if same >= STALL_PATIENCE:
+            book["stalled"].add(target.id)
+            book["fight_target"] = None
+            why["stopped hitting what it cannot hurt"] += 1
+            return None
+    cost = actions.attack_dir(game, *direction)
+    why["fought"] += 1
+    return cost
 
 
 def _swing_at(game, target, why, label: str):
@@ -764,6 +929,7 @@ def _do_here(game, quest, why) -> Optional[int]:
         prey = _quarry(game, quest)
         if not prey:
             why["nothing to hunt where it said"] += 1
+            _job_ran_dry(game, quest, why)
             return None
         target = min(prey, key=lambda c: max(abs(c.x - p.x), abs(c.y - p.y)))
         return _swing_at(game, target, why, "hunted")
@@ -791,6 +957,7 @@ def _do_here(game, quest, why) -> Optional[int]:
                 and c.is_hostile_to(p)]
         if not foes:
             why["nothing left to clear"] += 1
+            _job_ran_dry(game, quest, why)
             return None
         target = min(foes, key=lambda c: max(abs(c.x - p.x), abs(c.y - p.y)))
         return _swing_at(game, target, why, "cleared")
@@ -835,6 +1002,34 @@ def _errand(game, why) -> Optional[int]:
             why["working"] += 1
             return cost
 
+    # Work that means fighting several of them means not going alone. A
+    # clear_site is three to eight foes and a slay_beast is a megabeast; the
+    # census put a lone level-nought warrior against those numbers 22 times
+    # and buried 22. The game has had companions for hire all along -- 49
+    # starting coins, hire prices from a few dozen, quest rewards from 80 --
+    # and no driver ever spent a coin on one.
+    fight_q = next((q for q in log.active
+                    if q.kind in ("clear_site", "slay_beast")
+                    and q.progress < q.goal), None)
+    if fight_q is not None and (p.wx, p.wy) != (fight_q.wx, fight_q.wy) \
+            and not companion_mod.companions_of(game):
+        coins = sum(i.count for i in p.inventory.items
+                    if i.def_id == "coin")
+        hands = [c for c in game.creatures.values()
+                 if not c.is_player and not c.body.dead
+                 and companion_mod.can_recruit(c)
+                 and companion_mod.hire_price(c, p) <= coins]
+        if hands:
+            hand = min(hands,
+                       key=lambda c: max(abs(c.x - p.x), abs(c.y - p.y)))
+            if _beside(game, hand):
+                conv.say(p, hand, "recruit", game)
+                got = bool(companion_mod.companions_of(game))
+                why["hired a sword" if got else "asked; nobody would come"] += 1
+                return actions.talk(game, hand)
+            if _worth_chasing(game, hand):
+                return _walk_toward(game, hand.x, hand.y, hand.z)
+
     # Somewhere to be.
     for q in list(log.active):
         if q.progress >= q.goal:
@@ -847,8 +1042,10 @@ def _errand(game, why) -> Optional[int]:
             if step is not None:
                 return step
 
-    # Nothing in hand: find somebody who wants something done.
-    if not log.active:
+    # Nothing in hand: find somebody who wants something done. A job the
+    # patience wrote off no longer counts as something in hand.
+    book = _patience(game)
+    if not [q for q in log.active if q.id not in book["gave_up"]]:
         bosses = _employers(game)
         if bosses:
             boss = min(bosses,
@@ -866,6 +1063,38 @@ def _errand(game, why) -> Optional[int]:
             if step is not None:
                 return step
     return None
+
+
+def _press(game, why) -> int:
+    """One turn of the whole policy: what the driver presses, and its cost.
+
+    The priority order is the driver's charter -- look after the body, leave
+    fights already lost, refuse fights not worth starting, rest, fight the
+    one fight, do the errand, wander. Factored out of the loop so a test can
+    drive the actual policy against a built scenario instead of a replica of
+    it; the replica is how `player_acts` was once skipped and two hundred
+    turns moved the clock two ticks.
+    """
+    cost = _look_after(game, why)
+    if cost is None:
+        cost = _run_away(game, why)
+    if cost is None:
+        cost = _decline_the_melee(game, why)
+    if cost is None:
+        cost = _rest_up(game, why)
+    if cost is None:
+        cost = _fight_adjacent(game, why)
+    if cost is None:
+        cost = _errand(game, why)
+    if cost is None:
+        dx, dy = game.rng.choice(
+            [(1, 0), (-1, 0), (0, 1), (0, -1),
+             (1, 1), (-1, -1), (1, -1), (-1, 1)])
+        cost = actions.move_or_attack(game, dx, dy)
+        if cost <= 0:
+            why["blocked"] += 1
+            cost = actions.wait(game)
+    return cost
 
 
 def play(seed: str, turns: int, *, size: str = "small",
@@ -891,27 +1120,7 @@ def play(seed: str, turns: int, *, size: str = "small",
     for turn in range(turns):
         if p.body.dead or game.game_over:
             break
-        cost = _look_after(game, why)
-        if cost is None:
-            cost = _run_away(game, why)
-        if cost is None:
-            cost = _rest_up(game, why)
-        if cost is None:
-            foe = _adjacent_foe(game)
-            if foe is not None:
-                cost = actions.attack_dir(game, *foe)
-                why["fought"] += 1
-        if cost is None:
-            cost = _errand(game, why)
-        if cost is None:
-            dx, dy = game.rng.choice(
-                [(1, 0), (-1, 0), (0, 1), (0, -1),
-                 (1, 1), (-1, -1), (1, -1), (-1, 1)])
-            cost = actions.move_or_attack(game, dx, dy)
-            if cost <= 0:
-                why["blocked"] += 1
-                cost = actions.wait(game)
-        game.player_acts(max(1, cost))
+        game.player_acts(max(1, _press(game, why)))
         seen_tiles.add((p.wx, p.wy))
         for q in game.quests.active + game.quests.completed:
             taken.setdefault(q.id, q)
@@ -954,7 +1163,8 @@ def play(seed: str, turns: int, *, size: str = "small",
            % out)
     report("peak needs %(peak)s, furthest %(furthest)d tiles, "
            "%(world_tiles)d world squares" % out)
-    report("work: %(quests_taken)d taken, %(quests_done)d finished, "
+    report("work: %(quests_taken)d taken %(kinds_taken)s, "
+           "%(quests_done)d finished, "
            "%(quests_failed)d lost; finished %(kinds_done)s" % out)
     report("actions %(actions)s" % out)
     if out["dead"]:

@@ -2987,6 +2987,12 @@ class TestSlayingTheBeast(unittest.TestCase):
         world = generate_world(rng.sub("w"), size="small", history_years=150)
         game = Game.new_game(
             world, {"race": "human", "profession": "warrior"}, rng)
+        # The board reads the asker since v4.10, and megabeasts are work for
+        # the proven -- a fresh warrior is offered none of them, which has
+        # its own guard. These tests are about the quest once granted, so
+        # the asker arrives with the prowess to be granted it.
+        game.player.skills.set_level("fighter", 12)
+        game.player.kills.extend(["wolf"] * 20)
         givers = [c for c in game.creatures.values()
                   if c.defn.has("CAN_SPEAK") and not c.is_player]
         for giver in givers[:80]:
@@ -3364,6 +3370,246 @@ class TestPlayingTheAdventure(GameFixture):
         self.assertIn("world_tiles", out)
         self.assertEqual(out["nowhere"], [],
                          "it was given work with no destination")
+
+
+class TestTheQuestsNobodyEverFinished(GameFixture):
+    """v4.10: clear_site 0 for 7 and slay_beast 0 for 4, across every ritual.
+
+    The census that opened this: 24 seeds, 22 dead, every death "bled to
+    death", 0 quests finished, and the strike log's verdict -- 363 landed
+    player hits, nothing ever killed. Three families of cause, each with its
+    fix and its guard here: the driver sprayed its damage across packs and
+    stood in melees it had already lost; it fought what its weapon cannot
+    mark and never hired the help the game sells; and the board handed
+    tier-5 megabeasts to prowess-4 strangers, which no amount of driving
+    fixes. After: quests complete in the census, and the last guard below
+    drives a clear_site to "done" through the driver's own policy.
+    """
+
+    def _foe(self, cid, dx, dy, seed="foe"):
+        c = make_creature(RNG(seed), cid, faction="hostile")
+        p = self.game.player
+        c.x, c.y, c.z = p.x + dx, p.y + dy, p.z
+        self.game.add_creature(c)
+        return c
+
+    def _clear_the_wild(self):
+        for other in list(self.game.creatures.values()):
+            if other is not self.game.player and other.faction == "hostile":
+                self.game.creatures.pop(other.id, None)
+                self.game.scheduler.remove(other.id)
+
+    def test_the_driver_finishes_one_fight_before_starting_another(self):
+        """Seed `play`: four wolves, the most wounded abandoned at 84 percent
+        blood for a pristine one, nothing killed, dead on turn 45."""
+        from tools import play
+
+        self._clear_the_wild()
+        hurt = self._foe("wolf", 1, 0, "hurt")
+        hale = self._foe("wolf", -1, 0, "hale")
+        hurt.body.blood *= 0.5
+        first = play._adjacent_foe(self.game)
+        self.assertEqual(first, (1, 0), "it did not open on the wounded one")
+        hale.body.blood *= 0.3
+        self.assertEqual(play._adjacent_foe(self.game), (1, 0),
+                         "a fresher wound elsewhere stole the fight")
+        hurt.body.dead = True
+        self.assertEqual(play._adjacent_foe(self.game), (-1, 0),
+                         "the fight did not move on when the target died")
+
+    def test_outnumbered_at_full_blood_is_declined(self):
+        from tools import play
+
+        self._clear_the_wild()
+        why = collections.Counter()
+        self._foe("wolf", 2, 0, "w1")
+        play._decline_the_melee(self.game, why)
+        self.assertEqual(why["declined the melee"], 0,
+                         "one foe is not a melee to refuse")
+        self._foe("wolf", 0, 2, "w2")
+        # Through the whole policy, not the helper: the melee must be
+        # declined by the driver as pressed, at full blood, before the old
+        # 62-percent gate would ever have woken.
+        play._press(self.game, why)
+        self.assertEqual(why["declined the melee"], 1,
+                         "two on one at full blood and it stood there")
+
+    def test_a_companion_evens_the_odds(self):
+        from tools import play
+
+        self._clear_the_wild()
+        why = collections.Counter()
+        self._foe("wolf", 2, 0, "w1")
+        self._foe("wolf", 0, 2, "w2")
+        friend = make_creature(RNG("friend"), "human", faction="player")
+        p = self.game.player
+        friend.x, friend.y, friend.z = p.x - 2, p.y, p.z
+        self.game.add_creature(friend)
+        self.game.companion_ids.append(friend.id)
+        self.assertIsNone(play._decline_the_melee(self.game, why),
+                          "two against two is not outnumbered")
+
+    def test_a_fight_the_weapon_cannot_win_is_walked_away_from(self):
+        """"Swords and hammers still glance off it" is a designed fact about
+        a skeleton with a test to its name; seeds `t` and `adv2` spent 97
+        and 64 strikes discovering it. Judged by the fight, not a bestiary:
+        the swing is stubbed to land nothing, and the book must notice."""
+        from tools import play
+
+        self._clear_the_wild()
+        why = collections.Counter()
+        self._foe("skeleton", 1, 0, "bones")
+        real = play.actions.attack_dir
+        play.actions.attack_dir = lambda game, dx, dy: 100
+        try:
+            for _ in range(play.STALL_PATIENCE + 1):
+                cost = play._fight_adjacent(self.game, why)
+        finally:
+            play.actions.attack_dir = real
+        self.assertIsNone(cost, "it kept swinging at what it cannot mark")
+        self.assertEqual(why["stopped hitting what it cannot hurt"], 1)
+        self.assertIsNone(play._adjacent_foe(self.game),
+                          "the written-off fight was offered again")
+
+    def test_work_that_means_fighting_several_is_not_walked_to_alone(self):
+        from ascii_warriors.game import companions as companion_mod
+        from ascii_warriors.game import quests as quests_mod
+        from tools import play
+
+        self._clear_the_wild()
+        why = collections.Counter()
+        p = self.game.player
+        q = quests_mod.Quest("clear_site", "Clear the test camp", "...")
+        q.goal = 3
+        q.wx, q.wy = p.wx + 3, p.wy
+        self.game.quests.active.append(q)
+        sword = make_creature(RNG("sword"), "human", faction="citizen")
+        sword.profession = "warrior"
+        sword.x, sword.y, sword.z = p.x + 1, p.y, p.z
+        self.game.add_creature(sword)
+        self.assertTrue(companion_mod.can_recruit(sword))
+        coin = Item("coin", "gold")
+        coin.count = 2000
+        p.inventory.add(coin)
+        play._errand(self.game, why)
+        self.assertEqual(why["hired a sword"], 1)
+        self.assertEqual(len(companion_mod.companions_of(self.game)), 1,
+                         "it set out for a three-foe site alone")
+
+    def test_a_job_that_runs_dry_is_written_off(self):
+        """Seed `hero` stood at a site for 2772 turns because the last
+        target stands where no path goes and the quest still pointed
+        there."""
+        from ascii_warriors.game import quests as quests_mod
+        from tools import play
+
+        self._clear_the_wild()
+        why = collections.Counter()
+        p = self.game.player
+        q = quests_mod.Quest("slay_beast", "Slay nothing", "...")
+        q.target_def = "hydra"
+        q.wx, q.wy = p.wx, p.wy
+        self.game.quests.active.append(q)
+        for _ in range(play.LOCAL_PATIENCE + 1):
+            self.assertIsNone(play._do_here(self.game, q, why))
+        self.assertIn(q.id, play._patience(self.game)["gave_up"])
+        self.assertEqual(
+            why["wrote the job off: what it wants is past reaching"], 1)
+        self.assertFalse(play._worth_travelling(self.game, q, why),
+                         "a written-off job was still worth the road")
+
+    def test_a_written_off_target_that_moved_is_forgiven(self):
+        from tools import play
+
+        self._clear_the_wild()
+        wolf = self._foe("wolf", 5, 0, "moved")
+        book = play._patience(self.game)
+        book["gave_up"].add(wolf.id)
+        book["written_off_at"][wolf.id] = (wolf.x, wolf.y, wolf.z)
+        self.assertFalse(play._worth_chasing(self.game, wolf),
+                         "written off is written off while it stands there")
+        wolf.x += 5
+        self.assertTrue(play._worth_chasing(self.game, wolf),
+                        "it moved and the book still said it did not exist")
+
+    def test_the_board_reads_the_asker(self):
+        """Every slay_beast names a tier-4 or tier-5 monster and every fresh
+        warrior is prowess 4; the board offered them anyway, 0 for 4, two
+        takers dismembered at the lair."""
+        import types
+
+        from ascii_warriors.game import quests as quests_mod
+
+        p = self.game.player
+        hydra = types.SimpleNamespace(
+            id=990001, creature_id="hydra", site_id=None, flags={"monster"},
+            display_name="Testscale", alive=lambda year: True)
+        self.game.world.figures[hydra.id] = hydra
+        try:
+            giver = types.SimpleNamespace(hf_id=None)
+            fresh = [quests_mod._quest_slay_beast(RNG("sb%d" % i), self.game,
+                                                  giver) for i in range(8)]
+            self.assertEqual([q for q in fresh if q is not None], [],
+                             "a prowess-4 stranger was offered a megabeast")
+            p.skills.set_level("fighter", 12)
+            p.kills.extend(["wolf"] * 20)
+            proven = [quests_mod._quest_slay_beast(RNG("sb%d" % i), self.game,
+                                                   giver) for i in range(8)]
+            self.assertTrue(any(q is not None for q in proven),
+                            "no amount of prowess earns the hydra job")
+        finally:
+            self.game.world.figures.pop(hydra.id, None)
+
+    def test_the_dead_are_work_for_the_proven(self):
+        import types
+
+        from ascii_warriors.game import quests as quests_mod
+
+        p = self.game.player
+        tomb = types.SimpleNamespace(kind="tomb", id=990002, name="Test Tomb",
+                                     kind_name="tomb", wx=p.wx, wy=p.wy)
+        world = self.game.world
+        real_sites = world.sites
+        world.sites = [tomb]
+        try:
+            giver = types.SimpleNamespace(hf_id=None)
+            self.assertIsNone(
+                quests_mod._quest_clear_site(RNG("cs"), self.game, giver),
+                "a prowess-4 stranger was sent at the restless dead")
+            p.skills.set_level("fighter", 12)
+            q = quests_mod._quest_clear_site(RNG("cs"), self.game, giver)
+            self.assertIsNotNone(q, "no amount of prowess earns the tomb")
+        finally:
+            world.sites = real_sites
+
+    def test_the_driver_clears_a_site_start_to_finish(self):
+        """The milestone's namesake, driven to "done" through the actual
+        policy: a two-kobold camp on the player's own square, `_press`
+        pressed until the quest completes. Zero of seven was the record
+        before v4.10; this is the existence proof that the loop -- take,
+        fight one fight at a time, finish, complete -- closes."""
+        from ascii_warriors.game import quests as quests_mod
+        from tools import play
+
+        self._clear_the_wild()
+        why = collections.Counter()
+        p = self.game.player
+        q = quests_mod.Quest("clear_site", "Clear the test camp", "...")
+        q.goal = 2
+        q.wx, q.wy = p.wx, p.wy
+        q.site_id = self.game.local.site_id
+        self.game.quests.active.append(q)
+        self._foe("kobold", 2, 0, "k1")
+        self._foe("kobold", 3, 1, "k2")
+        for _ in range(600):
+            if q.state == "done" or self.game.game_over:
+                break
+            self.game.player_acts(max(1, play._press(self.game, why)))
+        self.assertFalse(p.body.dead,
+                         "two kobolds killed the reference player")
+        self.assertEqual(q.state, "done",
+                         "the driver could not close a two-kobold site: %r"
+                         % dict(why))
 
 
 class TestTheWild(GameFixture):
@@ -8452,6 +8698,12 @@ class TestThingsThatSaidSoAndDidNot(GameFixture):
             world.artifacts.append(art)
 
         made = set()
+        # Every kind, for an asker the board trusts: slay_beast is refused
+        # to a prowess-4 stranger by design since v4.10 (guarded in
+        # TestTheQuestsNobodyEverFinished), so the generator is asked by a
+        # veteran here.
+        self.game.player.skills.set_level("fighter", 12)
+        self.game.player.kills.extend(["wolf"] * 20)
         givers = [c for c in self.game.creatures.values() if not c.is_player]
         self.assertTrue(givers)
         for i in range(600):

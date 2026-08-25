@@ -1617,15 +1617,23 @@ class TestThePatienceNobodySpends(unittest.TestCase):
                          "getting there did not clear the count")
 
     def test_giving_up_is_not_the_same_as_giving_up_on_everything(self):
-        """A run that finishes its work must not be writing targets off.
+        """Write-offs are earned singly, never sprayed across a run.
 
-        The bound has to be loose enough that an honest chase never hits it.
-        Seeds that die fighting have chased plenty and given up on nothing.
+        This used to demand zero on every seed -- the bound loose enough
+        that an honest chase never hits it -- and that held until v4.10
+        measured seed `hero`'s world properly: its last bounty vampire
+        stands where no path goes and never moves, so the creature is
+        written off (measured: two hundred failed approaches), and then the
+        job that wants it is written off dry. Exactly two entries, both
+        earned, and the other seeds still owe zero: a patience broken
+        wholesale would spray write-offs everywhere and move all four
+        numbers.
         """
-        for seed in ("play", "t", "hero", "quest"):
+        for seed, owed in (("play", 0), ("t", 0), ("hero", 2), ("quest", 0)):
             out = self._play(seed)
-            self.assertEqual(out["gave_up"], 0,
-                             "%s wrote off a target on an ordinary run" % seed)
+            self.assertEqual(out["gave_up"], owed,
+                             "%s wrote off %d target(s), %d earned"
+                             % (seed, out["gave_up"], owed))
 
     def test_the_bound_is_looser_than_a_walk_across_the_map(self):
         """Or the driver gives up on things it was about to reach.
