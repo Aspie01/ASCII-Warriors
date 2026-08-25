@@ -11428,7 +11428,71 @@ and the fortress-mode HOT-biome creature table is thin.
 
 Re-break: ten defects put back, ten caught, 0 misses.
 
-## 173. Style
+## 173. The save nobody reloads (v4.13)
+
+Every driver in the project plays. None of them had ever *reloaded*:
+`smoke` saves and resumes without loading, `fort` and `play` never touch a
+save at all. So the round-trip tests pinned that fields came back, and
+nothing anywhere asked the question a player asks — does the fortress I
+loaded behave like the fortress I left?
+
+Measured with an A/B oracle: run a fortress three days, round-trip it
+through real JSON, then run both copies the same two days more. Every seed
+forked inside 44 steps. Seven forgotten fields in three families, each
+found by bisecting to the first divergent RNG draw and naming its caller:
+
+- **A decision and a route.** `DwarfState.errand` — the field whose
+  docstring records the dwarf that died of thirst between two barrels,
+  because "a decision has to be remembered to be one" — was wiped by every
+  save; so was `path`, so a reloaded dwarf stood still a step re-planning
+  a walk it already knew. Both are saved now, the errand validated on read
+  so an item eaten while the save sat on disk is re-chosen, not chased.
+- **A number rounded to death.** `exposure` was serialised through
+  `round(..., 4)` and its fractional surcharge carry (§172) not at all.
+  "Under a point" is under a point *per crossing*, and a fortress is made
+  of crossings: the charge schedules drifted, a dwarf crossed the drink
+  threshold a step early, and the worlds parted.
+- **The clocks the simulation keeps on itself.** Six stamps —
+  `_next_chill`, `_last_chill`, `_next_spark`, `_next_performance`,
+  `_tavern_blocked_until`, the adventure's `_tavern_wait` — plus
+  `Frost._next_check` and the `warn_once` memory. Every one written as a
+  bare attribute, every one read through a `getattr` default, and *that is
+  how they escaped*: `to_dict` had no line to leave out, so no reviewer
+  ever saw an omission. `_last_chill` defaults to **now**, so a reloaded
+  fortress measured the weather's span as one step instead of the sixty
+  since the last chill and re-charged every creature's exposure, thirst
+  and hunger differently — the first fork. `Frost._next_check` was the
+  last: it lives in `__slots__` but outside `Frost.to_list`, so a reloaded
+  map re-sampled the world for freezing and spent draws the original never
+  did.
+
+After: **identity holds** — four seeds, reloaded at day 2 and day 4,
+three days of continuation each, agreeing on every creature's position,
+blood, all three needs, exposure and carry, every water cell, the job
+board, wealth, ground items and the warning memory.
+
+The guard fixtures repeated the family lesson twice. The route guard
+broke off as soon as a dwarf had an *errand*, every path was empty, and
+emptying `path` in the save changed nothing it could see — it demands
+both halves in hand now. And the stale-errand injection first written for
+the re-break did not reproduce the defect at all: skipping the validation
+still fell through to a fresh choice, so the guard stayed green over a
+broken build. An injection is code, and a re-break that does not break
+anything is a test of nothing (§165).
+
+The full suite then found the omission written down as intent. A v3.x
+test asserted that the errand was *deliberately* absent from the save --
+"a reload re-decides, and re-deciding once is not what did the damage" --
+and that sentence was the whole defect: re-deciding once is a different
+draw from the fortress's one shared RNG, and from that step the two
+worlds part for good. The test asserts the measured rule now, with the
+refuted reasoning kept beside it. Three milestones running (§169, §170,
+§173) have each ended by correcting a test that had written yesterday's
+rule into today's guard.
+
+Re-break: eleven defects put back, eleven caught, 0 misses.
+
+## 174. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import unittest
 
 from ascii_warriors.data import items as item_data
@@ -10159,16 +10160,22 @@ class TestTheBarrelItSetOutFor(unittest.TestCase):
         self._drop(fort, "dwarven_ale", far)
         dwarf_mod._errand_item(fort, dwarf, drink=True)
         self.assertIsNotNone(dwarf.fort.errand)
-        # Asserted on the written state as well as the round trip: a key
-        # written but never read back still reloads as None, so the round
-        # trip alone passes whatever `to_dict` does.
-        self.assertNotIn("errand", dwarf.fort.to_dict(),
-                         "the errand was written into the save")
+        # This test used to assert the opposite -- that the errand was
+        # deliberately left out of the save, because "a reload re-decides,
+        # and re-deciding once is not what did the damage". v4.13 measured
+        # that claim with an A/B reload trial and refuted it: re-deciding
+        # once is a different draw from the fortress's one shared RNG, and
+        # from that step the reloaded world and the saved one part company
+        # for good. Written and read back now, and asserted on the written
+        # state as well as the round trip, because a key written and never
+        # read still reloads as None.
+        self.assertIn("errand", dwarf.fort.to_dict(),
+                      "the errand was left out of the save")
         again = Fortress.from_dict(fort.to_dict())
         back = again.creatures[dwarf.id]
-        # Not serialised, like `path`: a reload re-decides, and re-deciding
-        # once is not what did the damage.
-        self.assertIsNone(back.fort.errand)
+        self.assertEqual(back.fort.errand, dwarf.fort.errand,
+                         "the dwarf reloaded without the barrel it had "
+                         "set out for")
 
 
 class TestTheThirstAlarmAsksTheDwarf(unittest.TestCase):
@@ -10661,6 +10668,162 @@ def _seal_in(fort, d) -> None:
         for dx in range(-2, 3):
             for dy in range(-2, 3):
                 fort.dig_out((d.x + dx, d.y + dy, z), "rock_wall")
+
+
+class TestTheSaveNobodyReloads(unittest.TestCase):
+    """v4.13: no driver had ever reloaded a game, and the save had drifted.
+
+    `smoke` saves and resumes; `fort` and `play` never touch a save at all.
+    So the round-trip tests pinned that fields *came back*, and nothing
+    anywhere asked the only question a player asks: does the fortress I
+    loaded behave like the fortress I left?
+
+    Measured, it did not. An A/B trial -- run three days, JSON round-trip,
+    run both copies two days more -- forked inside 44 steps on every seed
+    tried. Four causes, in the order the bisector found them: a dwarf's
+    chosen `errand` (the decision that ended the dwarf dying of thirst
+    between two barrels, wiped by every save); its `path`, so a reloaded
+    dwarf stood still a step re-planning a walk it already knew; the
+    exposure carry, rounded away; and the root of it -- a family of
+    scheduling stamps written as bare attributes, read through `getattr`
+    defaults, and saved by nothing. `_last_chill` defaults to *now*, so a
+    reloaded fortress measured the weather's span as one step instead of
+    the sixty since the last chill, and every creature's exposure, thirst
+    and hunger came out different from the fortress that never stopped.
+    """
+
+    #: How much of the simulation two fortresses must agree about.
+    @staticmethod
+    def _fingerprint(f):
+        return json.dumps({
+            "ticks": f.ticks,
+            "rng": f.rng.to_dict(),
+            "creatures": sorted(
+                (c.id, c.x, c.y, c.z, c.body.dead, round(c.body.blood, 9),
+                 c.needs.thirst, c.needs.hunger, c.needs.drowsy,
+                 round(getattr(c, "exposure", 0.0), 9),
+                 round(getattr(c, "_exposure_debt", 0.0), 9))
+                for c in f.creatures.values()),
+            "jobs": sorted(f.jobs.jobs),
+            "water": sorted((list(k), v) for k, v in f.water.depth.items()),
+            "grazed": len(f.grazed),
+            "wealth": f.wealth,
+            "items": sum(len(p) for p in f.items_on_ground.values()),
+            "warned": sorted(f._warned),
+        }, sort_keys=True)
+
+    def _reloaded(self, fort):
+        return Fortress.from_dict(json.loads(json.dumps(fort.to_dict())))
+
+    def test_a_reloaded_fortress_lives_the_same_week(self):
+        """The milestone's bar, and the one a player would recognise."""
+        a = embark("reload")
+        sim.run(a, 220)
+        b = self._reloaded(a)
+        self.assertEqual(self._fingerprint(a), self._fingerprint(b),
+                         "the reload did not even start where the save left")
+        sim.run(a, 200)
+        sim.run(b, 200)
+        self.assertEqual(
+            self._fingerprint(a), self._fingerprint(b),
+            "a reloaded fortress lived a different two hundred steps")
+
+    def test_the_clocks_the_simulation_keeps_on_itself_are_saved(self):
+        """The root cause, named field by field: every one of these is
+        written as a bare attribute and read through a `getattr` default,
+        which is exactly how they escaped the save for so long."""
+        a = embark("stamps")
+        sim.run(a, 120)
+        a._next_spark = a.ticks + 4321
+        a._next_performance = a.ticks + 1234
+        a._tavern_blocked_until = a.ticks + 999
+        a.warn_once("fodder", "Your animals are eating the stores.")
+        b = self._reloaded(a)
+        for name in ("_next_chill", "_last_chill", "_next_spark",
+                     "_next_performance", "_tavern_blocked_until"):
+            self.assertEqual(getattr(b, name, None), getattr(a, name, None),
+                             "%s did not survive the save" % name)
+        self.assertIn("fodder", b._warned,
+                      "a reload told the player again what it had already "
+                      "told them")
+
+    def test_the_weather_span_is_not_restarted_by_a_reload(self):
+        """`_last_chill` defaulting to now was the first fork: the span is
+        `fort.ticks - _last_chill`, so a reload charged one step of weather
+        where the original charged sixty."""
+        a = embark("chill")
+        sim.run(a, 200)
+        b = self._reloaded(a)
+        self.assertEqual(b._last_chill, a._last_chill)
+        self.assertNotEqual(b._last_chill, b.ticks,
+                            "the reloaded fortress thinks the weather was "
+                            "charged this very step")
+
+    def test_a_dwarf_keeps_its_errand_and_its_route(self):
+        # Long enough that somebody is thirsty and walking: at 400 steps a
+        # fresh embark is still unpacking, and a fixture that forgets
+        # nothing proves nothing.
+        # Both halves must be in hand, or the guard proves only the one it
+        # happened to catch: the first draft broke off as soon as somebody
+        # had an errand, every path was empty, and emptying `path` in the
+        # save changed nothing it could see.
+        a = embark("errands")
+        for _ in range(12):
+            sim.run(a, 400)
+            if any(d.fort.errand is not None for d in a.dwarves()) \
+                    and any(d.fort.path for d in a.dwarves()):
+                break
+        self.assertTrue(any(d.fort.path for d in a.dwarves()),
+                        "no dwarf had a route to forget")
+        errands = {d.id: d.fort.errand for d in a.dwarves()}
+        paths = {d.id: list(d.fort.path) for d in a.dwarves()}
+        goals = {d.id: d.fort.path_goal for d in a.dwarves()}
+        self.assertTrue(any(v is not None for v in errands.values())
+                        or any(paths.values()),
+                        "nothing was in hand to forget")
+        b = self._reloaded(a)
+        for d in b.dwarves():
+            self.assertEqual(d.fort.errand, errands[d.id],
+                             "the errand was forgotten")
+            self.assertEqual(list(d.fort.path), paths[d.id],
+                             "the route was forgotten")
+            self.assertEqual(d.fort.path_goal, goals[d.id],
+                             "where the route was going was forgotten")
+
+    def test_an_errand_for_something_gone_is_re_chosen_not_chased(self):
+        """The id is validated on read, so a save made before somebody
+        drank the ale does not send a dwarf after a barrel that is no
+        longer there."""
+        a = embark("gone")
+        sim.run(a, 400)
+        d = a.dwarves()[0]
+        d.fort.errand = 999999
+        b = self._reloaded(a)
+        back = next(x for x in b.dwarves() if x.id == d.id)
+        self.assertEqual(back.fort.errand, 999999,
+                         "the field itself must round-trip")
+        # Asked directly rather than waiting for thirst: a dwarf consults
+        # its errand only when it is going for a drink, and a fixture that
+        # runs steps hoping to catch that is measuring the needs clock
+        # rather than the validation this test is about.
+        dwarf_mod._errand_item(b, back, drink=True)
+        self.assertNotEqual(back.fort.errand, 999999,
+                            "it kept walking towards an item that does not "
+                            "exist")
+
+    def test_the_exposure_carry_survives_unrounded(self):
+        a = embark("carry")
+        sim.run(a, 300)
+        carried = {c.id: (c.exposure, getattr(c, "_exposure_debt", 0.0))
+                   for c in a.creatures.values()}
+        self.assertTrue(any(v[0] or v[1] for v in carried.values()),
+                        "nobody had any exposure to carry")
+        b = self._reloaded(a)
+        for c in b.creatures.values():
+            exp, debt = carried[c.id]
+            self.assertEqual(c.exposure, exp, "exposure was rounded away")
+            self.assertEqual(getattr(c, "_exposure_debt", 0.0), debt,
+                             "the fractional surcharge carry was dropped")
 
 
 class TestTheSeedThatPaidFullPriceToFail(unittest.TestCase):

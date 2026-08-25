@@ -3929,6 +3929,45 @@ class TestTheConstantsNobodyReads(GameFixture):
         self.assertTrue(terminal.ALT_SCREEN_ON.startswith(terminal.CSI))
 
 
+class TestTheAdventureSaveNobodyReloads(GameFixture):
+    """v4.13's other half: the adventure map keeps clocks on itself too.
+
+    The fortress's forgotten stamps had two siblings here -- the tavern's
+    music timer, which a reload restarted, and the ice layer's next-look
+    clock, which lives outside `Frost.to_list` and had a reloaded map
+    sampling the world for freezing a step early. Both are saved now.
+    """
+
+    def test_the_maps_own_clocks_survive_a_save(self):
+        import json
+
+        from ascii_warriors.game.state import Game
+
+        game = self.game
+        game._tavern_wait = 137
+        game.frost._next_check = 4242
+        back = Game.from_dict(json.loads(json.dumps(game.to_dict())))
+        self.assertEqual(getattr(back, "_tavern_wait", None), 137,
+                         "a reload restarted the tavern's music")
+        self.assertEqual(getattr(back.frost, "_next_check", None), 4242,
+                         "a reload re-armed the freezing check")
+
+    def test_a_reloaded_adventurer_carries_its_exposure_exactly(self):
+        import json
+
+        from ascii_warriors.game.state import Game
+
+        p = self.game.player
+        p.exposure = -0.4237186429
+        p._exposure_debt = 0.6193
+        back = Game.from_dict(json.loads(json.dumps(self.game.to_dict())))
+        self.assertEqual(back.player.exposure, p.exposure,
+                         "exposure was rounded away by the save")
+        self.assertEqual(getattr(back.player, "_exposure_debt", 0.0),
+                         p._exposure_debt,
+                         "the fractional surcharge carry was dropped")
+
+
 class TestTheWild(GameFixture):
     """BENIGN, AMBUSHER and VERMIN, finally read by something."""
 

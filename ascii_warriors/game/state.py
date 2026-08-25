@@ -396,12 +396,18 @@ class Game:
             "frost": self.frost.to_list(),
             "traps": traps_mod.to_list(self),
             "webs": webs_mod.to_list(self),
+            # See the fortress's `stamps`: the ice layer's next-look clock
+            # lives outside `Frost.to_list`, and a reload without it
+            # re-samples the map for freezing a step early -- draws the
+            # save it came from never spent.
+            "frost_next_check": getattr(self.frost, "_next_check", 0),
         }
 
     def _restore_layers(self, d: Mapping[str, Any]) -> None:
         """Put a map's layers back. An empty mapping is a clean map."""
         self.fire = FireLayer.from_list(d.get("fire") or [])
         self.frost = Frost.from_list(d.get("frost") or [])
+        self.frost._next_check = int(d.get("frost_next_check", 0))
         self.traps = {}
         self.webs = {}
         traps_mod.from_list(self, d.get("traps") or [])
@@ -1431,6 +1437,12 @@ class Game:
             "traps": traps_mod.to_list(self),
             "fire": self.fire.to_list(),
             "frost": self.frost.to_list(),
+            # The adventure's own clock-on-itself, the same family as the
+            # fortress's `stamps`: written with `self._name = ...`, read
+            # with a `getattr` default, and forgotten by every save until
+            # v4.13 went looking. Reloading in a tavern restarted the music.
+            "tavern_wait": getattr(self, "_tavern_wait", 0),
+            "frost_next_check": getattr(self.frost, "_next_check", 0),
             "companion_ids": list(self.companion_ids),
             "companions": [c.to_dict() for c in self.travelling_companions],
             "cache": {
@@ -1468,6 +1480,8 @@ class Game:
         traps_mod.from_list(game, d.get("traps") or [])
         game.fire = FireLayer.from_list(d.get("fire") or [])
         game.frost = Frost.from_list(d.get("frost") or [])
+        game.frost._next_check = int(d.get("frost_next_check", 0))
+        game._tavern_wait = int(d.get("tavern_wait", 0))
         game.companion_ids = [int(i) for i in d.get("companion_ids", [])]
         game._season_mark = int(d.get("season_mark", 0))
         game.travelling_companions = [

@@ -1724,6 +1724,36 @@ class Fortress:
             "stockpiles": [s.to_dict() for s in self.stockpiles],
             "pastures": [p.to_dict() for p in self.pastures],
             "grazed": {"%d,%d,%d" % c: t for c, t in self.grazed.items()},
+            # The clocks the simulation keeps on itself. Every one of these
+            # is written with `fort._name = ...` and read with a
+            # `getattr(fort, "_name", default)`, which is what let them be
+            # forgotten by a save for the whole life of the project:
+            # nothing in `to_dict` had a line to leave out.
+            #
+            # v4.13 measured what the forgetting costs. `_last_chill`
+            # defaults to *now*, so a reloaded fortress computes the
+            # weather's span as one step instead of the sixty since the
+            # last chill, and every creature's exposure and its thirst and
+            # hunger surcharges come out different from the fortress that
+            # never stopped -- the first fork in an A/B reload trial, and
+            # from there the two worlds part completely.
+            "stamps": {
+                "next_chill": getattr(self, "_next_chill", 0),
+                "last_chill": getattr(self, "_last_chill", self.ticks),
+                "next_spark": getattr(self, "_next_spark", 0),
+                "next_performance": getattr(self, "_next_performance", 0),
+                "tavern_blocked_until": getattr(
+                    self, "_tavern_blocked_until", 0),
+                # The ice layer keeps its own: `Frost.to_list` carries the
+                # cells the cold has taken and not the clock that decides
+                # when to look again, so a reloaded fortress sampled the
+                # map for freezing on its very next step and spent draws
+                # the original had not -- the last fork v4.13's bisector
+                # found, and the same shape as all the others.
+                "frost_next_check": getattr(self.frost, "_next_check", 0),
+            },
+            # Told once is told once, even across a reload.
+            "warned": sorted(self._warned),
             "engravings": {"%d,%d,%d" % c: a.to_dict()
                            for c, a in self.engravings.items()},
             "unburied": {str(k): v for k, v in self.unburied.items()},
@@ -1838,6 +1868,15 @@ class Fortress:
 
         fort.pastures = [animal_mod.Pasture.from_dict(p)
                          for p in d.get("pastures", [])]
+        stamps = d.get("stamps") or {}
+        fort._next_chill = int(stamps.get("next_chill", 0))
+        fort._last_chill = int(stamps.get("last_chill", int(d.get("ticks", 0))))
+        fort._next_spark = int(stamps.get("next_spark", 0))
+        fort._next_performance = int(stamps.get("next_performance", 0))
+        fort._tavern_blocked_until = int(
+            stamps.get("tavern_blocked_until", 0))
+        fort._warned = set(d.get("warned") or [])
+        fort.frost._next_check = int(stamps.get("frost_next_check", 0))
         fort.grazed = {
             tuple(int(v) for v in k.split(",")): int(t)
             for k, t in (d.get("grazed") or {}).items()

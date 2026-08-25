@@ -115,6 +115,20 @@ class DwarfState:
             "idle_ticks": self.idle_ticks,
             "praying": self.praying,
             "blocked": self.blocked,
+            # A decision, and "a decision has to be remembered to be one":
+            # this is the field that ended the dwarf dying of thirst between
+            # two barrels, and a save used to wipe it -- measured in v4.13's
+            # reload oracle, five dwarves walked out of a reload with their
+            # errands forgotten and idled while their originals fetched ale.
+            # The id is validated on read, so an item gone while saved is
+            # re-chosen, not chased.
+            "errand": self.errand,
+            # The route in hand. Losing it was "transient by design" until
+            # v4.13's reload oracle measured the design: a reloaded dwarf
+            # stands still a step re-planning the walk it already knew, and
+            # that one-step skew re-deals every later roll in the fortress.
+            "path": [list(c) for c in self.path],
+            "path_goal": list(self.path_goal) if self.path_goal else None,
         }
 
     @classmethod
@@ -132,6 +146,11 @@ class DwarfState:
         s.idle_ticks = int(d.get("idle_ticks", 0))
         s.praying = int(d.get("praying", 0))
         s.blocked = int(d.get("blocked", 0))
+        e = d.get("errand")
+        s.errand = int(e) if e is not None else None
+        s.path = [tuple(int(v) for v in c) for c in d.get("path") or []]
+        pg = d.get("path_goal")
+        s.path_goal = tuple(int(v) for v in pg) if pg else None
         return s
 
 

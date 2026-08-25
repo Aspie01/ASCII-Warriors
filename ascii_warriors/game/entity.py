@@ -611,7 +611,18 @@ class Creature:
 
             d["venom"] = venom_mod.to_list(self)
         if self.exposure:
-            d["exposure"] = round(self.exposure, 4)
+            # Unrounded, and the carry with it: v4.13's reload oracle
+            # measured what rounding to four places and dropping the
+            # fractional surcharge carry actually cost -- every reloaded
+            # dwarf's charge schedule drifted a few points a day until one
+            # crossed the drink threshold a step apart from its original,
+            # and the whole fortress forked from there. "Under a point" is
+            # under a point per crossing, and a fortress is made of
+            # crossings.
+            d["exposure"] = self.exposure
+        debt = getattr(self, "_exposure_debt", 0.0)
+        if debt:
+            d["exposure_debt"] = debt
         if self.swing_bank:
             d["swing_bank"] = round(self.swing_bank, 2)
         if self.next_wear_check:
@@ -682,6 +693,7 @@ class Creature:
 
             venom_mod.from_list(c, d["venom"])
         c.exposure = float(d.get("exposure", 0.0))
+        c._exposure_debt = float(d.get("exposure_debt", 0.0))
         c.swing_bank = float(d.get("swing_bank", 0.0))
         c.next_wear_check = int(d.get("wear_check", 0))
         c.shaken = float(d.get("shaken", 0.0))
