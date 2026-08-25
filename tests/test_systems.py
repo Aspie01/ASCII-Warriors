@@ -501,6 +501,10 @@ class TestRenown(GameFixture):
         fig, foe = self._beast()
         before = len(game.world.events)
         foe.body.death_cause = "slain"
+        # The premise of this test is "the player slew it", and since v4.07 a
+        # kill is only the player's if the player dealt the wound -- a death
+        # by fiat is nobody's. Say so the way a real slaying now does.
+        foe.last_hurt_by = game.player.id
         game.kill_creature(foe)
         told = [e for e in game.world.events[before:] if e.kind == "beast_slain"]
         self.assertTrue(told)
@@ -3036,6 +3040,8 @@ class TestSlayingTheBeast(unittest.TestCase):
                      if c.hf_id == q.target_hf)
         beast.body.dead = True
         beast.body.death_cause = "slain"
+        # "Killing it" means the player's own blow; v4.07 made that literal.
+        beast.last_hurt_by = game.player.id
         game.kill_creature(beast)
         self.assertGreaterEqual(q.progress, q.goal, "the kill did not count")
         if q.state != "done":

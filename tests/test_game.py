@@ -15,6 +15,8 @@ from ascii_warriors.game import body as body_mod
 from ascii_warriors.game.body import Body
 from ascii_warriors.game.entity import Creature, make_creature
 from ascii_warriors.game.inventory import Inventory
+from ascii_warriors.game.state import Game
+from ascii_warriors.world.worldgen import generate_world
 from ascii_warriors.game import item as item_mod
 from ascii_warriors.game.item import Item, corpse_of, make_item, starting_kit
 from ascii_warriors.game.log import MessageLog
@@ -1101,6 +1103,136 @@ class TestTheMetalInYourSword(unittest.TestCase):
         has to cost what a wolf cost."""
         self.assertLessEqual(self._blows("sword", "iron", "wolf"), 8)
         self.assertLessEqual(self._blows("sword", "iron", "goblin"), 8)
+
+
+class TestWhoseKillWasThat(unittest.TestCase):
+    """Every death on the map used to be the player's doing.
+
+    `kill_creature` appended to the kill list, gave the "killed a foe"
+    thought, and moved renown, standing and bounty progress for *any* death
+    it processed -- measured: a wolf that burned to death with the player
+    nowhere near it went down as the player's kill. Meanwhile
+    `world_changed` was built on the opposite rule, failing a quest when
+    somebody else got there first. The two halves of the design disagreed
+    about what a kill is.
+
+    `last_hurt_by` answers it: set at the moment of harm in all three strike
+    paths, persisted across a save, and the credit block gated on it.
+    """
+
+    def _game(self, seed="whose"):
+        rng = RNG(seed)
+        world = generate_world(rng.sub("w"), size="pocket", history_years=20)
+        return Game.new_game(world, {"race": "human",
+                                     "profession": "warrior"}, rng), rng
+
+    def _wolf_beside(self, game, rng):
+        p = game.player
+        wolf = make_creature(rng, "wolf", faction="hostile", level=1)
+        for dx in range(1, 12):
+            cell = (p.x + dx, p.y, p.z)
+            if game.local.walkable(*cell):
+                wolf.x, wolf.y, wolf.z = cell
+                break
+        wolf.wx, wolf.wy = p.wx, p.wy
+        game.add_creature(wolf)
+        return wolf
+
+    def test_a_death_that_was_nobody_s_doing_is_nobody_s_kill(self):
+        game, rng = self._game()
+        wolf = self._wolf_beside(game, rng)
+        wolf.body.dead = True
+        wolf.body.death_cause = "burned to death"
+        game.kill_creature(wolf)
+        self.assertEqual(game.player.kills, [],
+                         "a wolf that burned to death went down as the "
+                         "player's kill")
+        self.assertNotIn("killed a foe",
+                         [t for t, _ in game.player.needs.thoughts])
+
+    def test_a_wound_that_bleeds_out_later_is_still_your_kill(self):
+        game, rng = self._game()
+        wolf = self._wolf_beside(game, rng)
+        struck = 0
+        for _ in range(200):
+            result = combat.timed_strike(game.player, wolf, rng=rng,
+                                         log=None, ground=game)
+            if result.damage > 0:
+                struck += 1
+            if wolf.body.dead:
+                break
+            wolf.body.tick(rng, 10, 1.0, 1.0)
+            if wolf.body.dead:
+                break
+        self.assertGreater(struck, 0, "two hundred swings and no blow landed")
+        self.assertTrue(wolf.body.dead, "the wolf never died")
+        if wolf.id in game.creatures:
+            game.kill_creature(wolf)
+        self.assertEqual(game.player.kills, ["wolf"],
+                         "the player wounded it, it died of the wound, and "
+                         "the kill went uncredited")
+
+    def test_a_rival_s_blow_is_the_rival_s(self):
+        game, rng = self._game()
+        wolf = self._wolf_beside(game, rng)
+        rival = make_creature(rng, "goblin", faction="hostile", level=3)
+        rival.x, rival.y, rival.z = wolf.x, wolf.y, wolf.z
+        rival.wx, rival.wy = wolf.wx, wolf.wy
+        game.add_creature(rival)
+        for _ in range(400):
+            combat.timed_strike(rival, wolf, rng=rng, log=None, ground=game)
+            if wolf.body.dead:
+                break
+            wolf.body.tick(rng, 10, 1.0, 1.0)
+            if wolf.body.dead:
+                break
+        self.assertTrue(wolf.body.dead, "the goblin never killed the wolf")
+        game.kill_creature(wolf)
+        self.assertEqual(game.player.kills, [],
+                         "a goblin's kill went down as the player's")
+
+    def test_a_bounty_is_only_paid_for_your_own_blow(self):
+        from ascii_warriors.game.quests import Quest
+
+        game, rng = self._game()
+        wolf = self._wolf_beside(game, rng)
+        quest = Quest("bounty", "the wolf", "a bounty on the wolf")
+        quest.goal = 1
+        quest.target_def = "wolf"
+        quest.state = "active"
+        game.quests.active.append(quest)
+        wolf.body.dead = True
+        game.kill_creature(wolf)
+        self.assertEqual(quest.progress, 0,
+                         "a bounty was paid for a death that was nobody's "
+                         "doing")
+
+    def test_a_site_is_clear_however_they_died(self):
+        """The one credit that is about the *state*, not the blow."""
+        from ascii_warriors.game.quests import Quest
+
+        game, rng = self._game()
+        wolf = self._wolf_beside(game, rng)
+        wolf.faction = "hostile"
+        quest = Quest("clear_site", "clear it", "clear the site")
+        quest.goal = 1
+        quest.site_id = game.local.site_id
+        quest.state = "active"
+        game.quests.active.append(quest)
+        wolf.body.dead = True
+        game.kill_creature(wolf)
+        self.assertGreaterEqual(quest.progress, 1,
+                                "the last holder died and the site still "
+                                "counts as held")
+
+    def test_the_attribution_survives_a_save(self):
+        game, rng = self._game()
+        wolf = self._wolf_beside(game, rng)
+        wolf.last_hurt_by = game.player.id
+        back = type(wolf).from_dict(wolf.to_dict())
+        self.assertEqual(back.last_hurt_by, game.player.id,
+                         "wound somebody, save, load, and their death is "
+                         "nobody's kill")
 
 
 class TestTheHammerThatCouldNotBreakABone(unittest.TestCase):

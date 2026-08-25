@@ -11003,7 +11003,79 @@ forced the canned run to gain them in milliseconds, exactly as designed.
 
 Re-break: five defects put back, five caught, 0 misses.
 
-## 167. Style
+## 167. Whose kill was that (v4.07)
+
+Chasing quest-kind coverage (five kinds taken across twenty ritual lives,
+only `bounty` ever finished) led through the crediting machinery, and the
+crediting machinery turned out not to know what a kill is.
+
+`Game.kill_creature` processed every death on the map — a blow, a bleed-out,
+heat, drowning, venom, fire — and credited all of them to the player:
+
+```python
+self.player.kills.append(c.display_name())
+self.quests.on_kill(self, c)
+self.player.needs.add_thought("killed a foe", -2)
+standing_mod.on_kill(self, c)
+told = renown_mod.record_kill(self, c)
+```
+
+Measured: a wolf that burned to death with the player nowhere near it went
+into the kill list, gave the "killed a foe" thought, and moved renown and
+standing. A bounty target killed by a rival on the same map would have paid
+out as *your* slaying — while one function down, `world_changed` fails the
+quest when the histories say somebody else got there first. The two halves of
+the design disagreed about what a kill is, and the comment on the credit
+block admitted it: "this is the point the game already treats a death as the
+player's doing."
+
+### The answer
+
+`Creature.last_hurt_by` — who dealt the most recent wound, set at the moment
+of harm in all three strike paths (melee, ranged, thrown), **persisted**,
+because a foe wounded before a save should still be your kill when it bleeds
+out after the load. The credit block is gated on it.
+
+`clear_site` is deliberately different: its branch counts the living rather
+than crediting the blow, because a site is clear however its holders died.
+`on_kill` now takes `by_player`, required by the slay/bounty branch and
+ignored by the site recount.
+
+Two edges chosen and recorded rather than smoothed over: a companion's kill
+credits nobody (the contract is "you slay it", and a rival's kill failing the
+quest while a companion's completes it would be a strange line to hold); and
+a trap's kill credits nobody, `trap_strike` having no attacker to name.
+
+### Guards
+
+Six, in `TestWhoseKillWasThat`: a death that was nobody's doing is nobody's
+kill; a wound that bleeds out later is still yours; a rival's blow is the
+rival's; a bounty is only paid for your own blow; a site is clear however
+they died; and the attribution survives a save.
+
+Re-break: five defects put back, five caught, 0 misses — after one injection
+that could not fire because it was inverted, keeping `on_kill` for exactly
+the deaths the test uses and skipping it for the rest. An injection is code
+too, and it can be wrong the same ways.
+
+The full suite then failed twice, and both failures were the milestone's
+point restated: two fixtures killed their target by fiat — `body.dead =
+True`, no strike — and asserted the player got the credit, which is the old
+rule written into tests. They set `last_hurt_by = player.id` now, stating
+the premise ("the player slew it") the way a real slaying carries it. The
+only non-test use of `"slain"` is a fortress log line; no game path mints a
+player kill without a blow.
+
+### Left measured
+
+The trail that led here is still open: across twenty ritual lives, `bounty`
+completes and `clear_site` (0 of 7) and `slay_beast` (0 of 4) do not — but
+every taker of those died young, bleeding, so "impossible" cannot yet be told
+apart from "died first". The crediting is now sound either way; the
+completion rates belong to a later look at why adventurers die at median 143
+turns.
+
+## 168. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

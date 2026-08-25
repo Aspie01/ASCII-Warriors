@@ -106,6 +106,14 @@ class Creature:
         self.profession = ""
         self.title = ""
         self.hf_id: Optional[int] = None
+        #: Who dealt this creature its most recent wound, as a creature id.
+        #: The game's answer to "whose kill was that" -- `kill_creature` used
+        #: to treat every death on the map as the player's doing: a wolf that
+        #: burned to death three screens away went into the kill list, gave
+        #: the "killed a foe" thought, and moved renown, standing and bounty
+        #: progress. Persisted, because a foe wounded before a save should
+        #: still be your kill when it bleeds out after the load.
+        self.last_hurt_by: Optional[int] = None
         self.site_id: Optional[int] = None
         self.civ_id: Optional[int] = None
         self.ai: Any = None
@@ -581,6 +589,7 @@ class Creature:
             "profession": self.profession,
             "title": self.title,
             "hf_id": self.hf_id,
+            "last_hurt_by": self.last_hurt_by,
             "site_id": self.site_id,
             "civ_id": self.civ_id,
             "ai": self.ai.to_dict() if self.ai is not None else None,
@@ -658,6 +667,7 @@ class Creature:
         c.profession = str(d.get("profession", ""))
         c.title = str(d.get("title", ""))
         c.hf_id = d.get("hf_id")
+        c.last_hurt_by = d.get("last_hurt_by")
         c.site_id = d.get("site_id")
         c.civ_id = d.get("civ_id")
         c.kills = list(d.get("kills", []))

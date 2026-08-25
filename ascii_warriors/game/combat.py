@@ -717,6 +717,10 @@ def melee_attack(
         edge=weapon.mat if weapon is not None else None)
     delivered = momentum - absorbed
     result.damage = max(0.0, delivered)
+    if delivered > 0:
+        # The answer to "whose kill was that", set at the moment of harm so a
+        # later bleed-out still knows.
+        defender.last_hurt_by = attacker.id
 
     head = "%s %s %s in the %s%s" % (
         subject, verb, obj, part.name, _weapon_phrase(weapon)
@@ -1039,6 +1043,10 @@ def ranged_attack(
         defender, part.id, kind, attack.contact, momentum)
     delivered = momentum - absorbed
     result.damage = max(0.0, delivered)
+    if delivered > 0:
+        # The answer to "whose kill was that", set at the moment of harm so a
+        # later bleed-out still knows.
+        defender.last_hurt_by = attacker.id
 
     head = "%s fire%s %s into %s's %s" % (
         subject, "" if attacker.is_player else "s",
@@ -1104,6 +1112,10 @@ def throw_item(attacker, defender, item: Item, *, rng: RNG, log=None) -> AttackR
         defender, part.id, kind, attack.contact, momentum)
     delivered = momentum - absorbed
     result.damage = max(0.0, delivered)
+    if delivered > 0:
+        # The answer to "whose kill was that", set at the moment of harm so a
+        # later bleed-out still knows.
+        defender.last_hurt_by = attacker.id
 
     head = "%s throw%s %s, striking %s in the %s" % (
         subject, "" if attacker.is_player else "s", item.name(article=True),

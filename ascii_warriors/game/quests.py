@@ -183,10 +183,21 @@ class QuestLog:
 
     # -- triggers ---------------------------------------------------------- #
 
-    def on_kill(self, game, victim) -> None:
-        """Advance kill quests when something dies."""
+    def on_kill(self, game, victim, *, by_player: bool = True) -> None:
+        """Advance kill quests when something dies.
+
+        *by_player* says whose blow it was. Slaying and bounty work credit
+        only the player's own kills -- the contract is "you slay it", and
+        `world_changed` already fails the quest when somebody else gets there
+        first, so crediting a rival's kill here contradicted the design one
+        function up. Clearing a site is different: the site is clear however
+        its holders died, so that branch counts the living and ignores whose
+        blow it was.
+        """
         for q in list(self.active):
             if q.kind in ("slay_beast", "bounty"):
+                if not by_player:
+                    continue
                 matched = (
                     (q.target_hf is not None and victim.hf_id == q.target_hf)
                     or (q.target_def and victim.def_id == q.target_def)

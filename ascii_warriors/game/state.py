@@ -1280,20 +1280,30 @@ class Game:
         ledger_mod.on_death(self, c)
         for it in c.inventory.remove_all():
             self.drop_item(it, c.x, c.y, c.z)
-        self.player.kills.append(c.display_name())
-        self.quests.on_kill(self, c)
-        self.player.needs.add_thought("killed a foe", -2)
-        from . import renown as renown_mod
+        # Whose kill was it? This used to treat every death on the map as the
+        # player's doing: a wolf that burned to death three screens away went
+        # into the kill list, gave the "killed a foe" thought, and moved
+        # renown, standing and bounty progress -- while `world_changed` was
+        # built on the opposite rule, failing a quest when somebody else got
+        # there first. `last_hurt_by` is set at the moment of harm, so a foe
+        # the player wounded still counts when it bleeds out later.
+        mine = c.last_hurt_by == self.player.id
+        if mine:
+            self.player.kills.append(c.display_name())
+        self.quests.on_kill(self, c, by_player=mine)
+        if mine:
+            self.player.needs.add_thought("killed a foe", -2)
+            from . import renown as renown_mod
 
-        # Beside the renown record rather than at the top of the method: this
-        # is the point the game already treats a death as the player's doing,
-        # and standing is the other half of that ledger -- the half that can
-        # go down.
-        standing_mod.on_kill(self, c)
-        told = renown_mod.record_kill(self, c)
-        if told is not None:
-            self.log.good("They will tell this one. (%s)"
-                          % renown_mod.title(self))
+            # Beside the renown record rather than at the top of the method:
+            # this is the point the game treats a death as the player's
+            # doing, and standing is the other half of that ledger -- the
+            # half that can go down.
+            standing_mod.on_kill(self, c)
+            told = renown_mod.record_kill(self, c)
+            if told is not None:
+                self.log.good("They will tell this one. (%s)"
+                              % renown_mod.title(self))
 
     def end_game(self, cause: str) -> None:
         """Finish the run and write the player into the world's legends."""
