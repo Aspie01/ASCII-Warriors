@@ -60,7 +60,17 @@ class WorldTile:
         """Serialise the tile compactly."""
         return {
             "e": round(self.elevation, 6), "r": round(self.rainfall, 6),
-            "t": round(self.temperature, 4), "d": round(self.drainage, 6),
+            # Temperature is not rounded, and its neighbours are. The rest
+            # of these are *provenance*: worldgen read them once, wrote the
+            # biome down, and nothing asks them again -- four or six places
+            # is plenty to redraw a map from. Temperature is a live input,
+            # read every tick by `heat.ambient` and accumulated through
+            # `heat.tick` into exposure. Measured in v4.14's reload trial:
+            # a tile stored at four places came back a hundred-thousandth
+            # of a degree out, and eighty turns later a bull's exposure was
+            # a different number. Rounding is for what the simulation has
+            # finished reading.
+            "t": self.temperature, "d": round(self.drainage, 6),
             "v": round(self.volcanism, 4), "s": self.savagery, "ev": self.evil,
             "b": self.biome, "rv": self.river, "rd": self.river_dir,
             "o": self.is_ocean, "l": self.is_lake, "rg": self.region_id,

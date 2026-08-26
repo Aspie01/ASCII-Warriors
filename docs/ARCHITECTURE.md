@@ -11492,7 +11492,54 @@ rule into today's guard.
 
 Re-break: eleven defects put back, eleven caught, 0 misses.
 
-## 174. Style
+## 174. The adventurer who reloads (v4.14)
+
+§173 brought the fortress to reload identity. The adventure had never been
+asked the question at all, and it forked inside six turns. Six fields and
+one rule, all the same family as §173's — a decision in flight, or an
+accumulator mid-count, that no `to_dict` had a line to leave out:
+
+- **`Body.pain`** was written as a float and read back through `int()`. A
+  ghoul saved at 101.5 came back at 101; that moved its multiplier in
+  `compute_momentum`, so the player judged a *different attack* worth
+  swinging, was charged different energy, and the worlds parted. It is a
+  float from birth now, and loaded as one. A wound's own `pain` and
+  `bleeding` were truncated the same way.
+- **The body's three tick banks** — clotting, rest and pain fade — each
+  accumulate fractions of a tick and pay out whole ones. Dropped by every
+  save, so a reload's first wound closed later than the save's would have.
+- **`AIState.path`**, an NPC's route in hand, dropped exactly as the
+  dwarf's was in §173. Measured on seed `t`: two NPCs, one cell each, on
+  the first turn after a reload.
+- **`fleeing`**, an animal's flight countdown, which turns a bolting deer
+  back into a grazing one mid-stride.
+- **A tile's temperature, rounded to four places.** Its neighbours —
+  elevation, rainfall, drainage — are *provenance*: worldgen read them
+  once, wrote the biome down, and nothing asks again. Temperature is a
+  **live input**, read every tick by `heat.ambient` and accumulated
+  through `heat.tick` into exposure. Stored at four places it came back a
+  hundred-thousandth of a degree out, and eighty turns later a bull's
+  exposure was a different number — the last fork, and the smallest.
+  Rounding is for what the simulation has finished reading.
+
+After: **twelve trials, twelve identical** — six seeds, reloaded at turn
+40 and turn 150, each driven eighty turns further and agreeing on every
+creature's position, blood, pain, AI mode, route length, flight counter,
+exposure and all three needs, the scheduler's energies, the player's
+inventory, the quest log and every pile on the ground.
+
+The oracle itself needed correcting first, and the correction is the
+§168 lesson at full size. Its two arms ran in one process, and
+`Creature._next_id` is a **class-level counter** — so the arms drew
+new-spawn ids from one well and interfered, and the trial reported forks
+that were nothing but its own two halves colliding. Each arm runs in its
+own process now, the driver's book handed across as JSON so both make the
+same decisions. An instrument that shares state with what it measures is
+measuring itself.
+
+Re-break: eight defects put back, eight caught, 0 misses.
+
+## 175. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

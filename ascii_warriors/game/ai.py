@@ -68,6 +68,13 @@ class AIState:
             "seen": list(self.last_seen) if self.last_seen else None,
             "leader": self.leader_id, "role": self.role,
             "patience": self.patience, "site": self.site_id,
+            # The route in hand, for the same reason v4.13 saved the
+            # dwarf's: an NPC that loses it re-plans on the step after a
+            # reload and takes a different one, and one creature stepping
+            # differently is enough to part the reloaded world from the
+            # saved one. Measured on seed `t`: two NPCs, one cell each, on
+            # the first turn after a reload.
+            "path": [list(c) for c in self.path],
         }
 
     @classmethod
@@ -83,6 +90,7 @@ class AIState:
         a.leader_id = d.get("leader")
         a.patience = int(d.get("patience", 0))
         a.site_id = d.get("site")
+        a.path = [tuple(int(v) for v in c) for c in d.get("path") or []]
         return a
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid

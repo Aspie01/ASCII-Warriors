@@ -114,6 +114,14 @@ class Creature:
         #: progress. Persisted, because a foe wounded before a save should
         #: still be your kill when it bleeds out after the load.
         self.last_hurt_by: Optional[int] = None
+        #: Turns this animal is still running for. Declared here rather
+        #: than conjured by `wild.py` and read through a `getattr`
+        #: default: v4.13 catalogued that shape as the reason six
+        #: clocks escaped every save, and v4.14's own first draft of
+        #: this field repeated it -- a load that invented the attribute
+        #: where none had existed made a save look like it had gained
+        #: state, which the round-trip audit duly caught.
+        self.fleeing = 0
         self.site_id: Optional[int] = None
         self.civ_id: Optional[int] = None
         self.ai: Any = None
@@ -620,6 +628,13 @@ class Creature:
             # under a point per crossing, and a fortress is made of
             # crossings.
             d["exposure"] = self.exposure
+        # How many turns this animal is still running for. `still_fleeing`
+        # counts it down and `wild.py` sets it; a save that drops it turns
+        # a bolting deer back into a grazing one mid-stride, and the deer
+        # the reload puts in front of you is not the deer you left.
+        fleeing = int(getattr(self, "fleeing", 0) or 0)
+        if fleeing:
+            d["fleeing"] = fleeing
         debt = getattr(self, "_exposure_debt", 0.0)
         if debt:
             d["exposure_debt"] = debt
@@ -694,6 +709,7 @@ class Creature:
             venom_mod.from_list(c, d["venom"])
         c.exposure = float(d.get("exposure", 0.0))
         c._exposure_debt = float(d.get("exposure_debt", 0.0))
+        c.fleeing = int(d.get("fleeing", 0))
         c.swing_bank = float(d.get("swing_bank", 0.0))
         c.next_wear_check = int(d.get("wear_check", 0))
         c.shaken = float(d.get("shaken", 0.0))

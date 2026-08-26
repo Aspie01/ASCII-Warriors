@@ -171,7 +171,7 @@ class Wound:
         return cls(
             part=str(d.get("p", "")), tissue=str(d.get("t", "")),
             severity=float(d.get("s", 0.0)), kind=str(d.get("k", "cut")),
-            bleeding=int(d.get("b", 0)), pain=int(d.get("pa", 0)),
+            bleeding=float(d.get("b", 0)), pain=float(d.get("pa", 0)),
             age=int(d.get("a", 0)), severed=bool(d.get("sv", False)),
         )
 
@@ -308,7 +308,9 @@ class Body:
 
         self.max_blood = max(0.5, self.size * BLOOD_PER_VOLUME)
         self.blood = self.max_blood
-        self.pain = 0
+        #: Fades by a fraction of a point per tick (`PAIN_BODY_FADE`), so
+        #: it is a float in play -- born one, and loaded as one below.
+        self.pain = 0.0
         self.stunned = 0
         self.unconscious = 0
         self.winded = 0
@@ -943,6 +945,16 @@ class Body:
             "missing": list(self.missing),
             "warned": self._blood_warned,
             "flooding": self._flooding,
+            # The three banks the body's tick spends from: clotting, rest
+            # and pain fade all accumulate fractions of a tick and pay out
+            # whole ones (`_clot_ticks // CLOT_TICKS`, and so on). A save
+            # that drops them hands the reload an empty till, so its first
+            # wound closes later, its first ache fades later, and from that
+            # step the reloaded body is not the saved one. Same family as
+            # §172's carry -- an accumulator is state.
+            "rest_ticks": self._rest_ticks,
+            "clot_ticks": self._clot_ticks,
+            "pain_ticks": self._pain_ticks,
         }
 
     @classmethod
@@ -956,7 +968,16 @@ class Body:
                 p.load(pd)
         b.blood = float(d.get("blood", b.max_blood))
         b.max_blood = float(d.get("max_blood", b.max_blood))
-        b.pain = int(d.get("pain", 0))
+        # Not `int()`: pain fades by a fraction of a point per tick, so
+        # truncating it on load is a real change to a body. Measured in
+        # v4.14's reload trial: a ghoul saved at 101.5 came back at 101,
+        # its pain multiplier in `compute_momentum` moved, the player
+        # judged a different attack against it, spent different energy,
+        # and the reloaded world parted from the saved one in six turns.
+        b.pain = float(d.get("pain", 0))
+        b._rest_ticks = float(d.get("rest_ticks", 0.0))
+        b._clot_ticks = float(d.get("clot_ticks", 0.0))
+        b._pain_ticks = float(d.get("pain_ticks", 0.0))
         b.stunned = int(d.get("stunned", 0))
         b.unconscious = int(d.get("unconscious", 0))
         b.winded = int(d.get("winded", 0))

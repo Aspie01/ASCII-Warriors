@@ -2008,11 +2008,25 @@ class TestTheWoundThatStoppedHurting(unittest.TestCase):
                              "it sped up as it was cut apart: %s -> %s"
                              % (middle, end))
 
-    def test_the_bank_is_not_saved_and_does_not_need_to_be(self):
-        """The same call as `_clot_ticks`, which is not saved either."""
+    def test_the_bank_is_saved_because_a_reload_spends_from_it(self):
+        """This test used to assert the opposite -- that `_pain_ticks` was
+        deliberately absent from the save, "the same call as `_clot_ticks`,
+        which is not saved either". v4.14's reload trial measured that
+        claim and refuted it: the three banks accumulate fractions of a
+        tick and pay out whole ones, so a save that drops them hands the
+        reload an empty till, and its first ache fades a tick later than
+        the body it was copied from. Both banks are saved now, and the
+        clot bank's absence was the same defect wearing the same excuse.
+        """
         c = self._hurt()
         c.body.tick(RNG("s"), 3, 1.0, 1.0)
-        self.assertNotIn("pain_ticks", c.body.to_dict())
+        written = c.body.to_dict()
+        for bank in ("pain_ticks", "clot_ticks", "rest_ticks"):
+            self.assertIn(bank, written, "%s was left out of the save" % bank)
+        back = body_mod.Body.from_dict(json.loads(json.dumps(written)))
+        for bank in ("_pain_ticks", "_clot_ticks", "_rest_ticks"):
+            self.assertEqual(getattr(back, bank), getattr(c.body, bank),
+                             "%s did not come back" % bank)
         again = body_mod.Body.from_dict(json.loads(json.dumps(c.body.to_dict())))
         self.assertEqual(again.pain, c.body.pain)
         self.assertEqual(

@@ -3968,6 +3968,291 @@ class TestTheAdventureSaveNobodyReloads(GameFixture):
                          "the fractional surcharge carry was dropped")
 
 
+class TestTheAdventurerWhoReloads(GameFixture):
+    """v4.14: v4.13's bar, carried across to the other half of the game.
+
+    The fortress reached reload identity in §173. The adventure had never
+    been asked at all, and it forked inside six turns. Six fields, all one
+    family with §173's -- a decision or an accumulator that no `to_dict`
+    had a line to leave out:
+
+    `Body.pain` was written as a float and read back through `int()`. A
+    ghoul saved at 101.5 pain came back at 101; that moved its multiplier
+    in `compute_momentum`, so the player judged a *different attack* worth
+    swinging, spent different energy, and the two worlds parted. A wound's
+    own `pain` and `bleeding` were truncated the same way. The body's
+    three tick banks -- clotting, rest and pain fade, each accumulating
+    fractions of a tick and paying out whole ones -- were dropped, so a
+    reload's first wound closed later than the save's. `AIState.path` was
+    dropped exactly as the dwarf's was, and two NPCs stepped one cell
+    differently on the first turn after a reload. And `fleeing` was
+    dropped, which turns a bolting animal back into a grazing one
+    mid-stride.
+
+    The oracle behind this class runs its two arms in **separate
+    processes**: `Creature._next_id` is a class-level counter, so two games
+    in one process draw new-spawn ids from the same well, and the first
+    version of the trial reported forks that were only its own arms
+    colliding (§«the instrument's grid»).
+    """
+
+    def _reloaded(self, game=None):
+        import json
+
+        from ascii_warriors.game.state import Game
+
+        game = game or self.game
+        return Game.from_dict(json.loads(json.dumps(game.to_dict())))
+
+    def _foe(self, cid="ghoul", dx=1, dy=0, seed="foe"):
+        c = make_creature(RNG(seed), cid, faction="hostile")
+        p = self.game.player
+        c.x, c.y, c.z = p.x + dx, p.y + dy, p.z
+        self.game.add_creature(c)
+        return c
+
+    def test_pain_survives_a_save_unrounded(self):
+        c = self._foe()
+        c.body.pain = 101.5
+        back = self._reloaded().creatures[c.id]
+        self.assertEqual(back.body.pain, 101.5,
+                         "pain came back truncated, and a truncated body "
+                         "is judged a different swing")
+
+    def test_pain_is_a_float_from_birth(self):
+        """Not merely on reload: a body that starts pain at ``0`` and one
+        that starts at ``0.0`` diverge the moment the fade runs."""
+        c = make_creature(RNG("born"), "human", equip=False)
+        self.assertIsInstance(c.body.pain, float)
+
+    def test_a_wounds_pain_and_bleeding_are_not_truncated(self):
+        from ascii_warriors.game import body as body_mod
+
+        c = self._foe(seed="wounded")
+        part = c.body.part("upper_body")
+        part.wounds.append(body_mod.Wound(part.id, "skin", 0.5, "cut",
+                                          3.75, 8.25))
+        back = self._reloaded().creatures[c.id]
+        w = back.body.part("upper_body").wounds[-1]
+        self.assertEqual((w.bleeding, w.pain), (3.75, 8.25),
+                         "the wound came back rounded")
+
+    def test_the_bodys_tick_banks_survive(self):
+        """Clotting, rest and pain fade each save fractions of a tick and
+        pay out whole ones. A save that drops them hands the reload an
+        empty till."""
+        p = self.game.player
+        p.body._clot_ticks = 41.5
+        p.body._rest_ticks = 12.25
+        p.body._pain_ticks = 7.75
+        back = self._reloaded().player
+        self.assertEqual(
+            (back.body._clot_ticks, back.body._rest_ticks,
+             back.body._pain_ticks), (41.5, 12.25, 7.75),
+            "the body's banks were emptied by the save")
+
+    def test_an_npc_keeps_its_route(self):
+        from ascii_warriors.game import ai as ai_mod
+
+        c = self._foe(cid="goblin", seed="walker")
+        # `make_creature` leaves `ai` unset for a creature nobody has given
+        # a role to; the fixture hands it one rather than hoping.
+        if c.ai is None:
+            c.ai = ai_mod.AIState("wander", "")
+        c.ai.path = [(c.x + 1, c.y, c.z), (c.x + 2, c.y, c.z)]
+        back = self._reloaded().creatures[c.id]
+        self.assertEqual(list(back.ai.path), list(c.ai.path),
+                         "the NPC reloaded without the route it was on")
+
+    def test_a_bolting_animal_is_still_bolting(self):
+        c = self._foe(cid="deer", seed="bolter")
+        c.fleeing = 5
+        back = self._reloaded().creatures[c.id]
+        self.assertEqual(getattr(back, "fleeing", 0), 5,
+                         "the reload turned a bolting animal back into a "
+                         "grazing one")
+
+    def test_the_world_keeps_the_temperature_it_reads_every_tick(self):
+        """The subtlest of the six, and the one with a rule worth stating.
+
+        A tile's elevation, rainfall and drainage are *provenance*:
+        worldgen read them once, wrote the biome down, and nothing asks
+        again -- four or six places is plenty to redraw a map from.
+        Temperature is a live input, read every tick by `heat.ambient` and
+        accumulated through `heat.tick` into exposure. Stored at four
+        places it came back a hundred-thousandth of a degree out, and
+        eighty turns later a bull's exposure was a different number.
+        """
+        from ascii_warriors.world.worldgen import World
+
+        tile = self.world.tile(self.game.player.wx, self.game.player.wy)
+        tile.temperature = 30.081041392718
+        back = World.from_dict(json.loads(json.dumps(self.world.to_dict())))
+        self.assertEqual(
+            back.tile(self.game.player.wx, self.game.player.wy).temperature,
+            tile.temperature,
+            "the map came back at a different temperature than it was "
+            "saved at")
+
+    def test_a_reloaded_adventure_lives_the_same_turns(self):
+        """The bar itself, in miniature and id-free.
+
+        Ids are compared by content rather than number because
+        `Creature._next_id` is one counter for the process, and two games
+        sharing it cannot agree on the ids of anything spawned after the
+        reload -- which is a fact about the counter, not about the save.
+        """
+        import collections
+
+        from tools import play
+
+        def shape(g):
+            return sorted(
+                (c.def_id, c.x, c.y, c.z, c.body.dead,
+                 round(c.body.blood, 9), round(c.body.pain, 9),
+                 c.needs.thirst, c.needs.hunger)
+                for c in g.creatures.values())
+
+        why = collections.Counter()
+        for _ in range(15):
+            if self.game.player.body.dead or self.game.game_over:
+                break
+            self.game.player_acts(max(1, play._press(self.game, why)))
+        b = self._reloaded()
+        b._play_patience = {
+            k: (dict(v) if isinstance(v, dict)
+                else set(v) if isinstance(v, set) else v)
+            for k, v in play._patience(self.game).items()}
+        self.assertEqual(shape(self.game), shape(b),
+                         "the reload did not start where the save left")
+        wa, wb = collections.Counter(), collections.Counter()
+        for _ in range(25):
+            if not (self.game.player.body.dead or self.game.game_over):
+                self.game.player_acts(max(1, play._press(self.game, wa)))
+            if not (b.player.body.dead or b.game_over):
+                b.player_acts(max(1, play._press(b, wb)))
+        self.assertEqual(shape(self.game), shape(b),
+                         "a reloaded adventure lived a different "
+                         "twenty-five turns")
+
+
+class TestTheStairsNobodyClimbs(GameFixture):
+    """v4.15: the player's climb command had never once worked.
+
+    A census of the action verbs found `move_z` in the "called but never
+    succeeded" column, and the reason was an old asymmetry wearing new
+    clothes. `LocalMap.neighbours` -- the rule every creature in the game
+    is moved by -- offers four kinds of vertical edge: up a stair you
+    stand on, up into *the foot of one coming down*, down a stair you
+    stand on, and down onto *the head of one going up*. `move_z`
+    re-derived a narrower rule of its own and knew only the first and
+    third. `_step_on_the_graph` had already learned this lesson for
+    sideways steps -- "asking the graph is not the same as copying it" --
+    and this is its vertical twin.
+
+    Measured over three lifetimes: `move_z` called nineteen times,
+    standing on a plain stair tile none of them, refused nineteen times --
+    every climb the player ever attempted, refused, while every wolf and
+    goblin walked those same edges. The adventurer still reached other
+    levels, but only sideways by ramp; and the driver spent those nineteen
+    turns asking to rise straight up through rock, because it sent ramp
+    edges -- which change square *and* level in one step -- through the
+    climb verb. Walking them instead, seed `t` goes from 459 turns mostly
+    on the surface to 1547 with nine hundred of them at z=-1.
+    """
+
+    def _stair_pair(self):
+        """A cell whose *neighbour above* holds a down-stair, so the graph
+        offers a climb the old rule refused.
+
+        Built, not searched for. The first draft looked for a pair of
+        already-open cells one above the other; a pocket map's surface has
+        sky above it and none, so both guards using it skipped themselves
+        and proved nothing (§«a guard that skips is a guard that agrees»).
+        """
+        lm = self.game.local
+        z = self.game.player.z
+        for y in range(1, lm.height - 1):
+            for x in range(1, lm.width - 1):
+                if not lm.walkable(x, y, z):
+                    continue
+                lm.set_tile(x, y, z, "floor")
+                lm.set_tile(x, y, z + 1, "stair_down")
+                if not lm.walkable(x, y, z + 1):
+                    continue
+                return (x, y, z)
+        return None
+
+    def test_the_foot_of_a_staircase_can_be_climbed(self):
+        spot = self._stair_pair()
+        if spot is None:
+            self.skipTest("no stacked walkable pair on this map")
+        p = self.game.player
+        p.x, p.y, p.z = spot
+        cost = actions.move_z(self.game, 1)
+        self.assertTrue(cost, "the graph offers this climb and the player "
+                              "was refused it")
+        self.assertEqual(p.z, spot[2] + 1)
+
+    def test_the_player_climbs_exactly_what_the_graph_offers(self):
+        """The property, not one example: for the cell the player stands
+        on, `move_z` must succeed in precisely the directions
+        `LocalMap.neighbours` yields a straight-up or straight-down edge
+        for."""
+        lm = self.game.local
+        p = self.game.player
+        checked = 0
+        for z in range(lm.zmin + 1, lm.zmax):
+            for y in range(0, lm.height, 7):
+                for x in range(0, lm.width, 7):
+                    if not lm.walkable(x, y, z):
+                        continue
+                    straight = {c[2] - z for c in lm.neighbours(x, y, z)
+                                if (c[0], c[1]) == (x, y)}
+                    for dz in (1, -1):
+                        if self.game.creature_at(x, y, z + dz) is not None:
+                            continue
+                        if not self.game.is_passable(x, y, z + dz, p):
+                            continue
+                        p.x, p.y, p.z = x, y, z
+                        moved = bool(actions.move_z(self.game, dz))
+                        self.assertEqual(
+                            moved, dz in straight,
+                            "at %s the graph says %s and move_z says %s"
+                            % ((x, y, z), sorted(straight), moved))
+                        checked += 1
+        self.assertGreater(checked, 20, "the sweep tested almost nothing")
+
+    def test_flat_ground_is_still_not_a_staircase(self):
+        """The correctness direction. Built rather than searched for: a
+        pocket map may have no stacked pair of open cells to borrow, and a
+        guard that skips itself proves nothing."""
+        spot = self._stair_pair()
+        if spot is None:
+            self.skipTest("no stacked walkable pair on this map")
+        lm = self.game.local
+        p = self.game.player
+        x, y, z = spot
+        lm.set_tile(x, y, z, "floor")
+        lm.set_tile(x, y, z + 1, "floor")
+        p.x, p.y, p.z = x, y, z
+        self.assertFalse(actions.move_z(self.game, 1),
+                         "the player climbed a plain floor")
+        self.assertEqual(p.z, z)
+
+    def test_the_driver_walks_a_ramp_rather_than_climbing_it(self):
+        """A ramp edge changes level *and* square in one step, and the verb
+        for it is walking: `_step_on_the_graph` follows it. Sent through
+        `move_z`, it asked to rise straight up through rock."""
+        import inspect
+
+        from tools import play
+
+        src = inspect.getsource(play._walk_toward)
+        self.assertIn("(nxt[0], nxt[1]) == (p.x, p.y)", src,
+                      "the driver climbs ramp edges again")
+
+
 class TestTheWild(GameFixture):
     """BENIGN, AMBUSHER and VERMIN, finally read by something."""
 
@@ -11072,134 +11357,6 @@ class TestWhatYouCanTellByLooking(GameFixture):
         text = term.last_text()
         self.assertIn("Pace:", text)
         self.assertIn("slowed by", text)
-
-
-class TestTheOnlyThingThatCannotWalkDownhill(GameFixture):
-    """The player's step against the graph every other creature moves on.
-
-    `LocalMap.neighbours` says what a walker can do -- level ground, up a ramp
-    it is standing on, down onto a ramp on the level below, and either way
-    along a staircase -- and its docstring insists the edges are symmetric:
-    "An asymmetric graph gives you one-way drops that A* will cheerfully route
-    through, stranding whoever took them."
-
-    `actions.move_or_attack` reimplemented the up half of that and nothing
-    else. Measured over eight adventurer lifetimes: 764 free steps attempted,
-    360 refused, and **184 of those 360 were steps any wolf standing on that
-    tile could have taken**. The player was the only thing on the map that
-    could not walk downhill.
-    """
-
-    def _shelf(self, ramp=True):
-        """You on high ground, a step down to the east, a ramp to take it."""
-        lm, p = self.game.local, self.game.player
-        z = p.z
-        for y in range(p.y - 2, p.y + 3):
-            for x in range(p.x - 2, p.x + 4):
-                lm.set_tile(x, y, z + 1, "air")
-                lm.set_tile(x, y, z, "grass")
-                lm.set_tile(x, y, z - 1, "rock_wall")
-                lm.set_tile(x, y, z - 2, "rock_wall")
-        # East of you the ground is one level lower. Solid rock under the
-        # upper shelf, so walking back is a climb and not a flat step -- the
-        # bench has to make the question the one being asked.
-        for y in range(p.y - 2, p.y + 3):
-            for x in range(p.x + 1, p.x + 4):
-                lm.set_tile(x, y, z, "air")
-                lm.set_tile(x, y, z - 1, "ramp_up" if ramp else "grass")
-                lm.set_tile(x, y, z - 2, "rock_wall")
-        self.game.update_fov()
-        return z
-
-    def test_you_can_walk_down_a_slope(self):
-        z = self._shelf()
-        p = self.game.player
-        was = (p.x, p.y, p.z)
-        actions.move_or_attack(self.game, 1, 0)
-        self.assertEqual((p.x, p.y, p.z), (was[0] + 1, was[1], z - 1),
-                         "refused a step every wolf on the map can take")
-
-    def test_and_you_can_walk_back_up_it(self):
-        """The graph promises symmetry. A one-way drop strands you."""
-        z = self._shelf()
-        p = self.game.player
-        actions.move_or_attack(self.game, 1, 0)
-        self.assertEqual(p.z, z - 1)
-        down = (p.x, p.y, p.z)
-        actions.move_or_attack(self.game, -1, 0)
-        self.assertEqual((p.x, p.y, p.z), (down[0] - 1, down[1], z),
-                         "you could get down there and not back")
-
-    def test_a_bare_cliff_is_still_a_cliff(self):
-        """Not a new rule -- the graph's rule. No ramp, no step."""
-        self._shelf(ramp=False)
-        p = self.game.player
-        was = (p.x, p.y, p.z)
-        actions.move_or_attack(self.game, 1, 0)
-        self.assertEqual((p.x, p.y, p.z), was, "walked off a cliff")
-
-    def test_a_wall_is_still_a_wall(self):
-        from ascii_warriors.engine.screen import frag_str
-
-        lm, p = self.game.local, self.game.player
-        for dz in (-1, 0, 1):
-            lm.set_tile(p.x + 1, p.y, p.z + dz, "rock_wall")
-        n = len(self.game.log.all())
-        was = (p.x, p.y, p.z)
-        actions.move_or_attack(self.game, 1, 0)
-        self.assertEqual((p.x, p.y, p.z), was)
-        said = " ".join(frag_str(m.display()) for m in self.game.log.all()[n:])
-        self.assertIn("in the way", said)
-
-    def test_the_step_goes_over_what_is_on_the_ground(self):
-        """Down a slope is a step, not a teleport: the same tail runs."""
-        from ascii_warriors.engine.screen import frag_str
-        from ascii_warriors.game.item import make_item
-
-        z = self._shelf()
-        p = self.game.player
-        item = make_item(self.game.rng, "coin")
-        self.game.drop_item(item, p.x + 1, p.y, z - 1)
-        n = len(self.game.log.all())
-        actions.move_or_attack(self.game, 1, 0)
-        self.assertEqual(p.z, z - 1)
-        said = " ".join(frag_str(m.display()) for m in self.game.log.all()[n:])
-        self.assertIn("You see", said, said)
-
-    def test_somebody_standing_there_is_not_walked_through(self):
-        from ascii_warriors.game.entity import make_creature
-
-        z = self._shelf()
-        p = self.game.player
-        other = make_creature(self.game.rng, "goblin", faction="hostile")
-        other.x, other.y, other.z = p.x + 1, p.y, z - 1
-        other.wx, other.wy = p.wx, p.wy
-        self.game.add_creature(other)
-        was = (p.x, p.y, p.z)
-        actions.move_or_attack(self.game, 1, 0)
-        self.assertEqual((p.x, p.y, p.z), was, "walked onto somebody")
-
-    def test_the_player_can_take_every_step_the_graph_offers(self):
-        """The property, over real ground rather than a built bench.
-
-        One rule, one place: whatever `neighbours` says a walker may do from
-        this tile, the player's own step has to be able to do.
-        """
-        lm, p = self.game.local, self.game.player
-        checked = refused = 0
-        for cell in list(lm.neighbours(p.x, p.y, p.z)):
-            if self.game.creature_at(*cell) is not None:
-                continue
-            dx, dy = cell[0] - p.x, cell[1] - p.y
-            back = (p.x, p.y, p.z)
-            checked += 1
-            actions.move_or_attack(self.game, dx, dy)
-            if (p.x, p.y, p.z) != cell:
-                refused += 1
-            p.x, p.y, p.z = back
-        self.assertTrue(checked, "nowhere to step from here")
-        self.assertEqual(refused, 0,
-                         "%d of %d legal steps refused" % (refused, checked))
 
 
 class TestNothingEverGaveUp(GameFixture):
