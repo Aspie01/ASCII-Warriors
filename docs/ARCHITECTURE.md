@@ -11539,7 +11539,58 @@ measuring itself.
 
 Re-break: eight defects put back, eight caught, 0 misses.
 
-## 175. Style
+## 175. The verbs nobody presses (v4.15)
+
+A census in the shape of §166's: wrap every public verb in
+`game/actions.py` with a counter and run the ritual's own drivers — three
+play seeds, both smoke modes, three fuzz seeds — then read the columns.
+Of 42 verbs, **19 ever succeed**; nine are never called by anything; and
+fifteen sit in the column that matters most, *called but never once
+successful*: `move_z`, `pick_up`, `open_close`, `disarm_trap`,
+`ride_or_dismount`, `tame_animal`, `sharpen`, `write_book`, `set_fire`,
+`raise_dead`, `pray_here`, `fish_here`, `travel_start`, `toggle_sneak`.
+
+This milestone takes the first of them, and it is an old lesson wearing
+new clothes. `LocalMap.neighbours` — the rule every creature in the game
+is moved by — offers four kinds of vertical edge: up a stair you stand
+on, up into **the foot of one coming down**, down a stair you stand on,
+and down onto **the head of one going up**. Those edges are deliberately
+symmetric so A\* cannot strand anybody. `move_z` re-derived its own
+narrower rule and knew only the first and third, so a player pressing `>`
+at the foot of a staircase was told there is no way down while every wolf
+walked it. `_step_on_the_graph` had already learned this for *sideways*
+steps — "asking the graph is not the same as copying it" — and this is
+its vertical twin.
+
+Measured over three lifetimes: `move_z` called nineteen times, standing
+on a plain stair tile **none** of them, refused nineteen times. The
+player's climb command had never once worked in any run the project has
+made.
+
+The second half is the driver's, and the census's real prize. A ramp edge
+changes square *and* level in one step, and the verb for it is walking:
+`_step_on_the_graph` follows a ramp for anybody who steps into it. The
+driver sent those edges through `move_z` — asking to rise straight up
+through rock — and spent every one of those nineteen turns on it. Walking
+them instead, seed `t` goes from 459 turns mostly on the surface to
+**1547, with nine hundred of them at z=-1**, and takes a slay_beast on
+top of its bounty because §170's board reads the prowess it earned.
+
+One claim in the first draft of this section, and of the docstring beside
+the fix, was wrong and is recorded here rather than quietly corrected:
+that no adventurer had ever changed level. They had — sideways, by ramp,
+through `move_or_attack`. What had never happened was a *climb*. The
+before-and-after that established it needed both files reverted; reverting
+only `actions.py` showed no change at all, because the driver had already
+stopped calling the verb. A measurement that moves nothing has not
+necessarily proved the fix idle — it may be measuring the wrong half.
+
+Re-break: four defects put back, four caught, 0 misses. Both fixture
+drafts before them skipped themselves for want of a stacked pair of open
+cells, and a guard that skips is a guard that agrees with anything; they
+build their staircase now.
+
+## 176. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

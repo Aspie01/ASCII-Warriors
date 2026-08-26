@@ -543,8 +543,12 @@ def _walk_toward(game, tx: int, ty: int, tz: int) -> Optional[int]:
     )
     if path and len(path) > 1:
         nxt = path[1]
-        if nxt[2] != p.z:
+        if nxt[2] != p.z and (nxt[0], nxt[1]) == (p.x, p.y):
             return actions.move_z(game, 1 if nxt[2] > p.z else -1) or None
+        # A ramp edge changes level *and* square in one step, and the verb
+        # for it is walking, not climbing: `_step_on_the_graph` follows the
+        # ramp for anybody who steps into it. Sending those through
+        # `move_z` asked to rise straight up through rock.
         return actions.move_or_attack(
             game, nxt[0] - p.x, nxt[1] - p.y) or None
     dx, dy = geometry.normalize_dir(tx - p.x, ty - p.y)
