@@ -59,17 +59,28 @@ class WorldTile:
     def to_dict(self) -> Dict[str, Any]:
         """Serialise the tile compactly."""
         return {
-            "e": round(self.elevation, 6), "r": round(self.rainfall, 6),
-            # Temperature is not rounded, and its neighbours are. The rest
-            # of these are *provenance*: worldgen read them once, wrote the
-            # biome down, and nothing asks them again -- four or six places
-            # is plenty to redraw a map from. Temperature is a live input,
-            # read every tick by `heat.ambient` and accumulated through
-            # `heat.tick` into exposure. Measured in v4.14's reload trial:
-            # a tile stored at four places came back a hundred-thousandth
-            # of a degree out, and eighty turns later a bull's exposure was
-            # a different number. Rounding is for what the simulation has
-            # finished reading.
+            # Rounding is for what the simulation has finished reading, and
+            # v4.14 got the list wrong. It rounded elevation and rainfall
+            # on the grounds that they were "provenance -- worldgen read
+            # them once, wrote the biome down, and nothing asks them
+            # again". They are not: `localmap._build_heightmap` reads this
+            # tile's elevation and its neighbours' every time a local map
+            # is drawn, `sea_level_z` scales it by forty, `_dig_pond` reads
+            # the rainfall, and `fortress.py` puts it inside a `chance()`.
+            # A local map is drawn again for any tile that is not in the
+            # twenty-four-entry cache, which after a reload is most of the
+            # world -- so the rounding does not settle at worldgen, it
+            # waits for the player to walk somewhere new. Measured across
+            # three worlds: sixteen of nine hundred and five redrawn maps
+            # came back different, one of them by 2678 voxels, from a
+            # six-place delta of five ten-millionths surviving
+            # `int(round(elevation * 40))`.
+            #
+            # Drainage and volcanism really are provenance -- nothing
+            # outside this module reads either -- and stay rounded, which
+            # is what makes the distinction worth drawing rather than
+            # rounding nothing at all.
+            "e": self.elevation, "r": self.rainfall,
             "t": self.temperature, "d": round(self.drainage, 6),
             "v": round(self.volcanism, 4), "s": self.savagery, "ev": self.evil,
             "b": self.biome, "rv": self.river, "rd": self.river_dir,

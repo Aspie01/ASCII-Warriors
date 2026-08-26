@@ -570,6 +570,22 @@ def _on_foot(game):
         for nxt, cost in inner(cell):
             if tile_data.get(game.local.tile(*nxt)).swim:
                 continue
+            # And nothing the *step* would turn into a swim. A route node
+            # is a cell; taking it is a call to `move_or_attack`, which
+            # tries the same-level square first and only asks the graph
+            # when that square is impassable -- and swim-depth water is
+            # perfectly passable, so a level-changing edge whose same-level
+            # square is deep water puts the driver in the river instead of
+            # on the slope. `_get_out_of_the_water` then walks it straight
+            # back out, and the two of them trade turns until the breath
+            # runs out. A graph the walker cannot actually walk is not the
+            # walker's graph: filtering the destination is not enough,
+            # because the destination is not where the step lands.
+            if nxt[2] != cell[2]:
+                flat = (nxt[0], nxt[1], cell[2])
+                if game.local.in_bounds(*flat) \
+                        and tile_data.get(game.local.tile(*flat)).swim:
+                    continue
             yield nxt, cost
 
     return walkable

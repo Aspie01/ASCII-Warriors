@@ -11487,6 +11487,83 @@ class TestTheOnlyThingThatCannotWalkDownhill(GameFixture):
                          "%d of %d legal steps refused" % (refused, checked))
 
 
+class TestTheStepThatLandsInTheRiver(GameFixture):
+    """v4.16: the driver's graph offered edges its own step could not take.
+
+    `_on_foot` exists because "a player walks round; the driver swam, and
+    drowned on its first errand with a full pack on" -- so it filters any
+    route node you would have to swim. But a node is a cell, and taking it
+    is a call to `move_or_attack`, which tries the *same-level* square
+    first and only asks the graph when that square is impassable. Swim
+    depth is perfectly passable. So a level-changing edge whose same-level
+    square is deep water put the driver in the river instead of on the
+    slope, `_get_out_of_the_water` walked it straight back, and the two
+    traded turns while the breath ran out.
+
+    Found by adversarial review of v4.15 rather than by a census, and
+    reproduced by construction rather than observation: across eight
+    census seeds the driver spends **zero** turns out of its depth both
+    before and after this fix, because no seed's terrain happens to offer
+    the shape. Latent, not theoretical -- the geometry below is ordinary
+    riverbank, and the shipped build walks into the water on it every
+    time.
+    """
+
+    def _riverbank(self):
+        """A slope down to the east with deep water on the near level."""
+        lm, p = self.game.local, self.game.player
+        x, y, z = p.x, p.y, p.z
+        lm.set_tile(x, y, z, "floor")
+        lm.set_tile(x + 1, y, z, "water")
+        lm.set_tile(x + 1, y, z - 1, "ramp_up")
+        lm.set_tile(x + 2, y, z - 1, "floor")
+        for dz in (z, z - 1):
+            lm.set_tile(x + 3, y, dz, "floor")
+        return x, y, z
+
+    def test_the_graph_refuses_a_step_that_would_swim(self):
+        from tools import play
+
+        x, y, z = self._riverbank()
+        offered = [c for c, _cost in play._on_foot(self.game)((x, y, z))
+                   if (c[0], c[1]) == (x + 1, y)]
+        self.assertEqual(
+            offered, [],
+            "the graph offered %s, and walking it lands in the water on "
+            "the level the driver started from" % (offered,))
+
+    def test_and_the_step_it_refuses_really_does_swim(self):
+        """The other half, so the guard above cannot pass by accident: if
+        the driver did take that edge, it would be swimming."""
+        from ascii_warriors.game import actions, swimming
+
+        x, y, z = self._riverbank()
+        p = self.game.player
+        actions.move_or_attack(self.game, 1, 0)
+        self.assertEqual((p.x, p.y, p.z), (x + 1, y, z),
+                         "the step did not go where the defect needs it to")
+        self.assertTrue(
+            swimming.is_swimming(
+                swimming.depth_of(self.game.local.tile(p.x, p.y, p.z))),
+            "the fixture's water is not deep enough to swim, so the guard "
+            "above is proving nothing")
+
+    def test_dry_slopes_are_still_walked(self):
+        """The filter must cost the driver nothing on ordinary ground, or
+        it has traded a drowning for a paralysis."""
+        from tools import play
+
+        lm, p = self.game.local, self.game.player
+        x, y, z = p.x, p.y, p.z
+        lm.set_tile(x, y, z, "floor")
+        lm.set_tile(x + 1, y, z, "rock_wall")
+        lm.set_tile(x + 1, y, z - 1, "ramp_up")
+        lm.set_tile(x + 2, y, z - 1, "floor")
+        offered = [c for c, _cost in play._on_foot(self.game)((x, y, z))
+                   if (c[0], c[1]) == (x + 1, y)]
+        self.assertTrue(offered, "a dry slope was refused as well")
+
+
 class TestNothingEverGaveUp(GameFixture):
     """A morale system whose break point was below its own floor.
 

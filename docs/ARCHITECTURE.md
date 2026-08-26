@@ -11590,7 +11590,60 @@ drafts before them skipped themselves for want of a stacked pair of open
 cells, and a guard that skips is a guard that agrees with anything; they
 build their staircase now.
 
-## 176. Style
+## 176. The numbers the map is redrawn from (v4.16)
+
+Both defects in this milestone were found by an adversarial review of
+v4.14 and v4.15 — four independent lenses over the diff, every finding
+handed to a refuter told to kill it — rather than by a census. Two
+survived, and the first of them convicts a sentence §174 had just
+committed.
+
+**The rounding rule was wrong about its own list.** v4.14 stopped
+rounding `temperature` and justified leaving its neighbours short: they
+are "provenance — worldgen read them once, wrote the biome down, and
+nothing asks them again". `localmap._build_heightmap` reads a tile's
+elevation and its four neighbours' every time a local map is drawn,
+`sea_level_z` multiplies it by forty, `_dig_pond` reads the rainfall, and
+`fortress.py` puts rainfall inside a `chance()`. The reason the claim
+looked true is the reason it was dangerous: a local map is drawn *again*
+only for a tile outside the twenty-four-entry cache, so the rounding does
+not settle at worldgen — it waits for the player to reload and then walk
+somewhere new. Measured across three worlds: **sixteen of nine hundred
+and five redrawn maps came back different, one by 2678 voxels**, from a
+six-place delta of five ten-millionths surviving `int(round(elevation *
+40))`. Elevation and rainfall are stored whole now; `drainage` and
+`volcanism`, which nothing outside worldgen reads, stay rounded — the
+distinction is the point, and a guard fails if either grows a reader.
+
+**A graph that offered steps its walker could not take.** v4.15 sent
+ramp edges through walking rather than climbing, which was right, but
+`_on_foot` filters route *nodes* and taking a node is a call to
+`move_or_attack` — which tries the same-level square first and only asks
+the graph when that square is impassable. Swim depth is passable. So a
+level-changing edge whose same-level square is deep water put the driver
+in the river instead of on the slope, and `_get_out_of_the_water` walked
+it straight back: two turns, traded, until the breath ran out. Filtering
+the destination is not enough when the destination is not where the step
+lands.
+
+That one is **latent, and recorded as latent**. Across eight census seeds
+the driver spends zero turns out of its depth both before and after the
+fix — no seed's terrain offers the shape. It is reproduced by
+construction instead: ordinary riverbank geometry, on which the shipped
+build walks into the water every time. §175 warned that a measurement
+which moves nothing may be measuring the wrong half; here the census
+moves nothing because the census never visits the bank.
+
+The re-break repeated §165's lesson once more. The case meant to prove
+the swim filter was not over-broad first set its condition to `if True:`
+— which still refuses only *water*, and the dry-slope fixture has a wall
+in that square, so nothing changed and the guard stayed green over a
+build it existed to condemn. An injection is code, and an injection that
+changes nothing tests nothing.
+
+Re-break: five defects put back, five caught, 0 misses.
+
+## 177. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

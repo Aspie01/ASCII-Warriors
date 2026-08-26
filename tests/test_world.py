@@ -2039,3 +2039,82 @@ class TestBothKindsOfDwarf(unittest.TestCase):
                 seen |= {str(p["def_id"]) for p in pop}
         self.assertIn("hammerdwarf", seen)
         self.assertIn("axedwarf", seen, "the axe half has still never existed")
+
+
+class TestTheNumbersTheMapIsRedrawnFrom(unittest.TestCase):
+    """v4.16: a save rounded the tile fields the map is drawn from.
+
+    v4.14 stopped rounding `temperature` and wrote down a rule for the
+    rest: they are "provenance -- worldgen read them once, wrote the biome
+    down, and nothing asks them again". An adversarial review of that
+    milestone refuted the sentence. `localmap._build_heightmap` reads a
+    tile's elevation and its neighbours' every time a local map is drawn,
+    `sea_level_z` multiplies it by forty, `_dig_pond` reads the rainfall,
+    and `fortress.py` puts rainfall inside a `chance()`. A local map is
+    drawn again for any tile outside the twenty-four-entry cache, which
+    after a reload is most of the world -- so the rounding did not settle
+    at worldgen. It waited for the player to walk somewhere new.
+
+    Measured across three worlds before the fix: sixteen of nine hundred
+    and five redrawn maps came back different, one of them by 2678 voxels.
+    """
+
+    def _worlds(self, seed):
+        world = generate_world(RNG(seed).sub("w"), size="pocket",
+                               history_years=10)
+        back = World.from_dict(json.loads(json.dumps(world.to_dict())))
+        return world, back
+
+    def test_a_saved_world_redraws_the_same_ground(self):
+        world, back = self._worlds("redraw")
+        checked = 0
+        for wy in range(0, world.height, 4):
+            for wx in range(0, world.width, 4):
+                if world.tile(wx, wy).is_ocean:
+                    continue
+                r = "local-%d-%d" % (wx, wy)
+                a, _ = generate_local(world, wx, wy, RNG("redraw").sub(r))
+                b, _ = generate_local(back, wx, wy, RNG("redraw").sub(r))
+                checked += 1
+                for z in range(a.zmin, a.zmax + 1):
+                    for y in range(0, a.height, 3):
+                        for x in range(0, a.width, 3):
+                            self.assertEqual(
+                                a.tile(x, y, z), b.tile(x, y, z),
+                                "tile %d,%d redrew differently at "
+                                "(%d,%d,%d) after a save" % (wx, wy, x, y, z))
+        self.assertGreater(checked, 4, "no land was checked at all")
+
+    def test_the_fields_the_map_reads_are_not_rounded(self):
+        """Asserted on the written record, because a value that survives
+        one round trip by luck still loses the next: `round(x, 6)` is a
+        no-op on a number that happens to be short."""
+        world, _back = self._worlds("fields")
+        tile = next(world.tile(x, y)
+                    for y in range(world.height) for x in range(world.width)
+                    if not world.tile(x, y).is_ocean)
+        tile.elevation = 0.5000004999999999
+        tile.rainfall = 0.4000004999999999
+        d = tile.to_dict()
+        self.assertEqual(d["e"], tile.elevation, "elevation was rounded")
+        self.assertEqual(d["r"], tile.rainfall, "rainfall was rounded")
+        self.assertEqual(d["t"], tile.temperature, "temperature was rounded")
+
+    def test_what_stays_rounded_is_what_nothing_reads(self):
+        """The distinction is the point: rounding is for what the
+        simulation has finished reading, so the two fields that really are
+        provenance stay short. If something starts reading them, this test
+        is the one that should be deleted -- after the rounding is."""
+        import subprocess
+
+        for field in ("drainage", "volcanism"):
+            out = subprocess.run(
+                ["grep", "-rn", "--include=*.py", r"\.%s\b" % field,
+                 "ascii_warriors", "tools"],
+                capture_output=True, text=True).stdout
+            outside = [l for l in out.splitlines()
+                       if "world/worldgen.py" not in l
+                       and "self.%s = " % field not in l]
+            self.assertEqual(outside, [],
+                             "%s is read outside worldgen now, so rounding "
+                             "it is the same defect v4.16 fixed" % field)
