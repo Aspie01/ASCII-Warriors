@@ -11643,7 +11643,58 @@ changes nothing tests nothing.
 
 Re-break: five defects put back, five caught, 0 misses.
 
-## 177. Style
+## 177. The trades nobody learned (v4.17)
+
+`data/professions.py` says what each trade knows — a hunter has `bow` 4
+and `tracker` 4, an archer `bow` 5 — and its own docstring records the
+last time that table was invisible to somebody: `tools/play.py` "spent
+its whole existence measuring a warrior with `fighter 0` and `sword 0`".
+Measured this milestone, `skills_for` was applied to **exactly one
+creature in the game**: the player. Ninety-five townsfolk across three
+starting maps, two of them hunters, and **not one had any ranged skill
+or carried a bow**.
+
+The defect is legible in the order of two lines. `_populate` called
+`make_creature`, which armed people from their *species* skills, and
+then wrote `c.profession = ...` afterwards. The world decided what
+somebody did for a living after it had already handed them their weapon,
+so a hunter got whatever a human gets, which is a spear. Two edits:
+`make_creature` takes the trade and learns it before the arming, and the
+arming asks what this *person* knows rather than only what the species
+is born knowing. `max`, never assignment — an elf archer who takes up
+hunting keeps `bow` 7 rather than dropping to the hunter's 4 — and a
+peasant is left exactly as poor as it was, which has its own guard.
+
+The consequence is a whole system coming to life. v4.15's verb census
+found `actions.fire` had never been called by any run the project has
+made, and it could not have been: across five census lives the only
+thing that ever fired a shot was a **kobold**, because in human lands
+nobody had a bow to drop. Ranged combat — `line_of_fire`, ammunition
+that breaks and is recovered, the AI's own two-to-twelve band — was
+built, wired, documented and unreachable. The driver loots bows and
+arrows now and shoots on the same terms the world shoots at it; given a
+bow, three seeds fire 3, 40 and 7 arrows, and the one that empties its
+quiver reports so and goes back to its sword.
+
+Two of this milestone's own drafts repeated lessons it had just written
+down. The shot's gate asked `inventory.ammo()`, which answers for the
+*quiver*, while `fire` falls back to any matching arrows in the pack —
+so a driver with forty arrows in its bag reported "out of arrows" a
+hundred times a life and never loosed one. That is §175 exactly: a gate
+stricter than the verb it guards. And the re-break caught three guards
+testing functions rather than *wiring* — unplugging `_shoot` from
+`_press`, or the trade from `_populate`, changed nothing they could see,
+because they called the pieces directly. They go through the policy and
+the town now.
+
+The fixture for the line-of-fire guard undid its own premise: its helper
+carves a corridor to wherever it puts somebody, so building the wall
+before the second foe let that call dig straight through it. It asserts
+the wall stands before it asks the question.
+
+Re-break: eight defects put back, eight caught, 0 misses.
+
+## 178. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

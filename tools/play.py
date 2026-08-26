@@ -336,6 +336,64 @@ def _step_away(game, foes, why, label: str = "ran") -> Optional[int]:
     return cost
 
 
+def _shoot(game, why) -> Optional[int]:
+    """Put an arrow in whatever is coming, while it is still coming.
+
+    The band is the AI's own -- two to twelve, near enough to hit and far
+    enough that closing costs the other side a turn -- so the driver
+    shoots on the same terms the world shoots at it. Nothing here reaches
+    for a bow it does not have: an adventurer that starts with a sword
+    stays a swordsman until it loots or buys one.
+    """
+    p = game.player
+    weapon = p.inventory.weapon()
+    if weapon is None or not weapon.is_ranged:
+        return None
+    # `inventory.ammo()` answers for the *quiver* -- what is equipped --
+    # and `fire` falls back to any matching ammunition in the pack. The
+    # first draft of this gate asked only the quiver, so a driver with
+    # forty arrows in its bag reported "out of arrows" a hundred times a
+    # life and never loosed one: the gate was stricter than the verb it
+    # guards, which is the same shape as v4.15's `move_z` refusing steps
+    # the graph allowed.
+    from ascii_warriors.data import items as item_data
+
+    ammo = p.inventory.ammo()
+    if ammo is None:
+        ammo_id = item_data.ammo_for(weapon.defn)
+        if not ammo_id or not p.inventory.by_def(ammo_id):
+            why["out of arrows"] += 1
+            return None
+    if game.local is None:
+        return None
+    best = None
+    for c in game.creatures.values():
+        if c.is_player or c.body.dead or not c.is_hostile_to(p) or c.z != p.z:
+            continue
+        d = max(abs(c.x - p.x), abs(c.y - p.y))
+        if d < 2 or d > 12:
+            continue
+        # The same question `fire` asks, asked the same way: a shot walks
+        # the line and hits the first body on it, so a clear line means
+        # this foe is that body. Firing blind spends the arrow on "your
+        # shot flies wide and is lost" -- a real turn, a real arrow, and
+        # the driver would keep paying it.
+        path = actions.line_of_fire(
+            p.x, p.y, c.x, c.y,
+            lambda x, y: game.local.blocks_sight(x, y, p.z))
+        first = next((game.creature_at(x, y, p.z) for x, y in path
+                      if game.creature_at(x, y, p.z) is not None
+                      and game.creature_at(x, y, p.z) is not p), None)
+        if first is not c:
+            continue
+        if best is None or d < best[0]:
+            best = (d, c)
+    if best is None:
+        return None
+    why["loosed an arrow"] += 1
+    return actions.fire(game, best[1].x, best[1].y)
+
+
 def _decline_the_melee(game, why) -> Optional[int]:
     """Step out of a fight the odds refuse, while the blood is still in you.
 
@@ -362,7 +420,15 @@ def _decline_the_melee(game, why) -> Optional[int]:
 #: What is worth stopping to pick up off a body.
 WORTH_TAKING = ("bandage", "splint", "waterskin", "water_drink", "meat",
                 "bread", "cheese", "berries", "plump_helmet", "dwarven_ale",
-                "wine", "beer", "mead", "rum", "torch")
+                "wine", "beer", "mead", "rum", "torch",
+                # A bow off a dead hunter, and something to put through it.
+                # Ranged combat is a whole system -- `line_of_fire`, the
+                # ammo that breaks and is recovered, the AI's own 2-to-12
+                # band -- and v4.17's verb census found `fire` had never
+                # been called by any run the project has made. It could not
+                # be: until this milestone nobody in human lands carried a
+                # bow to drop.
+                "bow", "crossbow", "arrow", "bolt")
 
 
 def _loot(game, why) -> Optional[int]:
@@ -1158,6 +1224,8 @@ def _press(game, why) -> int:
     turns moved the clock two ticks.
     """
     cost = _look_after(game, why)
+    if cost is None:
+        cost = _shoot(game, why)
     if cost is None:
         cost = _run_away(game, why)
     if cost is None:

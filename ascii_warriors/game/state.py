@@ -298,10 +298,11 @@ class Game:
             c = make_creature(
                 rng, str(spec["def_id"]), faction=str(spec.get("faction", "town")),
                 level=int(spec.get("level", 0)),
+                # Before the arming, not after it: see `make_creature`.
+                profession=str(spec.get("profession", "")),
             )
             c.x, c.y, c.z = int(spec["x"]), int(spec["y"]), int(spec["z"])
             c.wx, c.wy = self.player.wx, self.player.wy
-            c.profession = str(spec.get("profession", ""))
             c.hf_id = spec.get("hf_id")
             c.site_id = site.id if site is not None else None
             if site is not None and site.civ_id:

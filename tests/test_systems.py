@@ -11564,6 +11564,252 @@ class TestTheStepThatLandsInTheRiver(GameFixture):
         self.assertTrue(offered, "a dry slope was refused as well")
 
 
+class TestTheTradesNobodyLearned(GameFixture):
+    """v4.17: every NPC in the world wore a profession with nothing behind it.
+
+    `data/professions.py` holds what each trade knows -- a hunter has `bow`
+    4 and `tracker` 4, an archer `bow` 5 -- and its own docstring records
+    the last time that table was invisible to somebody: `tools/play.py`
+    "spent its whole existence measuring a warrior with `fighter 0` and
+    `sword 0`". Measured in v4.17, `skills_for` was applied to exactly one
+    creature in the game, the player. Towns were full of hunters who could
+    not shoot.
+
+    Two edits, in the order that matters: `make_creature` takes the trade
+    and learns it *before* the arming, and the arming reads what the
+    person knows rather than only what the species is born knowing --
+    `_populate` used to arm them first and label them afterwards, which is
+    why a hunter carried whatever a human carries. The consequence is that
+    ranged combat exists in human lands at all: across five census lives
+    the only thing that ever fired a shot was a kobold, and the verb
+    census found `actions.fire` had never been called by any run the
+    project has made.
+    """
+
+    def _hunter(self, seed="hunter"):
+        from ascii_warriors.game.entity import make_creature
+
+        return make_creature(RNG(seed), "human", faction="town",
+                             profession="hunter")
+
+    def test_a_hunter_knows_the_bow(self):
+        from ascii_warriors.data import professions
+
+        c = self._hunter()
+        for skill, rank in professions.skills_for("hunter").items():
+            self.assertGreaterEqual(
+                c.skills.level(skill), rank,
+                "a hunter does not know %s, which is half of what a "
+                "hunter is" % skill)
+
+    def test_a_hunter_carries_a_bow_and_something_for_it(self):
+        armed = 0
+        for i in range(10):
+            c = self._hunter("h%d" % i)
+            bow = c.inventory.ranged_weapon()
+            if bow is None:
+                continue
+            armed += 1
+            self.assertIsNotNone(
+                c.inventory.ammo() or c.inventory.by_def("arrow"),
+                "a bow and nothing to put through it")
+        self.assertGreaterEqual(
+            armed, 8, "%d of 10 hunters went out without a bow" % armed)
+
+    def test_a_trade_never_unteaches_the_species(self):
+        """`max`, not assignment: an elf archer who takes up hunting keeps
+        `bow` 7 rather than dropping to the hunter's 4."""
+        from ascii_warriors.data import creatures as creature_data
+        from ascii_warriors.game.entity import make_creature
+
+        innate = creature_data.get("elf_archer").skills.get("bow", 0)
+        self.assertGreater(innate, 4, "the fixture's premise is gone")
+        c = make_creature(RNG("elf"), "elf_archer", faction="town",
+                          profession="hunter")
+        self.assertGreaterEqual(c.skills.level("bow"), innate,
+                                "learning a trade cost it what it was born "
+                                "knowing")
+
+    def test_the_town_hands_out_the_trade_at_birth(self):
+        """Through `_populate`, because that is where the order went wrong:
+        the town armed people first and labelled them afterwards, and a
+        guard that calls `make_creature` itself cannot see that."""
+        rng = RNG("town")
+        self.game._populate(
+            [{"def_id": "human", "x": self.game.player.x + 2,
+              "y": self.game.player.y, "z": self.game.player.z,
+              "faction": "town", "profession": "hunter"}],
+            rng, None)
+        hunters = [c for c in self.game.creatures.values()
+                   if c.profession == "hunter"]
+        self.assertTrue(hunters, "the town spawned nobody")
+        self.assertTrue(
+            any(c.inventory.ranged_weapon() is not None for c in hunters),
+            "the town's own hunter walked out without a bow")
+
+    def test_the_untrained_are_left_alone(self):
+        """A peasant is still a peasant. The table gives it `dodging` 1 and
+        nothing else, and this guard exists so the fix cannot quietly turn
+        every villager into a soldier."""
+        from ascii_warriors.game.entity import make_creature
+
+        c = make_creature(RNG("peas"), "human", faction="town",
+                          profession="peasant")
+        self.assertIsNone(c.inventory.ranged_weapon())
+        self.assertLessEqual(c.skills.level("fighter"), 1)
+
+
+class TestTheBowNobodyDrew(GameFixture):
+    """v4.17's other half: the driver never fired a shot in its life.
+
+    Ranged combat is a whole system -- `line_of_fire`, ammunition that
+    breaks and is recovered, the AI's own two-to-twelve band -- and the
+    verb census found `actions.fire` called zero times across three
+    lifetimes, both smoke modes and three fuzz seeds. It could not have
+    been called: nobody in human lands carried a bow to drop, and the
+    driver's kit is a sword.
+    """
+
+    def _armed(self, arrows=20, equip_ammo=False):
+        from ascii_warriors.game.item import make_item
+
+        p = self.game.player
+        for it in list(p.inventory.items):
+            if it.is_weapon:
+                p.inventory.items.remove(it)
+        bow = make_item(RNG("bow"), "bow", tier=2)
+        p.inventory.add(bow)
+        p.inventory.equip(bow, "weapon")
+        if arrows:
+            quiver = make_item(RNG("arrows"), "arrow", tier=2, count=arrows)
+            p.inventory.add(quiver)
+            if equip_ammo:
+                p.inventory.equip(quiver, "ammo")
+        return p
+
+    def _foe_at(self, dist):
+        from ascii_warriors.game.entity import make_creature
+
+        p = self.game.player
+        c = make_creature(RNG("foe"), "goblin", faction="hostile")
+        c.x, c.y, c.z = p.x + dist, p.y, p.z
+        for step in range(1, dist + 1):
+            self.game.local.set_tile(p.x + step, p.y, p.z, "floor")
+        self.game.add_creature(c)
+        return c
+
+    def test_the_driver_shoots_what_is_still_coming(self):
+        from ascii_warriors.game import combat
+        from tools import play
+
+        self._armed()
+        self._foe_at(5)
+        why = collections.Counter()
+        fired = []
+        real = combat.ranged_attack
+        combat.ranged_attack = lambda *a, **kw: (fired.append(1)
+                                                 or real(*a, **kw))
+        try:
+            cost = play._shoot(self.game, why)
+        finally:
+            combat.ranged_attack = real
+        self.assertIsNotNone(cost, "a bow, an arrow, a goblin at five "
+                                   "paces, and it did not shoot")
+        self.assertEqual(why["loosed an arrow"], 1)
+        self.assertEqual(len(fired), 1, "the shot never reached combat")
+
+    def test_the_shot_is_wired_into_the_turn(self):
+        """Through `_press`, because a verb the policy never calls is the
+        defect this milestone is about."""
+        from tools import play
+
+        self._armed()
+        self._foe_at(5)
+        why = collections.Counter()
+        self.game.player_acts(max(1, play._press(self.game, why)))
+        self.assertEqual(why["loosed an arrow"], 1,
+                         "the driver spent its turn on something else: %r"
+                         % dict(why))
+
+    def test_arrows_in_the_pack_count_as_arrows(self):
+        """The gate must be no stricter than the verb it guards.
+        `inventory.ammo()` answers for the quiver; `fire` falls back to
+        matching ammunition anywhere in the pack. The first draft of the
+        gate asked only the quiver, so a driver with forty arrows in its
+        bag reported "out of arrows" a hundred times a life and never
+        loosed one -- the same shape as v4.15's `move_z`."""
+        from tools import play
+
+        self._armed(equip_ammo=False)
+        self.assertIsNone(self.game.player.inventory.ammo(),
+                          "the fixture equipped the quiver, so it is not "
+                          "testing the fallback")
+        self._foe_at(4)
+        why = collections.Counter()
+        self.assertIsNotNone(play._shoot(self.game, why))
+        self.assertEqual(why["out of arrows"], 0)
+
+    def test_an_empty_quiver_is_not_a_shot(self):
+        from tools import play
+
+        self._armed(arrows=0)
+        self._foe_at(4)
+        why = collections.Counter()
+        self.assertIsNone(play._shoot(self.game, why))
+        self.assertEqual(why["out of arrows"], 1)
+
+    def test_it_does_not_shoot_at_what_it_cannot_see(self):
+        """A shot walks the line and hits the first body on it, so a foe
+        behind a wall is not a target -- it is an arrow spent on "your
+        shot flies wide and is lost".
+
+        The first draft of this guard put both foes in the open and
+        asserted a shot was taken, which is true whether the line is
+        checked or not: the driver takes the nearest either way. A guard
+        has to be built so the defect changes its answer.
+        """
+        from ascii_warriors.game import combat
+        from tools import play
+
+        p = self._armed()
+        # Both foes first, then the wall: `_foe_at` carves a corridor to
+        # wherever it puts somebody, so building the wall before the
+        # second call let that call quietly dig through it -- the fixture
+        # undoing its own premise, and the guard passing for the wrong
+        # reason.
+        blocked = self._foe_at(3)
+        clear = self._foe_at(6)
+        clear.x, clear.y = p.x, p.y + 6
+        for step in range(1, 7):
+            self.game.local.set_tile(p.x, p.y + step, p.z, "floor")
+        for step in range(1, 4):
+            self.game.local.set_tile(p.x + step, p.y, p.z, "rock_wall")
+        self.assertTrue(
+            self.game.local.blocks_sight(p.x + 1, p.y, p.z),
+            "the wall this guard is about is not there")
+        shot_at = []
+        real = combat.ranged_attack
+        combat.ranged_attack = lambda a, d, *r, **kw: (shot_at.append(d)
+                                                       or real(a, d, *r, **kw))
+        why = collections.Counter()
+        try:
+            play._shoot(self.game, why)
+        finally:
+            combat.ranged_attack = real
+        self.assertEqual(why["loosed an arrow"], 1, "it did not shoot at all")
+        self.assertEqual([c.id for c in shot_at], [clear.id],
+                         "it loosed at the foe behind the wall")
+
+    def test_a_swordsman_does_not_reach_for_a_bow_it_has_not_got(self):
+        from tools import play
+
+        why = collections.Counter()
+        self._foe_at(5)
+        self.assertIsNone(play._shoot(self.game, why))
+        self.assertEqual(sum(why.values()), 0,
+                         "it counted something for a bow it does not have")
+
+
 class TestNothingEverGaveUp(GameFixture):
     """A morale system whose break point was below its own floor.
 

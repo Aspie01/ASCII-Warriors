@@ -867,7 +867,7 @@ def usable_weapons(defn: CreatureDef, ids: Sequence[str]) -> List[str]:
     return out
 
 
-def trained_weapons(defn: CreatureDef) -> List[str]:
+def trained_weapons(defn: CreatureDef, skills=None) -> List[str]:
     """What this kind of person fights with, from what they are trained in.
 
     The creature table says it already: an `elf_archer` has `bow` 7 and an
@@ -879,15 +879,26 @@ def trained_weapons(defn: CreatureDef) -> List[str]:
     Returns the ids of every weapon in their best trained skill that they are
     big enough to use, so a goblin trained in swords gets a short sword and a
     giant gets a two-hander from the same line.
+
+    *skills* is what this particular person knows, when that is more than
+    what their species is born knowing. The species table is where an
+    `elf_archer` gets `bow` 7; a *profession* is where a human hunter gets
+    `bow` 4, and until v4.17 nothing consulted it -- so the towns were full
+    of hunters carrying whatever a human carries, which is a spear. A def
+    on its own still answers for the wildlife and for anyone with no trade.
     """
+    table = dict(defn.skills)
+    if skills is not None:
+        for skill, rank in skills.items():
+            table[skill] = max(table.get(skill, 0), rank)
     best = 0
-    for skill, rank in defn.skills.items():
+    for skill, rank in table.items():
         if skill in WEAPON_SKILLS and rank >= TRAINED:
             best = max(best, rank)
     if not best:
         return []
     ids: List[str] = []
-    for skill, rank in sorted(defn.skills.items()):
+    for skill, rank in sorted(table.items()):
         if rank == best and skill in WEAPON_SKILLS:
             ids.extend(w.id for w in item_data.weapons_for_skill(skill))
     return usable_weapons(defn, ids)
@@ -924,12 +935,17 @@ def _dress(c: Creature, rng: RNG, tier: int) -> None:
         c.inventory.add(make_item(rng, rng.choice(OUTERWEAR), tier=tier))
 
 
+def _known(c: Creature):
+    """Every skill this person has a rank in, as a plain mapping."""
+    return {sid: c.skills.level(sid) for sid, _lv in c.skills.known()}
+
+
 def _arm(c: Creature, rng: RNG, tier: int, faction: str) -> None:
     """Give somebody a weapon, armour and a shield, by what they were taught."""
     from .item import Item, make_item
 
     defn = c.defn
-    choices = trained_weapons(defn)
+    choices = trained_weapons(defn, _known(c))
     if not choices and _fights(defn, faction):
         choices = usable_weapons(
             defn, RACE_WEAPONS.get(c.race, DEFAULT_WEAPONS))
@@ -966,12 +982,31 @@ def make_creature(
     level: int = 0,
     equip: bool = True,
     tier: Optional[int] = None,
+    profession: str = "",
 ) -> Creature:
-    """Create a creature and give it plausible equipment."""
+    """Create a creature and give it plausible equipment.
+
+    *profession* is what this person does for a living, and it is taken
+    here rather than stamped on afterwards because it decides what they
+    know and therefore what they carry. `data/professions.py` records that
+    this table was once invisible to `tools/play.py`, which "spent its
+    whole existence measuring a warrior with `fighter 0` and `sword 0`".
+    Every NPC in the world had the same complaint until v4.17: the towns
+    were full of hunters who could not shoot and smiths who could not
+    smith, because `_populate` armed them first and labelled them second.
+    """
     from .item import random_loot
 
     c = Creature(def_id, rng=rng, faction=faction, level=level)
     defn = c.defn
+    if profession:
+        from ..data import professions
+
+        c.profession = profession
+        # `max`, never assignment: a species knows what it knows, and a
+        # goblin bowman who takes up hunting does not forget how to shoot.
+        for skill, rank in professions.skills_for(profession).items():
+            c.skills.set_level(skill, max(c.skills.level(skill), rank))
     # A werebeast fights with what it is. Arming one hands it a sword and it
     # never bites again, which quietly removes the only thing that makes it a
     # werebeast rather than a strong man. It still wears clothes: it is a
