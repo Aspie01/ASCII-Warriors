@@ -12034,7 +12034,120 @@ season boundaries, and by the first real one a fortress is worth 31,000 to
 day-3 wipes are an artefact of the clock shift and not something a player
 can experience, since no fortress reaches a boundary before day 85.
 
-## 182. Style
+## 182. The burial the ritual never ran (v4.22)
+
+Dwarves have always died in the ritual — the staged raid of §153 sees to
+that — and not one of them was ever buried. `_scan_burials` answered every
+death the same way: *"There is nowhere to bury the dead. Build a coffin."*
+on three of the four ritual seeds, because `PLAN` had no coffin on it and
+never had. Measured over ten driver seeds at seven days: **0 burials, in
+every seed, ever.** So `_finish_bury`, the corpse reserved against a
+second hauler, the tomb a coffin makes of its room, and the one answer
+this game has to §180's ghosts all ran in unit fixtures and nowhere else.
+
+**The first design was wrong, measurably.** Two coffins on `PLAN` bought
+11 burials across the ten seeds — and moved whatever `_clear_spot` would
+have given the next building, and one dwarf standing one tile over is a
+different week. Appended after the beds it was 35 alive against 25 with
+them ahead; either way seed `alpha` went red. The design that ships is
+`_bury_the_dead`: the driver puts up `COFFINS = 2` on the day somebody
+first dies, which is both the honest loop — the game prints the warning,
+the coffin is the answer — and the cheap one, because until the death the
+map is byte for byte the map the ritual has always run.
+
+**What the coverage caught, immediately.** With burial running, `alpha`'s
+three raid survivors spent fifty consecutive hours between "sweltering"
+and "collapsing in the heat" hauling the dead across a scorching map, all
+three finished at stress 187–199, one went berserk, and the fortress was
+lost to a pick. Two game defects, not one:
+
+*The weather thought was a treadmill.* `ADJUST_TICKS` is under two
+fortress hours, so a dwarf working the surface in stints crosses the same
+exposure stage dozens of times a day — and every upward crossing said so
+and charged for the saying: the ladder to "collapsing" is +8, +12, +16
+stress, times personality, *per climb*. One climb is one thought now; it
+re-arms only after `REARM_TICKS` of real comfort, half a day off the
+calendar (§180).
+
+*Nobody ever fled the weather.* `heat.tick` has moved every dwarf's
+`exposure` since the temperature layer was written, and nothing in the
+fortress ever read it back — `_flee_water` answers water and magma, and
+the weather had no answer at all. `_flee_weather` is the sibling, one door
+down in the turn order, and every one of its rules was paid for:
+
+- **After the fight, not before.** The first draft ran it above
+  `_handle_danger`; the militia walked indoors out of the sun while the
+  goblins stood on the map, and `alpha`'s raid — met and cleared on day
+  three in every run since §153 — went uncleared and took everybody.
+- **At the collapse stage, not the harm line.** Pitched at `HARM_AT`
+  (0.60) it emptied the surface economy: a scorching map sits past 0.60
+  all summer, every outdoor job was abandoned from the first morning, and
+  the day-three raid walked into a fortress that had dug nothing, trained
+  nobody and eaten its margin. `FLEE_WEATHER_AT` is the ladder's own top
+  stage (0.85), where the word is "collapsing"; below it the weather is a
+  tax the work can carry.
+- **Shelter is the air, not the roof.** `alpha` breaches a magma pipe on
+  day one; a corridor beside nine thousand cells of loose magma is
+  indoors, warm, and where the first draft sent a dwarf to recover itself
+  to death. The shelter test asks `is_outside`, `_magma_near`, and
+  `heat.strain` of the actual cell.
+- **A desperate need still wins**, exactly as it does in `_flee_water`:
+  heat kills *through* thirst, so a flee that outranked drinking would be
+  that function's own recorded bug, reintroduced.
+
+**What settled `alpha`.** A three-arm isolation on the pre-fix tree —
+nothing, flee only, flee and coffins — wiped in all three arms, including
+the arm strictly *milder* than v4.21. The seed's green at v4.21 was a
+coin flip, not a property: it sits on a magma breach, and any
+perturbation anywhere reshuffles the week. On the shipped tree it has its
+best measured outcome in any arm: **13 alive** (7 founders, a full
+migrant wave, nobody lost), `fort` 12, `beta` 8, `gamma` 9 with the raid's
+two dead in coffins by day seven.
+
+**The guarantee** is `main()`'s: a fortress that still has hands, and
+standing empty coffins, and its own dead lying out **for more than a
+day**, is a burial chain that is not running. Not "did anybody die" —
+plenty of runs lose nobody. Not "was everybody buried" — a wiped fortress
+had nobody left to carry them. And not "is anybody waiting" — `beta`
+draws a vampire in its Autumn migrant wave (§181's coverage, three days
+old, already earning its keep) whose victim is found drained on the last
+night, and a corpse four hours old beside a fresh coffin is a burial in
+progress. `unburied` keeps the death tick, so the driver reads the age
+instead of guessing. Burial itself is counted off the coffins, not the
+log — `MessageLog` collapses repeats, and a coffin with a name in it is
+the record the game keeps (§153's alarm rule, §181's season rule).
+
+The weather memory is saved with the creature, like `_exposure_debt`
+beside it: a reload that dropped it would announce the weather again and
+charge the stress again, which is a fork. The exposure round-trip test
+carries it now.
+
+Re-break, **11 cases, 1 miss found and closed**: the builder unwired; the
+coffin count zeroed; the coffins put back on `PLAN`; the guarantee
+disabled; the guarantee made overzealous; the flee unwired; the flee
+threshold dropped back to 0.60; the thought back to per-crossing; the
+shelter test blinded; the desperate-need rule removed; the weather memory
+dropped from the save. The miss was the
+threshold case: the guard's first draft set
+`exposure = FLEE_WEATHER_AT - 0.05` and asserted no flee — which passes
+for every value the constant could hold, §180's self-referential-test
+shape resurfacing *inside a guard written days after that section named
+it*. It now pins `FLEE_WEATHER_AT` to `heat.STAGES[0][0]` and holds a
+dwarf at a literal 0.70 to its work.
+
+**Cleared on the way** (measured, recorded, not defects): marriage — the
+ceiling distribution matches its tuning comment, meetings are plentiful,
+the climb reaches `LOVE_AT` in ~58 days, and `court` handed a bond at 79
+makes lovers in one season and spouses by four; a 120-day fortress with
+bonds at 79 and 70 and no lover had simply crossed 70 between the season
+boundaries `court` runs on. Prayer — `PRAYER_WANTED` is exactly seven
+days and `temples()` wants an altar in a carved room, so a seven-day
+surface fortress cannot cover it. The skill-to-labor map — 67 of 131
+recipes name a skill no founder holds, and `_scan_workshops` already
+answers that with a warning instead of an unworkable job; the first audit
+read a `labor` attribute recipes do not have, and proved nothing.
+
+## 183. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

@@ -34,6 +34,7 @@ import math
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 from ..data import materials as mat_data
+from ..data.calendar import TICKS_PER_DAY
 from ..data.bodies import BODY_PLANS
 from . import tiles as tile_data
 
@@ -300,6 +301,19 @@ LETHAL_SPAN = 62.0
 ADJUST_TICKS = 1600
 RECOVER_TICKS = 650
 
+#: Comfortable time before the weather is news again -- half a day, from the
+#: calendar so the claim stays checkable (§180). `ADJUST_TICKS` is under two
+#: fortress hours, so a dwarf that works the surface in stints crosses the
+#: same stage boundary dozens of times a day, and every upward crossing used
+#: to say so and charge for the saying: the ladder to "collapsing" is +8, +12
+#: and +16 stress, times personality, per climb. Measured on seed `alpha`,
+#: three dwarves hauling the raid's dead in a scorching summer climbed it
+#: over and over until all three sat at stress 187-199, one went berserk,
+#: and the fortress was lost to a pick rather than to the sun. Being caught
+#: out is worth saying once an excursion; it re-arms after real shelter,
+#: not at the boundary wobble.
+REARM_TICKS = TICKS_PER_DAY // 2
+
 #: What exposure looks like, worst first: (threshold, cold, heat).
 STAGES: Tuple[Tuple[float, str, str], ...] = (
     (0.85, "freezing to death", "collapsing in the heat"),
@@ -388,15 +402,31 @@ def tick(creature, temp: float, ticks: int, rng, log=None) -> List[str]:
         have = min(want, have + rate)
     elif want < have:
         have = max(want, have - rate)
-    before = stage(getattr(creature, "exposure", 0.0))[0]
     creature.exposure = have
     now, word = stage(have)
 
-    if now > before and word:
+    # Announced against the worst stage this excursion has already been told
+    # about, not against the last tick's -- an exposure that wobbles across a
+    # boundary is one spell of weather, not a fresh emergency per wobble.
+    # Saved with the creature, like `_exposure_debt` below: a reload that
+    # dropped them would announce the weather again and charge the stress
+    # again, which is a fork.
+    peak = getattr(creature, "_weather_peak", 0)
+    calm = getattr(creature, "_weather_calm", 0)
+    if now == 0:
+        calm += ticks
+        if calm >= REARM_TICKS:
+            peak = 0
+    else:
+        calm = 0
+    if now > peak:
+        peak = now
         msgs.append("You are %s." % word if creature.is_player
                     else "%s is %s." % (creature.name, word))
         if now >= 2:
             creature.needs.add_thought("caught out in the weather", 4 * now)
+    creature._weather_peak = peak
+    creature._weather_calm = calm
 
     mag = abs(have)
     # Charged through a fractional carry: a shivering local turn is one

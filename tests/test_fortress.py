@@ -9598,6 +9598,8 @@ _DRIVER_RUN = {
     "raid": {"foes": 3, "day": 3, "alarm_rose": True, "cleared_by": 3,
              "dwarves_lost": 0},
     "season": {"turned": 1, "entered": ["Autumn"], "on_day": 6, "waves": 1},
+    "dead": {"coffins": 2, "buried": 0, "waiting": 0, "waiting_long": 0,
+             "ghosts": 0},
     "seconds": 60.0,
 }
 
@@ -11090,16 +11092,24 @@ class TestTheSaveNobodyReloads(unittest.TestCase):
     def test_the_exposure_carry_survives_unrounded(self):
         a = embark("carry")
         sim.run(a, 300)
-        carried = {c.id: (c.exposure, getattr(c, "_exposure_debt", 0.0))
+        carried = {c.id: (c.exposure, getattr(c, "_exposure_debt", 0.0),
+                          getattr(c, "_weather_peak", 0),
+                          getattr(c, "_weather_calm", 0))
                    for c in a.creatures.values()}
         self.assertTrue(any(v[0] or v[1] for v in carried.values()),
                         "nobody had any exposure to carry")
         b = self._reloaded(a)
         for c in b.creatures.values():
-            exp, debt = carried[c.id]
+            exp, debt, peak, calm = carried[c.id]
             self.assertEqual(c.exposure, exp, "exposure was rounded away")
             self.assertEqual(getattr(c, "_exposure_debt", 0.0), debt,
                              "the fractional surcharge carry was dropped")
+            # v4.22's weather memory: a reload that dropped it would
+            # announce the weather again and charge the stress again.
+            self.assertEqual(getattr(c, "_weather_peak", 0), peak,
+                             "the announced weather stage was dropped")
+            self.assertEqual(getattr(c, "_weather_calm", 0), calm,
+                             "the banked comfort was dropped")
 
 
 class TestTheSeedThatPaidFullPriceToFail(unittest.TestCase):
@@ -11764,3 +11774,285 @@ class TestTheSeasonTheRitualNeverSaw(unittest.TestCase):
                                 "Autumn turned and no migrants came")
         self.assertGreater(out["alive"], out["started_with"],
                            "the wave landed and the fortress is no bigger")
+
+
+class TestTheBurialTheRitualNeverRan(unittest.TestCase):
+    """Dwarves have always died in the ritual. None was ever buried.
+
+    The staged raid lands on day three of every fortress run, and
+    `_scan_burials` answered it the same way every time: "There is nowhere
+    to bury the dead. Build a coffin." -- on three of the four ritual seeds,
+    because `PLAN` had no coffin on it and never had. Measured over ten
+    driver seeds at seven days: **0 burials, in every seed, ever**.
+
+    So `_finish_bury`, the corpse reserved against a second hauler, the tomb
+    a coffin makes of the room it stands in, and the one answer this game
+    has to §180's ghosts, all ran in unit fixtures and nowhere else. Two
+    coffins go on the end of `PLAN`, after the beds so nothing already on it
+    is displaced -- one coffin holds one dwarf, and a raid does not stop at
+    one.
+
+    Measured over the same ten seeds: 11 burials across 7 of them. The work
+    is identical to the cell (1136 designated cells worked either way) and
+    the survival difference cannot be told from noise -- 85 alive against
+    79, on seeds that swing ±10 in *both* directions (`deepstone` 0 -> 10,
+    `delve` 7 -> 0), because one more building moves one dwarf one tile and
+    the rest of the week diverges from there.
+    """
+
+    def test_the_coffins_come_with_the_first_death(self):
+        """The configuration, so nobody trims it as an optimisation.
+
+        Deliberately NOT on `PLAN`. Two coffins on the day-one list moved
+        whatever `_clear_spot` would have given the next building, and one
+        dwarf standing one tile over is a different week: measured, that
+        ordering alone was 35 alive against 25 over the ten seeds, and seed
+        `alpha` -- which survives its raid by about that margin -- was wiped
+        on day three. Built on the death instead, the pre-death map is byte
+        for byte the map the ritual has always run.
+        """
+        self.assertNotIn("coffin", driver_fort.PLAN,
+                         "coffins on the day-one plan displace the beds and "
+                         "change every week the ritual measures")
+        self.assertGreaterEqual(
+            driver_fort.COFFINS, 2,
+            "one coffin holds one dwarf; the staged raid can kill more")
+        import inspect
+
+        source = inspect.getsource(driver_fort.play)
+        self.assertIn("_bury_the_dead", source,
+                      "nothing builds a coffin when somebody dies, so the "
+                      "ritual is back to never burying anybody")
+
+    def test_dead_on_the_floor_beside_an_empty_coffin_is_a_problem(self):
+        """The invariant, on the canned run."""
+        bad = dict(_DRIVER_RUN)
+        bad["dead"] = {"coffins": 2, "buried": 0, "waiting": 2,
+                       "waiting_long": 2, "ghosts": 0}
+        code, text = _run_driver(bad)
+        self.assertEqual(code, 1, text)
+        self.assertIn("lain out for over a day", text)
+
+    def test_a_fortress_with_nobody_left_to_carry_them_is_not_blamed(self):
+        """A run that ends with no living dwarf had nobody to do the burying,
+        and reporting that as a defect in the burial chain is reporting the
+        siege as a defect in the coffins."""
+        wiped = dict(_DRIVER_RUN)
+        wiped["alive"] = 0
+        wiped["lost"] = True
+        wiped["dead"] = {"coffins": 2, "buried": 0, "waiting": 7,
+                         "waiting_long": 7, "ghosts": 0}
+        code, text = _run_driver(wiped)
+        self.assertNotIn("lain out", text)
+
+    def test_a_fortress_that_filled_every_coffin_it_had_is_not_blamed(self):
+        """Two dead and two coffins, both full, and a third body waiting is
+        a fortress that needs another coffin -- not one whose burial chain
+        has stopped working."""
+        full = dict(_DRIVER_RUN)
+        full["dead"] = {"coffins": 2, "buried": 2, "waiting": 1,
+                        "waiting_long": 1, "ghosts": 0}
+        code, text = _run_driver(full)
+        self.assertEqual(code, 0, text)
+
+    def test_a_death_on_the_last_night_is_not_neglect(self):
+        """Seed `beta` draws a vampire in its Autumn migrant wave, and the
+        victim is found drained hours before the run ends. A corpse the
+        fortress has not had a day to answer is a burial in progress."""
+        fresh = dict(_DRIVER_RUN)
+        fresh["dead"] = {"coffins": 2, "buried": 0, "waiting": 1,
+                         "waiting_long": 0, "ghosts": 0}
+        code, text = _run_driver(fresh)
+        self.assertEqual(code, 0, text)
+
+    def test_the_driver_reports_burial_off_the_coffins_not_the_log(self):
+        """`MessageLog` caps at 2000 and collapses immediate repeats, so a
+        fortress that buries four in one afternoon prints one line. Counted
+        off the coffins, the way the alarm is counted off the event."""
+        import inspect
+
+        source = inspect.getsource(driver_fort.play)
+        self.assertIn("buried_now", source,
+                      "the burial count is gone from the driver")
+        self.assertIn('b.buried is not None', source,
+                      "burial is no longer read off the coffins themselves")
+
+    def test_a_fortress_that_loses_somebody_buries_them(self):
+        """End to end, on the real driver.
+
+        Seed `gamma` loses dwarves to the staged raid and lives through
+        it, which is exactly the case the ritual has been running -- and
+        failing to bury -- since the raid was added.
+        """
+        out = driver_fort.play("gamma", 7, history=25)
+        dead = out["dead"]
+        self.assertGreaterEqual(dead["coffins"], 2, "the coffins were not built")
+        self.assertGreater(out["alive"], 0,
+                           "seed gamma was wiped; pick another")
+        self.assertGreater(
+            dead["buried"], 0,
+            "somebody died, coffins were standing, and nobody was buried")
+
+
+class TestTheWeatherNobodyFled(unittest.TestCase):
+    """`heat.tick` has moved every dwarf's `exposure` since the temperature
+    layer was written, and nothing in the fortress ever read it back.
+
+    `_flee_water` answers water and magma; the weather had no answer at all.
+    A dwarf at "collapsing in the heat" kept whatever job it held and stood
+    in the sun while the ladder of "caught out in the weather" thoughts did
+    the killing -- measured on seed `alpha`, three dwarves spent fifty
+    consecutive hours between "sweltering" and "collapsing in the heat"
+    hauling the raid's dead, one went berserk from the stress and murdered
+    the other two with a pick.
+
+    `_flee_weather` is the answer, one door down from `_flee_water` in the
+    turn order. These tests pin its four rules where the fortress-week runs
+    cannot: it flees, it never outranks a fight or a desperate need, and a
+    magma-warmed corridor does not count as shelter.
+    """
+
+    def _outdoor_dwarf(self, fort):
+        """A dwarf standing on an outdoor cell with a sheltered cell dug
+        beside it."""
+        from ascii_warriors.world import tiles as tile_mod
+
+        d = fort.dwarves()[0]
+        lm = fort.local
+        # Stand the dwarf outside, wherever the wagon found ground.
+        self.assertTrue(lm.is_outside(d.x, d.y, d.z),
+                        "the embark spot is indoors; fixture broken")
+        dwarf_mod.release_job(fort, d)
+        return d
+
+    def test_a_cooking_dwarf_heads_for_cover(self):
+        from ascii_warriors.world import heat
+
+        fort = embark("swelter")
+        d = self._outdoor_dwarf(fort)
+        d.exposure = dwarf_mod.FLEE_WEATHER_AT + 0.05
+        took = dwarf_mod._flee_weather(fort, d)
+        self.assertTrue(took, "a dwarf past the harm line did not so much "
+                              "as notice the weather")
+
+    def test_the_flee_is_a_release_not_a_death_grip(self):
+        """Whatever job it held goes back on the board."""
+        from ascii_warriors.world import heat
+
+        fort = embark("swelter2")
+        d = self._outdoor_dwarf(fort)
+        job = fort.jobs.make("haul", d.x, d.y, d.z, labor="hauling")
+        fort.jobs.assign(job, d)
+        d.exposure = dwarf_mod.FLEE_WEATHER_AT + 0.1
+        dwarf_mod._flee_weather(fort, d)
+        self.assertIsNone(d.fort.job, "it kept the job that was cooking it")
+        self.assertIsNone(job.assigned)
+
+    def test_the_flee_waits_for_the_collapse_stage(self):
+        """Pinned against the heat ladder, never against itself.
+
+        The first draft of this test set `exposure = FLEE_WEATHER_AT - 0.05`
+        and asserted no flee -- which passes for every value the constant
+        could hold, the exact shape §180 records. The threshold matters
+        because the first draft of the *flee* fired at `HARM_AT` (0.60),
+        where a scorching map sits all summer: every outdoor job was
+        abandoned from the first morning, and the day-three raid walked
+        into a fortress that had dug nothing and trained nobody. So: a
+        dwarf merely "badly overheated" (0.70) works on; the flee is for
+        "collapsing", the ladder's top stage, and the constant is that
+        stage's own threshold.
+        """
+        from ascii_warriors.world import heat
+
+        self.assertEqual(dwarf_mod.FLEE_WEATHER_AT, heat.STAGES[0][0],
+                         "the flee threshold has drifted off the ladder's "
+                         "top stage")
+        fort = embark("mild")
+        d = self._outdoor_dwarf(fort)
+        d.exposure = 0.70                      # badly overheated: a tax
+        self.assertFalse(dwarf_mod._flee_weather(fort, d),
+                         "it abandoned work over weather that was a tax, "
+                         "not a killer")
+
+    def test_a_desperate_need_still_wins(self):
+        """Heat kills through thirst, so a flee that outranked drinking
+        would be the exact bug `_flee_water`'s docstring records."""
+        from ascii_warriors.world import heat
+        from ascii_warriors.fortress.dwarf import THIRST_URGENT
+
+        fort = embark("parched")
+        d = self._outdoor_dwarf(fort)
+        d.exposure = dwarf_mod.FLEE_WEATHER_AT + 0.1
+        d.needs.thirst = THIRST_URGENT * 3
+        self.assertFalse(dwarf_mod._flee_weather(fort, d),
+                         "it walked past the ale to stand in the shade")
+
+    def test_the_fight_comes_first(self):
+        """The turn order, read from the source: a militia that walks
+        indoors out of the sun while goblins stand on the map loses the
+        raid. The first draft did exactly that, and seed alpha's raid --
+        met and cleared on day three in every run since it was staged --
+        went uncleared."""
+        import inspect
+
+        source = inspect.getsource(dwarf_mod.take_turn)
+        self.assertLess(source.index("_handle_danger"),
+                        source.index("_flee_weather"),
+                        "_flee_weather runs before _handle_danger again")
+        self.assertLess(source.index("_flee_water"),
+                        source.index("_flee_weather"),
+                        "standing in magma is worse than standing in sun")
+
+    def test_a_boundary_wobble_is_one_spell_of_weather(self):
+        """The stress mechanism that actually killed alpha, pinned.
+
+        `ADJUST_TICKS` is under two fortress hours, so a dwarf working the
+        surface in stints crosses the same stage boundary dozens of times a
+        day -- and every upward crossing used to say so and charge +4 per
+        stage for the saying. Three dwarves hauling the raid's dead climbed
+        the ladder over and over to stress 187-199, and the fortress was
+        lost to a berserk pick rather than to the sun. One climb is one
+        thought; it re-arms only after `REARM_TICKS` of real comfort.
+        """
+        from ascii_warriors.engine.rng import RNG as _RNG
+        from ascii_warriors.game.entity import make_creature
+        from ascii_warriors.world import heat
+
+        rng = _RNG("wobble")
+        d = make_creature(rng, "dwarf")
+        hot, cool = 130.0, 65.0
+
+        def weather_thoughts():
+            return sum(1 for t, _v in d.needs.thoughts
+                       if t == "caught out in the weather")
+
+        heat.tick(d, hot, 3000, rng)
+        self.assertGreaterEqual(abs(d.exposure), heat.HARM_AT)
+        first = weather_thoughts()
+        self.assertGreaterEqual(first, 1, "the first climb said nothing")
+        for _wobble in range(12):
+            heat.tick(d, cool, 200, rng)     # dip below the boundary...
+            heat.tick(d, hot, 3000, rng)     # ...and straight back over it
+        self.assertEqual(weather_thoughts(), first,
+                         "every wobble across the boundary charged again")
+        # A real recovery re-arms it.
+        for _rest in range(10):
+            heat.tick(d, cool, heat.REARM_TICKS // 4, rng)
+        self.assertEqual(d.exposure, 0.0)
+        heat.tick(d, hot, 3000, rng)
+        self.assertGreater(weather_thoughts(), first,
+                           "a fresh excursion after real shelter said "
+                           "nothing at all")
+
+    def test_a_magma_warmed_room_is_not_shelter(self):
+        """A roof is not enough: seed alpha breaches a magma pipe on day
+        one, and the first draft of the flee sent a dwarf to recover in a
+        corridor beside it, where it kept right on cooking. The shelter
+        test asks the actual air."""
+        import inspect
+
+        source = inspect.getsource(dwarf_mod._flee_weather)
+        self.assertIn("_magma_near", source,
+                      "the shelter test stopped asking about magma")
+        self.assertIn("heat.strain", source,
+                      "the shelter test stopped asking the air")

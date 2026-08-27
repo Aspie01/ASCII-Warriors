@@ -314,7 +314,13 @@ def _clear_spot(fort, x, y, w, h, taken, *, soil=False):
 #: performances, audience stress and the instrument pool running in no test
 #: at all -- a whole subsystem exercised only by unit fixtures. Measured over
 #: a settled fortnight before this: 0 performances in every ritual run ever.
+#:
+#: No coffin on this list, deliberately: see `_bury_the_dead`.
 PLAN = ["farm", "farm", "still", "carpenter", "barracks", "tavern"] + ["bed"] * 7
+
+#: How many coffins the driver puts up when somebody dies. One coffin holds
+#: one dwarf and a raid does not stop at one.
+COFFINS = 2
 
 
 def _put_up_the_workshops(fort) -> Tuple[List[str], List[str], int, int]:
@@ -369,6 +375,64 @@ def _put_up_the_workshops(fort) -> Tuple[List[str], List[str], int, int]:
         taken.update(b.cells())
         put.append(kind)
     return put, missed, felled, furthest
+
+
+def _bury_the_dead(fort) -> int:
+    """Put up coffins once the fortress has somebody to put in one.
+
+    Dwarves have always died in the ritual -- the staged raid on day three
+    sees to that -- and not one of them was ever buried. `_scan_burials`
+    answered every death the same way, "There is nowhere to bury the dead.
+    Build a coffin.", on three of the four ritual seeds, because `PLAN` had
+    no coffin on it and never had. Measured over ten driver seeds at seven
+    days: **0 burials, in every seed, ever** -- so `_finish_bury`, the corpse
+    reserved against a second hauler, the tomb a coffin makes of its room,
+    and the one answer this game has to §180's ghosts all ran in unit
+    fixtures and nowhere else.
+
+    Built on the death rather than on the morning of day one, which is both
+    the honest thing and the cheap one. Honest, because that is the loop the
+    game asks a player for: the fortress prints the warning, and the answer
+    to it is a coffin. Cheap, because until somebody dies the map is byte
+    for byte the map the ritual has always run, so the day-three raid meets
+    exactly the fortress it has always met.
+
+    That last part is not a nicety. Putting two coffins on `PLAN` instead
+    moves whatever `_clear_spot` would have given the next building, and one
+    dwarf standing one tile over is a different week: seed `alpha` survives
+    the raid with three by a margin of about that much, and with the coffins
+    on the list it was wiped on day three. Nothing was wrong with the
+    coffins -- over ten seeds the arms differ by 85 alive against 79, and
+    individual seeds move ±10 in *both* directions -- but a ritual that goes
+    red on a seed's coin flip has stopped being a signal.
+
+    Returns how many were put up.
+    """
+    if not fort.unburied:
+        return 0
+    if any(b.kind == "coffin" for b in fort.buildings):
+        return 0
+    x, y, _z = _home(fort)
+    taken = set()
+    for b in fort.buildings:
+        taken.update(b.cells())
+    k = buildings.KINDS["coffin"]
+    put = 0
+    for _ in range(COFFINS):
+        spot = _clear_spot(fort, x, y, k.width, k.height, taken)
+        if spot is None:
+            break
+        sx, sy, sz = spot
+        ok, _why = buildings.can_place(fort.local, "coffin", sx, sy, sz,
+                                       fort.buildings)
+        if not ok:
+            break
+        b = Building("coffin", sx, sy, sz)
+        b.built = True
+        fort.buildings.append(b)
+        taken.update(b.cells())
+        put += 1
+    return put
 
 
 def _more_beds(fort) -> int:
@@ -718,6 +782,16 @@ def play(seed: str, days: int, *, size: str = "small", history: int = 60,
     #: be monkeypatched and nothing leaks into the next run in the process.
     turn = {"turned": 0, "entered": [], "on_day": None, "waves": 0}
     waves_at_start = fort.migrant_waves
+
+    #: Who went in the ground. Counted off the coffins rather than off the
+    #: log, because `MessageLog` caps and collapses repeats and a fortress
+    #: that buries four in one afternoon prints one line. A coffin with a
+    #: name in it is the record the game itself keeps.
+    def buried_now():
+        return sum(1 for b in fort.buildings
+                   if b.kind == "coffin" and b.buried is not None)
+
+    coffins_put = 0
     seen_index = fort.season_index
     dwarves_at_raid = 0
     for day in range(days):
@@ -726,6 +800,9 @@ def play(seed: str, days: int, *, size: str = "small", history: int = 60,
             raiders = sim.spawn_attack(fort, RAID_STRENGTH)
             raid["foes"] = len(raiders)
         sim.run(fort, STEPS_PER_DAY)
+        # After the day, so the first death and the answer to it are a day
+        # apart -- the fortress notices, then acts.
+        coffins_put += _bury_the_dead(fort)
         if fort.season_index != seen_index:
             # `season_index` starts at zero and `_calendar`'s first call only
             # records where the fortress began; the turn that counts is the
@@ -780,6 +857,23 @@ def play(seed: str, days: int, *, size: str = "small", history: int = 60,
         "performances": dict(shows),
         "raid": raid,
         "season": turn,
+        "dead": {
+            "coffins": sum(1 for b in fort.buildings
+                           if b.kind == "coffin" and b.built),
+            "coffins_put": coffins_put,
+            "buried": buried_now(),
+            "waiting": len(fort.unburied),
+            # Only the dead the fortress has had a full day to answer.
+            # `unburied` keeps the death tick, so the driver does not have
+            # to guess: seed `beta` draws a vampire in its Autumn migrant
+            # wave, the victim is found drained on the last night, and a
+            # corpse four hours old beside a fresh coffin is a burial in
+            # progress, not a burial chain that has stopped.
+            "waiting_long": sum(
+                1 for died in fort.unburied.values()
+                if fort.ticks - died >= TICKS_PER_DAY),
+            "ghosts": len(fort.ghosts),
+        },
         # Wall time. Seed `alpha` spent versions costing twenty-one minutes
         # per ritual -- 3747 failed searches at the full 6000-node budget and
         # 2035 flood fills, constant from at least v4.01 -- and nothing
@@ -819,7 +913,7 @@ REPORT_KEYS = (
     "started_with", "alive", "idle", "deaths", "food", "drink",
     "low_food", "low_drink", "left_undug", "lost",
     "wealth", "beds", "beds_added", "days", "searches", "performances",
-    "instruments", "raid", "season", "seconds",
+    "instruments", "raid", "season", "dead", "seconds",
 )
 
 
@@ -867,6 +961,20 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if out["days"] >= SEASON_TURNS_ON and not season_out["turned"]:
         problems.append("%d days run and the season never turned; nothing "
                         "on the seasonal clock was exercised" % out["days"])
+    # A fortress that still has hands, and standing empty coffins, and its
+    # own dead on the floor, has a burial chain that is not running. Not "did
+    # anybody die" -- plenty of runs lose nobody -- and not "was everybody
+    # buried", because a fortress that ends with nobody alive had nobody left
+    # to carry them.
+    dead_out = out["dead"]
+    if (out["alive"] and dead_out["waiting_long"]
+            and dead_out["coffins"] > dead_out["buried"]):
+        problems.append("%d of the fortress's own dead have lain out for "
+                        "over a day with %d empty coffin(s) and %d dwarves "
+                        "alive"
+                        % (dead_out["waiting_long"],
+                           dead_out["coffins"] - dead_out["buried"],
+                           out["alive"]))
     done = out["done"]
     if out["unbuilt"]:
         # A building the driver could not put up is a building the player

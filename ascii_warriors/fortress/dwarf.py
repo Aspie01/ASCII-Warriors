@@ -486,6 +486,15 @@ def take_turn(fort, dwarf, ticks: int) -> None:
         return
     if _handle_wounds(fort, dwarf, ticks):
         return
+    # After the fight and the tourniquet, not before. Water and magma kill
+    # in the cell you are standing in; weather kills over hours, and a
+    # militia that walks indoors out of the sun while the goblins are still
+    # on the map is a fortress that loses the raid -- measured, the first
+    # draft put this above `_handle_danger`, and seed `alpha`'s raid, met
+    # and cleared on day three in every run since the raid was staged, went
+    # uncleared and took everybody.
+    if _flee_weather(fort, dwarf):
+        return
     # Before the needs, not after: a dwarf that leaves the cell whenever it is
     # hungry is not being held, and it is back in the dormitory every night,
     # which is exactly where a vampire wants to be. `_serving_time` answers
@@ -672,6 +681,113 @@ def _handle_danger(fort, dwarf) -> bool:
                 return True
         return True
     return False
+
+
+#: Exposure at which a dwarf abandons work for shelter: the top of the heat
+#: ladder, where the word is "collapsing". Not `HARM_AT` (0.60), where the
+#: weather is a tax rather than a killer -- on a scorching map the whole
+#: surface sits past 0.60 all summer, and a flee pitched there empties the
+#: surface economy for the season: measured on seed `alpha`, every outdoor
+#: job abandoned from the first morning, and the day-three raid walked into
+#: a fortress that had dug nothing, trained nobody and eaten its margin --
+#: wiped on the day the baseline fought the same raid off.
+FLEE_WEATHER_AT = 0.85
+
+
+def _flee_weather(fort, dwarf) -> bool:
+    """Get out of killing weather. True if it took the turn.
+
+    `heat.tick` has moved every fortress dwarf's `exposure` since the
+    temperature layer was written, and nothing in the fortress ever read it
+    back: `_flee_water` answers water and magma, and the weather had no
+    answer at all. A dwarf at "collapsing in the heat" kept whatever job it
+    held and stood in the sun until the ladder of "caught out in the
+    weather" thoughts did what the sun could not do directly.
+
+    Measured, on the run that found it: v4.22 taught the ritual driver to
+    put up coffins when somebody dies, and on seed `alpha` -- a scorching
+    map whose raid leaves four corpses on open ground -- the three surviving
+    dwarves spent fifty consecutive hours between "sweltering" and
+    "collapsing in the heat" hauling the dead, one went berserk from the
+    stress and murdered the other two with a pick, and the fortress that had
+    survived the same raid every run since §153 was wiped. Not the coffins:
+    the same three dwarves take outdoor jobs on that map either way -- the
+    corpses just kept them out there for days instead of hours, long enough
+    to turn a cost into a spiral.
+
+    The shape is `_flee_water`'s, one door down in the turn order, with its
+    rules inherited: a desperate need still wins -- heat kills *through*
+    thirst (`SWELTER_THIRST`), so a flee that outranked drinking would be
+    the exact bug `_flee_water`'s docstring records -- and the expensive
+    search shares `flee_blocked_until`, so a map with no shelter is not
+    searched again every turn by two different fears.
+
+    Shelter is a cell the weather cannot see: `is_outside` false. That is
+    the question `temperature_at` itself turns on -- depth and a roof are
+    what make the rock comfortable -- and it is a cheap flag where a
+    per-cell temperature is a whole ambient model.
+    """
+    from ..world import heat
+
+    exposure = getattr(dwarf, "exposure", 0.0)
+    if abs(exposure) < FLEE_WEATHER_AT:
+        return False
+    if _desperate(dwarf):
+        return False
+    lm = fort.local
+    here = (dwarf.x, dwarf.y, dwarf.z)
+
+    def sheltered(cell) -> bool:
+        # A roof is not enough on its own: seed `alpha` breaches a magma
+        # pipe on day one, and a corridor beside nine thousand cells of
+        # loose magma is indoors, warm, and the last place to send anybody
+        # for their health -- the first draft asked only `is_outside`, and
+        # one dwarf recovered itself to death. Ask the actual air.
+        if lm.is_outside(*cell) or _magma_near(fort, cell):
+            return False
+        return abs(heat.strain(fort.temperature_at(*cell),
+                               heat.insulation(dwarf))) < heat.HARM_AT
+
+    if sheltered(here):
+        # Already under cover: stand and recover. `RECOVER_TICKS` is under
+        # half of `ADJUST_TICKS`, so waiting works and working would only
+        # walk back out.
+        release_job(fort, dwarf)
+        return True
+    release_job(fort, dwarf)
+
+    # The nearest sheltered neighbour, first: one step under a roof is
+    # recovery the ambient model honours immediately.
+    for dx, dy in geometry.DIRS8:
+        cell = (dwarf.x + dx, dwarf.y + dy, dwarf.z)
+        if not lm.walkable(*cell) or fort.creature_at(*cell) is not None:
+            continue
+        if sheltered(cell):
+            dwarf.x, dwarf.y, dwarf.z = cell
+            return True
+
+    state = dwarf.fort
+    if state.path and state.path_goal is not None \
+            and sheltered(state.path_goal):
+        step_along(fort, dwarf)
+        return True
+    if fort.ticks >= state.flee_blocked_until:
+        within = fort.reach_from(here)
+        for radius in (6, 14):
+            for dx in range(-radius, radius + 1):
+                for dy in range(-radius, radius + 1):
+                    for dz in (0, -1):
+                        cell = (dwarf.x + dx, dwarf.y + dy, dwarf.z + dz)
+                        if not lm.walkable(*cell) or not sheltered(cell):
+                            continue
+                        if cell not in within:
+                            continue
+                        if path_to(fort, dwarf, cell, adjacent=False):
+                            state.flee_blocked_until = 0
+                            step_along(fort, dwarf)
+                            return True
+        state.flee_blocked_until = fort.ticks + FLEE_REPATH
+    return True
 
 
 def _magma_near(fort, cell: Cell) -> bool:

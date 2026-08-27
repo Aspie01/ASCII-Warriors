@@ -638,6 +638,17 @@ class Creature:
         debt = getattr(self, "_exposure_debt", 0.0)
         if debt:
             d["exposure_debt"] = debt
+        # The worst weather stage this excursion has already been told
+        # about, and the comfort banked toward re-arming it. Saved for the
+        # same reason as the debt above: a reload that dropped them would
+        # re-announce the weather and charge the stress again, and the
+        # dwarf the save puts back is not the dwarf that was saved.
+        peak = int(getattr(self, "_weather_peak", 0) or 0)
+        if peak:
+            d["weather_peak"] = peak
+        calm = int(getattr(self, "_weather_calm", 0) or 0)
+        if calm:
+            d["weather_calm"] = calm
         if self.swing_bank:
             d["swing_bank"] = round(self.swing_bank, 2)
         if self.next_wear_check:
@@ -709,6 +720,8 @@ class Creature:
             venom_mod.from_list(c, d["venom"])
         c.exposure = float(d.get("exposure", 0.0))
         c._exposure_debt = float(d.get("exposure_debt", 0.0))
+        c._weather_peak = int(d.get("weather_peak", 0))
+        c._weather_calm = int(d.get("weather_calm", 0))
         c.fleeing = int(d.get("fleeing", 0))
         c.swing_bank = float(d.get("swing_bank", 0.0))
         c.next_wear_check = int(d.get("wear_check", 0))
