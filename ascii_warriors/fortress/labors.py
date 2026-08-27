@@ -70,6 +70,24 @@ CATEGORIES: Tuple[str, ...] = (
 DEFAULT_LABORS: FrozenSet[str] = frozenset({
     "hauling", "building", "farming", "herbalism", "cooking", "brewing",
     "butchery",
+    # Anybody will bind a wound. `doctor` was the only profession carrying
+    # `medicine` and no embark has ever included one, so measured in v4.18
+    # the fortress had never treated a single injury in its history: one
+    # raid left 244 dwarf-steps of untreated wounds, a dwarf needing a
+    # bandage for 167 consecutive steps at seventy-one percent blood, and
+    # two more bleeding out in twenty -- beside four splints, a hospital,
+    # a health screen listing every injury, and a job board posting `treat`
+    # jobs nobody was able to take.
+    #
+    # Giving it to one profession is not enough and the measurement says
+    # why: on seed `beta` the single dwarf who could doctor was one of the
+    # two the raid killed, and a doctor was alive for thirteen of a
+    # hundred and sixty-eight patient-steps. A fortress that can only bind
+    # wounds while its farmer lives cannot bind wounds. Skill still
+    # decides how well it goes -- `medical._quality` reads the dresser's
+    # own rank, and an untrained dwarf makes a poor job of it, which is
+    # the right kind of bad.
+    "medicine",
 })
 
 #: What a starting dwarf's profession implies, on top of the defaults.

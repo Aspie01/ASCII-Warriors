@@ -36,6 +36,11 @@ from .labors import LABORS
 Cell = Tuple[int, int, int]
 
 #: How much fortress time passes per simulation step.
+#: How close a living enemy has to be before treatment waits for it.
+#: Sight range, roughly: a doctor will cross a quiet hall to bandage
+#: somebody, and will not walk into a melee to do it.
+DANGER_NEAR = 12
+
 STEP_TICKS = 10
 
 #: Ticks between sweeps of the map looking for work.
@@ -881,9 +886,48 @@ def _scan_hospital(fort, budget: int) -> int:
     else:
         fort.clear_warning("bandage_stock")
 
+    # Clear the dead and the mended off the board first. A treat job whose
+    # patient is beyond help, or past needing it, is not merely idle: the
+    # posting loop below skips anybody who already has one, so an orphan
+    # blocks the replacement forever. Measured in v4.18, before this: a
+    # single treat job sat on `beta`'s board for 8,574 steps, assigned for
+    # eleven of them, never worked, never removed -- its doctor had died in
+    # the raid, `abandon_job` had duly returned it to a board where nobody
+    # else held the labor, and the guard against posting twice kept the
+    # corpse in place for the rest of the week.
+    for job in list(fort.jobs.jobs.values()):
+        if job.kind != "treat":
+            continue
+        patient = fort.creatures.get(job.target)
+        if patient is None or patient.body.dead \
+                or not hospital.needs_care(patient):
+            if job.assigned is not None:
+                holder = fort.creatures.get(job.assigned)
+                if holder is not None and holder.fort.job is job:
+                    holder.fort.job = None
+            fort.jobs.remove(job)
+
     hurt = hospital.patients(fort)
     if not hurt:
         return 0
+    # Not while there is fighting. Posting a treat job cancels whatever the
+    # nearest doctor was doing and walks them to the patient, and during a
+    # raid that means pulling somebody off the line to carry a bandage
+    # across a room with goblins in it. Measured over eight fortresses,
+    # v4.18's first draft did exactly that: **42 of 56 dwarves survived the
+    # week before the change and 31 after it** -- eleven dead to buy three
+    # sutures. The wounds arrive in the fighting and clot before it ends
+    # (on `beta`, 107 bandage-wanting steps with goblins still standing
+    # against 29 suture-wanting steps after), so the care that is actually
+    # possible is the care that comes afterwards, and this is what waits
+    # for it.
+    hostiles = [c for c in fort.creatures.values()
+                if c.faction == "hostile" and not c.body.dead]
+
+    def in_danger(cell):
+        """Whether somebody at *cell* is close enough to be in the fight."""
+        return any(max(abs(c.x - cell[0]), abs(c.y - cell[1])) <= DANGER_NEAR
+                   and c.z == cell[2] for c in hostiles)
     available = hospital.doctors(fort)
     if not available:
         fort.warn_once("doctor",
@@ -898,6 +942,11 @@ def _scan_hospital(fort, budget: int) -> int:
     for patient in hurt:
         if posted >= budget:
             break
+        # Near the patient, not anywhere on the map: a thief lurking in a
+        # far corner should not stop the fortress binding wounds in its own
+        # hall for the rest of the week.
+        if in_danger((patient.x, patient.y, patient.z)):
+            continue
         care = hospital.needs_care(patient)
         if not care:
             continue
@@ -914,6 +963,8 @@ def _scan_hospital(fort, budget: int) -> int:
         # whoever happens to look next. Bleeding is measured in minutes.
         doctor = _nearest_doctor(available, busy, patient)
         if doctor is None:
+            continue
+        if in_danger((doctor.x, doctor.y, doctor.z)):
             continue
         item = hospital.supplies(fort, treatment, near=cell)
         job = fort.jobs.make(

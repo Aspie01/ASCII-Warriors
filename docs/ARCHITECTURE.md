@@ -11694,7 +11694,65 @@ the wall stands before it asks the question.
 
 Re-break: eight defects put back, eight caught, 0 misses.
 
-## 178. Style
+## 178. The hospital nobody could staff (v4.18)
+
+The fortress ships a hospital you can build, beds, eight bandages, four
+splints, a health screen listing every injury, a `treat` job kind, a sim
+loop that posts those jobs and warns when the bandages run low, and
+`hospital.treat` to carry them out. Measured this milestone: **no
+fortress in this project has ever treated a single injury.** Two causes,
+either of which alone was sufficient.
+
+**Nobody could hold the labor.** `doctor` is the only profession carrying
+`medicine`, and `STARTING_SEVEN` has never included one. One raid on seed
+`beta` left 244 dwarf-steps of untreated wounds — one dwarf needing a
+bandage for 167 consecutive steps at seventy-one percent blood, two more
+bleeding out in twenty.
+
+**An orphaned job blocked its own replacement.** Giving the labor to one
+profession was not enough, and the measurement said why: on `beta` the
+only dwarf who could doctor was one of the two the raid killed.
+`abandon_job` returned the job to a board where nobody else held the
+labor — right for a mining job, fatal here — and the posting loop skips
+any patient who already has one. A single treat job sat on that board for
+**8,574 steps**, assigned for eleven of them, worked for none.
+
+Then the fix made things worse, and only an A/B caught it. Letting
+anybody bind a wound meant the sim pulled the nearest dwarf off whatever
+it was doing and walked it to the patient — *during the raid*, across a
+room with goblins in it. Over eight fortresses: **42 of 56 dwarves
+survived the week before the change and 31 after it.** Eleven dead to buy
+three sutures. Every guard passed. The reasoning was sound and the result
+was a slaughter, which is the whole argument for measuring the fix rather
+than the intention (§175).
+
+So treatment waits for the fighting to stop, and only near the people
+concerned — a thief in a far corner does not stop the fortress binding
+wounds in its own hall. Final: **42 of 56 alive, unchanged from the
+shipped build, with four treatments instead of none**, and patient-steps
+identical at 684, meaning raids play out exactly as they did and only the
+aftermath differs.
+
+What this does *not* claim: that the wounded are now saved. Wounds arrive
+in the fighting and clot before it ends — on `beta`, 107 bandage-wanting
+steps fall while goblins are still standing against 29 suture-wanting
+steps afterwards; on `eta` there is no calm window at all. The hospital
+works when there is a chance to work.
+
+The guards took four drafts and the re-break caught three of them. A
+shallow cut clotted in the two steps the doctor needed to walk over, so
+the job completed, `_finish_treat` found no care wanted, and treated
+nobody. Deepening it killed the patient on step thirty. Watching
+`medical.treat` was watching the plumbing rather than the water — and
+asserting "it is bleeding less than it was" passed with the medicine
+labor torn out, because blood clots by itself. The guard reads the
+fortress's own log now, the injury is torn flesh that does not bleed, and
+the two orphan guards disable the labor first so that only the cleanup
+can remove the job.
+
+Re-break: four defects put back, four caught, 0 misses.
+
+## 179. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

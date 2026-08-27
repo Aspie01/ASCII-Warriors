@@ -10670,6 +10670,170 @@ def _seal_in(fort, d) -> None:
                 fort.dig_out((d.x + dx, d.y + dy, z), "rock_wall")
 
 
+class TestTheHospitalNobodyCouldStaff(unittest.TestCase):
+    """v4.18: no fortress in this project has ever treated an injury.
+
+    Everything was there -- a hospital to build, beds, four splints in the
+    embark kit, a health screen listing every wound, `hospital.treat`, and
+    a sim loop that posts `treat` jobs and warns when the bandages run
+    low. Measured: zero treatments, in every fortress, ever. Two causes,
+    each of which alone was enough.
+
+    **Nobody could hold the labor.** `doctor` is the only profession
+    carrying `medicine` and `STARTING_SEVEN` has never included one. One
+    raid on seed `beta` left 244 dwarf-steps of untreated wounds -- one
+    dwarf needing a bandage for 167 consecutive steps at seventy-one
+    percent blood, two more bleeding out in twenty.
+
+    **An orphaned job blocked its own replacement.** Giving one profession
+    the labor was not enough, and the measurement said why: on `beta` the
+    single dwarf who could doctor was one of the two the raid killed.
+    `abandon_job` then returned the job to a board where nobody else held
+    the labor -- correct for a mining job, fatal here -- and the posting
+    loop skips any patient who already has one. A single treat job sat on
+    that board for **8,574 steps**, assigned for eleven, worked for none.
+
+    What the fix does *not* claim: that the wounded are now saved. Wounds
+    arrive in the fighting and clot before it ends -- on `beta` 107
+    bandage-wanting steps fall while goblins are still standing and 29
+    suture-wanting steps after, on `eta` there is no calm window at all --
+    and a dwarf does not stop to bind a wound with somebody swinging at
+    it. The hospital works when there is a chance to work.
+    """
+
+    def _hurt(self, dwarf):
+        """A wound that is still worth treating when help arrives, and does
+        not settle the question by killing the patient first.
+
+        Two drafts before this one. A single shallow cut clotted inside the
+        two steps it took the doctor to walk over, so the job completed,
+        `_finish_treat` found no care wanted and treated nobody. Making it
+        deep enough to survive the walk made it deep enough to kill: the
+        fixture's dwarf bled to death on step thirty with the doctor on its
+        way. This is torn flesh that is not bleeding -- `needs_treatment`
+        asks for stitches on damage past a third with no bleeding -- so it
+        keeps wanting care for as long as the test runs, and the patient
+        lives to receive it.
+        """
+        part = dwarf.body.part("left_arm_lower")
+        for tissue in ("skin", "fat", "muscle"):
+            if tissue in part.tissues:
+                part.tissues[tissue] = 0.05
+        dwarf.body.blood = dwarf.body.max_blood * 0.80
+        return part
+
+    def test_more_than_one_dwarf_can_bind_a_wound(self):
+        from ascii_warriors.fortress import hospital
+
+        fort = embark("staffed")
+        able = [d for d in fort.dwarves() if d.fort.labors.has("medicine")]
+        self.assertGreaterEqual(
+            len(able), 2,
+            "%d of the seven can treat a wound: a fortress that can only "
+            "bind wounds while one particular dwarf lives cannot bind "
+            "wounds" % len(able))
+        self.assertTrue(hospital.doctors(fort))
+
+    def test_a_wounded_dwarf_is_actually_treated(self):
+        """The whole chain, end to end, in a fortress with nothing to
+        fight: hurt somebody, run the clock, and somebody bandages them.
+        Every part of this existed before v4.18 and had never once run."""
+        from ascii_warriors.game import medical
+
+        fort = embark("treated")
+        patient = fort.dwarves()[0]
+        part = self._hurt(patient)
+        from ascii_warriors.fortress import hospital
+
+        self.assertIn("suture",
+                      [t for _pid, t in hospital.needs_care(patient)],
+                      "the fixture does not want the care it is about")
+        # Asserted on the wound, not on a call: the effect is what a player
+        # sees, and a guard that watches `medical.treat` is watching the
+        # plumbing rather than the water. Bandaging drops the bleeding
+        # (`stopped` in `medical.treat`); nothing else in a quiet fortress
+        # takes it to zero this fast.
+        # On the fortress's own log, not on the bleeding: blood clots by
+        # itself, so "it is bleeding less than it was" is satisfied by a
+        # build where nobody treats anybody at all -- the re-break caught
+        # this guard passing with the medicine labor torn out. `hospital
+        # .treat` writes the only line that means somebody came.
+        said = None
+        for step in range(400):
+            sim.run(fort, 1)
+            for entry in fort.log.recent(200):
+                frags = entry if isinstance(entry, list) else [entry]
+                text = " ".join(getattr(f, "text", str(f)) for f in frags)
+                if "binds" in text or "bleeding stops" in text \
+                        or "stitches" in text or "sets" in text:
+                    said = text
+                    break
+            if said:
+                break
+        self.assertIsNotNone(
+            said,
+            "four hundred steps, a bleeding dwarf, eight bandages on the "
+            "floor and six dwarves able to use them, and nobody came")
+
+    def test_a_job_for_the_dead_comes_off_the_board(self):
+        """Because the posting loop skips a patient who already has one,
+        an orphan does not merely idle -- it blocks the replacement."""
+        fort = embark("orphan")
+        patient = fort.dwarves()[0]
+        self._hurt(patient)
+        for _ in range(60):
+            sim.run(fort, 1)
+            if any(j.kind == "treat" for j in fort.jobs.jobs.values()):
+                break
+        self.assertTrue(any(j.kind == "treat" for j in fort.jobs.jobs.values()),
+                        "no treat job was ever posted")
+        # Nobody left who could work it: otherwise a doctor finishes the
+        # job and removes it on the way past, and this guard cannot tell
+        # the cleanup from the ordinary course of events -- which is what
+        # the re-break found it doing.
+        patient.body.dead = True
+        for d in fort.dwarves():
+            d.fort.labors.disable("medicine")
+            if d.fort.job is not None and d.fort.job.kind == "treat":
+                fort.abandon_job(d, d.fort.job)
+                d.fort.job = None
+        for _ in range(40):
+            sim.run(fort, 1)
+        stale = [j for j in fort.jobs.jobs.values()
+                 if j.kind == "treat" and j.target == patient.id]
+        self.assertEqual(stale, [],
+                         "the job outlived the patient it was posted for")
+
+    def test_a_healed_patient_releases_the_board(self):
+        fort = embark("mended")
+        patient = fort.dwarves()[0]
+        part = self._hurt(patient)
+        for _ in range(60):
+            sim.run(fort, 1)
+            if any(j.kind == "treat" for j in fort.jobs.jobs.values()):
+                break
+        # Actually mended: the fixture's injury is torn tissue, so clearing
+        # the wound list is not healing it -- the first version of this left
+        # the damage in place, `needs_care` still asked for stitches, and
+        # the job the guard called stale was a job the fortress was right
+        # to keep.
+        part.wounds.clear()
+        for tissue in part.tissues:
+            part.tissues[tissue] = 1.0
+        patient.body.blood = patient.body.max_blood
+        for d in fort.dwarves():
+            d.fort.labors.disable("medicine")
+            if d.fort.job is not None and d.fort.job.kind == "treat":
+                fort.abandon_job(d, d.fort.job)
+                d.fort.job = None
+        for _ in range(40):
+            sim.run(fort, 1)
+        stale = [j for j in fort.jobs.jobs.values()
+                 if j.kind == "treat" and j.target == patient.id]
+        self.assertEqual(stale, [],
+                         "a mended dwarf still had a doctor booked")
+
+
 class TestTheSaveNobodyReloads(unittest.TestCase):
     """v4.13: no driver had ever reloaded a game, and the save had drifted.
 
