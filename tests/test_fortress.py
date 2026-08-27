@@ -10735,7 +10735,8 @@ class TestTheLaborNobodyHolds(unittest.TestCase):
         fort = embark("labors")
         asked = set()
         for name in ("sim.py", "fortress.py"):
-            src = open("ascii_warriors/fortress/%s" % name).read()
+            with open("ascii_warriors/fortress/%s" % name) as handle:
+                src = handle.read()
             asked |= set(re.findall(r'labor="([a-z_]+)"', src))
         self.assertIn("fishing", asked, "the audit is reading the wrong thing")
         for labor in sorted(asked):
