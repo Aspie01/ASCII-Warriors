@@ -11943,7 +11943,98 @@ matching `_per_` on something that is a count and not a span. Both are the
 instrument's-grid error in miniature, and both are why the threshold and
 the fold are written the way they are.
 
-## 181. Style
+## 181. The season the ritual never saw (v4.21)
+
+§180 found its defect by running the first 336-day fortress in this
+project's history, and the reason nobody had run one is the defect here.
+`Fortress.embark` starts every fortress on the 1st of Granite, the first
+day of Spring, so the first season boundary is the 1st of Hematite — day
+85. The ritual runs seven days. **`sim._calendar` had never turned in any
+driver run ever made.** Measured across the four ritual seeds: seasons
+turned, 0 of 4.
+
+Everything hanging off it therefore ran in unit fixtures and nowhere
+else: `_season_thoughts`, `_appointments`, `_world_turns` and the named
+megabeast it can bring, `justice.season`, `social.court`/`season`/
+`maybe_born`, `_maybe_thief`, `_maybe_migrants`, `_caravan`,
+`_maybe_attack`, `_maybe_night_attack`. A census of a played fortress
+confirms it — 31 functions in `sim.py` and all 25 in `justice.py`
+uncalled across a seven-day run.
+
+This is §153's argument one level up. That section added the staged raid
+because "sieges, thieves and beasts run on a clock measured in seasons,
+and the driver runs seven days — so the militia, the alarm watch, the
+burrow, the traps and everything in `war.py` ran in no end-to-end test at
+all." The calendar itself is the same gap, and it is closed the same way:
+the driver arranges for the thing to happen, through the game's own
+machinery, early enough that the ordinary run sees it.
+
+**Which boundary, and when.** The fortress starts on the 23rd of Galena,
+so the 1st of Limestone — and Autumn with it — falls on day six of seven.
+Both parts of that were measured, over the four ritual seeds at seven
+days, against 22 alive and 399 designated cells worked as shipped:
+
+| start | seasons turned | alive | cells worked |
+|---|---|---|---|
+| as shipped (1st of Granite) | 0/4 | 22 | 399 |
+| → Summer on day 6 | 4/4 | 14 | 399 |
+| → **Autumn on day 6** | **4/4** | **35** | **399** |
+| → Winter on day 6 | 4/4 | 5 | 399 |
+| → Spring on day 6 | 2/4 | 21 | 399 |
+
+**The work is identical in every row** — the same 399 cells — because the
+turn is the last thing the run does. What differs is who is standing at
+the end. Summer and Winter run `_maybe_attack`, and a siege on top of the
+day-three raid costs eight dwarves and seventeen respectively; Autumn runs
+`_maybe_migrants` and `_caravan` and hands back thirteen. `_maybe_attack`'s
+ground is already covered — that is what `RAID_DAY` is for — and migrants
+and the caravan are covered by nothing else at all. The Spring row turns
+only 2 of 4 because a start on the 23rd of Obsidian runs the whole week in
+deep winter and two fortresses are dead before the boundary.
+
+An earlier draft put the boundary on day three. That makes the run a
+survival test of a three-day-old fortress rather than a test of the game:
+`_maybe_beast` fires against seven dwarves who have had no time to dig in,
+a named megabeast lands, and half the seeds are wiped. The boundary
+belongs after the work, not before it — hence
+`SEASON_TURNS_ON > RAID_DAY`, asserted.
+
+**Read from the fortress's own counter, not from the date.** `_calendar`
+is the only thing that moves `fort.season_index`, and it moves it once, at
+the boundary, before it runs anything — so counting the moves counts the
+turns and none can be missed by looking at the wrong moment. The same rule
+§153 learned the hard way about the alarm. The migrant count is
+`fort.migrant_waves`, the fortress's own counter, for the same reason and
+also so that nothing is monkeypatched and nothing leaks into the next run
+in the process — the first draft wrapped `sim.migrants`, which is
+module-level and would have.
+
+`main()` now reports a run of at least `SEASON_TURNS_ON` days that turned
+no season as a `FORT PROBLEM`, and a shorter run is not scolded for it,
+exactly as a run too short to reach the raid is not.
+
+Re-break, 5 cases, 0 misses: the clock never moved; the month set to
+Summer; the boundary put back on day three; `main()`'s check disabled; and
+the turn counter stopped reading `season_index`.
+
+**What this is not.** It is an instrument fix, and it found no defect in
+the game on the way. Crossing a season works: sixteen boundary crossings
+across four seeds and four seasons, no crashes, with appointments,
+migrants, the caravan, kobold thieves, named megabeasts, possessions and
+world news all firing. Two leads were run down and discarded. A fresh
+embark appraises at **2300**, which clears four of the five wealth gates
+that decide whether the world comes for you — `war.NOTICE_WEALTH` (500),
+`NIGHT_WEALTH` (800), the thief's 400, and the migrant wave's `400 ×
+waves` — and clears `BEAST_WEALTH` (4000) by day three, in a fortress
+whose ale is 1684 of it, under a comment reading "a megabeast will not
+cross a continent for a hole in the ground with eight dwarves and a barrel
+of ale in it". True, and it changes nothing: those gates are read only at
+season boundaries, and by the first real one a fortress is worth 31,000 to
+38,000. A fix there would have been a change with no outcome. Likewise the
+day-3 wipes are an artefact of the clock shift and not something a player
+can experience, since no fortress reaches a boundary before day 85.
+
+## 182. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

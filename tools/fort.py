@@ -23,11 +23,13 @@ import sys
 import time
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from ascii_warriors.data.calendar import TICKS_PER_DAY
+from ascii_warriors.data.calendar import (
+    DAYS_PER_MONTH, GameTime, TICKS_PER_DAY)
 from ascii_warriors.engine.rng import RNG
 from ascii_warriors.fortress import buildings, perform as perform_mod, sim
 from ascii_warriors.fortress.buildings import Building
 from ascii_warriors.fortress.fortress import Fortress
+from ascii_warriors.game.weather import starting_weather
 from ascii_warriors.ui.fort.embark import suggest_site
 from ascii_warriors.world import tiles as tile_data
 from ascii_warriors.world.worldgen import generate_world
@@ -42,6 +44,50 @@ RAID_STRENGTH = 3
 
 #: One simulation step is `sim.STEP_TICKS`; a day is this many steps.
 STEPS_PER_DAY = TICKS_PER_DAY // sim.STEP_TICKS
+
+#: The month and day the driver's fortress starts on, so that a seven-day run
+#: turns a season.
+#:
+#: `Fortress.embark` starts every fortress on the 1st of Granite, the first
+#: day of Spring, so the first season boundary is the 1st of Hematite -- day
+#: 85, twelve weeks out. The ritual runs seven days. `_calendar` had
+#: therefore never turned in any driver run ever made, and nothing hanging
+#: off it had run end to end: seasonal thoughts, appointments, `_world_turns`
+#: and the megabeast it can bring, `justice.season`, marriages, births,
+#: migrants, the autumn caravan, werebeasts and necromancers. Measured
+#: across the four ritual seeds: seasons turned, 0 of 4.
+#:
+#: This is `RAID_DAY`'s argument one level up, and it is settled the same
+#: way -- the driver arranges for the thing to happen, through the game's own
+#: machinery, early enough that the ordinary run sees it.
+#:
+#: Autumn, and late. Two choices, both measured over the four seeds at seven
+#: days, against 22 alive and 399 designated cells worked as shipped:
+#:
+#:   as shipped     turned 0/4   alive 22   worked 399
+#:   -> Summer d6   turned 4/4   alive 14   worked 399
+#:   -> Autumn d6   turned 4/4   alive 35   worked 399
+#:
+#: The work is identical either way -- the same 399 cells, because the turn
+#: is the last thing the run does. What differs is who is standing at the
+#: end. Summer runs `_maybe_attack`, and a siege on top of the day-three
+#: raid costs eight dwarves; Autumn brings the migrant wave and the caravan
+#: and hands back thirteen. `_maybe_attack`'s ground is already covered --
+#: that is what `RAID_DAY` is for -- and migrants and the caravan are
+#: covered by nothing else at all.
+#:
+#: An earlier draft put the boundary on day three. That makes the run a
+#: survival test of a three-day-old fortress rather than a test of the game:
+#: `_maybe_beast` fires against seven dwarves who have had no time to dig in,
+#: a named megabeast lands, and half the seeds are wiped. The boundary
+#: belongs after the work, not before it.
+SEASON_START_MONTH = 6           # Galena, the last month of Summer
+SEASON_START_DAY = 23
+
+#: Which day of the run the season turns on, from the start date above. The
+#: run has to be at least this long before a driver that did not turn one is
+#: a defect rather than a short run.
+SEASON_TURNS_ON = DAYS_PER_MONTH - SEASON_START_DAY + 1
 
 #: How much of the map to hollow out. A first year is a stairway and a
 #: handful of rooms, not a megaproject.
@@ -592,6 +638,16 @@ def play(seed: str, days: int, *, size: str = "small", history: int = 60,
                            history_years=history)
     wx, wy = suggest_site(world)
     fort = Fortress.embark(world, wx, wy, RNG(seed).sub("f"))
+    # Move the clock before anything is dug, so the whole run happens on the
+    # date the driver means. The season is used for exactly one thing outside
+    # `_calendar` -- the weather -- so the map is untouched and the only
+    # thing that has to be redone is the sky, re-rolled here for the season
+    # the clock now says rather than the Spring `embark` assumed.
+    fort.time = GameTime.at(fort.time.year, SEASON_START_MONTH,
+                            SEASON_START_DAY, 8, 0)
+    tile0 = world.tile(wx, wy)
+    fort.weather = starting_weather(fort.rng, tile0.biome, tile0.temperature,
+                                    fort.time.season)
     lm = fort.local
 
     began = time.time()
@@ -650,6 +706,19 @@ def play(seed: str, days: int, *, size: str = "small", history: int = 60,
         return real_alarm(log)
 
     fort.military.sound_alarm = noting_alarm
+
+    #: What the calendar did. Event-true for the same reason the alarm is:
+    #: `_calendar` is the only thing that moves `season_index`, and it does
+    #: it once, at the boundary, before it runs anything -- so counting the
+    #: moves counts the turns, and a turn cannot be missed by looking at the
+    #: wrong moment. What arrived because of it is in the log like anything
+    #: else.
+    #: `migrant_waves` is the fortress's own counter, incremented by
+    #: `_maybe_migrants` when a wave actually lands, so nothing here has to
+    #: be monkeypatched and nothing leaks into the next run in the process.
+    turn = {"turned": 0, "entered": [], "on_day": None, "waves": 0}
+    waves_at_start = fort.migrant_waves
+    seen_index = fort.season_index
     dwarves_at_raid = 0
     for day in range(days):
         if day + 1 == RAID_DAY and days >= RAID_DAY:
@@ -657,6 +726,17 @@ def play(seed: str, days: int, *, size: str = "small", history: int = 60,
             raiders = sim.spawn_attack(fort, RAID_STRENGTH)
             raid["foes"] = len(raiders)
         sim.run(fort, STEPS_PER_DAY)
+        if fort.season_index != seen_index:
+            # `season_index` starts at zero and `_calendar`'s first call only
+            # records where the fortress began; the turn that counts is the
+            # one after that.
+            if seen_index:
+                turn["turned"] += 1
+                turn["entered"].append(fort.time.season)
+                if turn["on_day"] is None:
+                    turn["on_day"] = day + 1
+            seen_index = fort.season_index
+            turn["waves"] = fort.migrant_waves - waves_at_start
         if raiders and raid["cleared_by"] is None and not fort.hostiles():
             raid["cleared_by"] = day + 1
             raid["dwarves_lost"] = dwarves_at_raid - len(fort.dwarves())
@@ -699,6 +779,7 @@ def play(seed: str, days: int, *, size: str = "small", history: int = 60,
         "idle": sum(1 for d in fort.dwarves() if d.fort.job is None),
         "performances": dict(shows),
         "raid": raid,
+        "season": turn,
         # Wall time. Seed `alpha` spent versions costing twenty-one minutes
         # per ritual -- 3747 failed searches at the full 6000-node budget and
         # 2035 flood fills, constant from at least v4.01 -- and nothing
@@ -738,7 +819,7 @@ REPORT_KEYS = (
     "started_with", "alive", "idle", "deaths", "food", "drink",
     "low_food", "low_drink", "left_undug", "lost",
     "wealth", "beds", "beds_added", "days", "searches", "performances",
-    "instruments", "raid", "seconds",
+    "instruments", "raid", "season", "seconds",
 )
 
 
@@ -775,6 +856,17 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if raid_out["foes"] and not raid_out["alarm_rose"]:
         problems.append("a raid of %d landed on day %d and the alarm never "
                         "rose" % (raid_out["foes"], raid_out["day"]))
+    # The same guarantee for the calendar. A driver that stops turning a
+    # season goes quietly back to the state §«the season the ritual never
+    # saw» found it in -- seasonal thoughts, appointments, the world's own
+    # turn, justice, marriages, births, migrants and the caravan all running
+    # in unit fixtures and nowhere else. A run too short to reach the
+    # boundary is not scolded for it, the way a run too short to reach the
+    # raid is not.
+    season_out = out["season"]
+    if out["days"] >= SEASON_TURNS_ON and not season_out["turned"]:
+        problems.append("%d days run and the season never turned; nothing "
+                        "on the seasonal clock was exercised" % out["days"])
     done = out["done"]
     if out["unbuilt"]:
         # A building the driver could not put up is a building the player

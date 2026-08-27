@@ -9597,6 +9597,7 @@ _DRIVER_RUN = {
     "performances": {"plain": 3}, "instruments": ["lute"],
     "raid": {"foes": 3, "day": 3, "alarm_rose": True, "cleared_by": 3,
              "dwarves_lost": 0},
+    "season": {"turned": 1, "entered": ["Autumn"], "on_day": 6, "waves": 1},
     "seconds": 60.0,
 }
 
@@ -11639,3 +11640,126 @@ class TestTheDurationsNobodyCouldCheck(unittest.TestCase):
             self.assertEqual(
                 calendar.SEASONS[(month - 1) // calendar.MONTHS_PER_SEASON],
                 season)
+
+
+class TestTheSeasonTheRitualNeverSaw(unittest.TestCase):
+    """Across every ritual fortress run ever made, no season ever turned.
+
+    `Fortress.embark` starts every fortress on the 1st of Granite, the first
+    day of Spring, so the first season boundary is the 1st of Hematite --
+    day 85. The ritual runs seven days. `sim._calendar` had therefore never
+    turned in any driver run in this project's history, and nothing hanging
+    off it had run end to end: seasonal thoughts, appointments,
+    `_world_turns` and the megabeast it can bring, `justice.season`,
+    marriages, births, migrants, the autumn caravan, werebeasts and
+    necromancers. `tools/fort.py`'s own note records two seeds taken to a
+    hundred days that "were wiped between day fifty-six and day
+    eighty-four": even those stopped short of it. Measured across the four
+    ritual seeds at seven days: seasons turned, **0 of 4**.
+
+    This is `TestTheRaidTheRitualNeverSaw`'s argument one level up, and it
+    is settled the same way: the driver arranges for the thing to happen,
+    through the game's own machinery, early enough that the ordinary run
+    sees it. The fortress starts on the 23rd of Galena, so the 1st of
+    Limestone -- and Autumn with it -- falls on day six of seven.
+
+    As with the raid, the driver does not demand that the fortress *does
+    well* out of the season. It demands that the season happened.
+    """
+
+    def test_the_turn_lands_inside_an_ordinary_run(self):
+        self.assertEqual(driver_fort.SEASON_TURNS_ON,
+                         28 - driver_fort.SEASON_START_DAY + 1,
+                         "the turn day no longer follows from the start date")
+        self.assertLessEqual(driver_fort.SEASON_TURNS_ON, 7,
+                             "the ritual runs seven days; a season that turns "
+                             "after that never turns in it")
+        self.assertGreater(
+            driver_fort.SEASON_TURNS_ON, driver_fort.RAID_DAY,
+            "the season has to land after the staged raid, not on top of it: "
+            "a boundary on day three fires `_maybe_beast` at a fortress that "
+            "has had no time to dig in, and measured that way a named "
+            "megabeast wipes half the ritual seeds")
+        self.assertIn(driver_fort.SEASON_START_MONTH, range(1, 13))
+
+    def test_a_run_that_never_turned_a_season_is_a_problem(self):
+        """The invariant, on the canned run."""
+        bad = dict(_DRIVER_RUN)
+        bad["season"] = {"turned": 0, "entered": [], "on_day": None,
+                         "waves": 0}
+        code, text = _run_driver(bad)
+        self.assertEqual(code, 1, text)
+        self.assertIn("season never turned", text)
+
+    def test_a_run_too_short_to_reach_it_is_not_blamed(self):
+        """`--days 2` never reaches the boundary, and must not be scolded.
+
+        The same courtesy the raid gets: a short run is a short run, not a
+        driver that stopped turning seasons.
+        """
+        short = dict(_DRIVER_RUN)
+        short["days"] = driver_fort.SEASON_TURNS_ON - 1
+        short["season"] = {"turned": 0, "entered": [], "on_day": None,
+                           "waves": 0}
+        code, text = _run_driver(short)
+        self.assertEqual(code, 0, text)
+
+    def test_the_driver_actually_moves_the_clock(self):
+        """Every reporting test above replays a canned result, so a driver
+        that quietly stopped setting the date would keep them all green while
+        the ritual went back to never seeing a season. Read out of `play`'s
+        source, the way the raid's spawn is."""
+        import inspect
+
+        source = inspect.getsource(driver_fort.play)
+        self.assertIn("SEASON_START_MONTH", source,
+                      "the season is reported but the clock is never moved")
+        self.assertIn("starting_weather", source,
+                      "the clock moved without re-rolling the sky, so the "
+                      "fortress is in Autumn under Spring weather")
+        self.assertIn("season_index", source,
+                      "the turn is no longer read off the fortress's own "
+                      "counter; if it is being inferred from the date on a "
+                      "day grid again, a turn can be missed")
+
+    def test_a_seven_day_run_turns_exactly_one_season(self):
+        """End to end, on the real driver, on a ritual seed.
+
+        The only test here that runs the game. Everything else replays a
+        canned dict, and a canned dict cannot tell you that `_calendar` ran.
+        """
+        out = driver_fort.play("fort", 7, history=25)
+        season = out["season"]
+        self.assertEqual(season["turned"], 1,
+                         "seven days turned %d seasons" % season["turned"])
+        self.assertEqual(season["entered"], ["Autumn"],
+                         "the driver entered %s" % season["entered"])
+        self.assertEqual(season["on_day"], driver_fort.SEASON_TURNS_ON)
+
+    def test_the_season_brings_what_only_it_can_bring(self):
+        """Autumn rather than Summer, and this is why.
+
+        Both turn the calendar. Measured over the four ritual seeds at seven
+        days, against 22 alive and 399 designated cells worked as shipped:
+        Summer gives 4/4 turned, 14 alive, 399 worked; Autumn gives 4/4
+        turned, 35 alive, 399 worked. The work is identical -- the turn is
+        the last thing the run does -- and what differs is who is standing
+        at the end. Summer runs `_maybe_attack`, whose ground the staged
+        raid already covers; Autumn runs `_maybe_migrants` and `_caravan`,
+        which nothing else covers at all.
+
+        So the wave is the assertion. A fortress that turned Autumn and got
+        nobody has a migrant path that is not running.
+        """
+        from ascii_warriors.data import calendar
+
+        month = driver_fort.SEASON_START_MONTH
+        turns_into = calendar.season_of_month(month + 1)
+        self.assertEqual(turns_into, "Autumn",
+                         "the driver turns into %s, which brings no migrants "
+                         "and no caravan" % turns_into)
+        out = driver_fort.play("fort", 7, history=25)
+        self.assertGreaterEqual(out["season"]["waves"], 1,
+                                "Autumn turned and no migrants came")
+        self.assertGreater(out["alive"], out["started_with"],
+                           "the wave landed and the fortress is no bigger")
