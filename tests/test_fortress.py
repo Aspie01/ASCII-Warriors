@@ -12056,3 +12056,87 @@ class TestTheWeatherNobodyFled(unittest.TestCase):
                       "the shelter test stopped asking about magma")
         self.assertIn("heat.strain", source,
                       "the shelter test stopped asking the air")
+
+
+class TestTheArtifactTheLegendsMisremember(unittest.TestCase):
+    """The mood made an obsidian short sword. The legends said a stone gem.
+
+    `_finish_mood` builds a real `Item` -- a def and a material -- and
+    recorded {name, native, maker, item, year}: the display string, and not
+    the item. `legacy._record_artifact` reads `def_id` and `material`, keys
+    the mood never wrote, so its defaults stood in for every artifact a
+    fortress ever made: kind "gem", material "stone". `artifacts.make` then
+    builds the physical item *from the legend* when an adventurer walks
+    into the fallen fortress, so the player who followed the histories to
+    "The Axe of the Forge, an obsidian short sword" picked a stone gem off
+    the floor. Measured before the fix, exactly that.
+    """
+
+    def _mood_artifact(self, seed="artifake"):
+        """A fortress that has finished one strange mood at a smith."""
+        from ascii_warriors.fortress.sim import _finish_mood
+
+        fort = embark(seed)
+        d = fort.dwarves()[0]
+        shop = Building("smith", d.x + 1, d.y + 1, d.z)
+        shop.built = True
+        fort.buildings.append(shop)
+        state = d.fort
+        state.mood = "smith"
+        state.mood_ticks = 0
+        state.workshop = shop.id
+        _finish_mood(fort, d)
+        real = next(i for pile in fort.items_on_ground.values()
+                    for i in pile if i.flags.get("artifact"))
+        return fort, real
+
+    def test_the_mood_records_the_item_it_made(self):
+        fort, real = self._mood_artifact()
+        made = fort.artifacts[-1]
+        self.assertEqual(made.get("def_id"), real.def_id,
+                         "the record does not say what the item is")
+        self.assertEqual(made.get("material"), real.material,
+                         "the record does not say what it is made of")
+
+    def test_the_legend_is_the_item(self):
+        """End to end: mood, fall, legend."""
+        from ascii_warriors.fortress.sim import record_fall
+
+        fort, real = self._mood_artifact("artifall")
+        record_fall(fort)
+        legend = fort.world.artifacts[-1]
+        self.assertEqual(legend.item_def, real.def_id,
+                         "the legends remember a different kind of thing")
+        self.assertEqual(legend.material, real.material,
+                         "the legends remember a different material")
+
+    def test_the_adventurer_finds_what_the_histories_promised(self):
+        """The whole chain: the item `artifacts.make` rebuilds from the
+        legend is the item the mood made."""
+        from ascii_warriors.fortress.sim import record_fall
+        from ascii_warriors.game import artifacts as artifacts_mod
+
+        fort, real = self._mood_artifact("artiloot")
+        record_fall(fort)
+        legend = fort.world.artifacts[-1]
+        found = artifacts_mod.make(legend, RNG("looter"))
+        self.assertEqual(found.def_id, real.def_id,
+                         "the floor holds a %s where the histories promised "
+                         "a %s" % (found.def_id, real.def_id))
+        self.assertEqual(found.material, real.material)
+
+    def test_an_old_save_still_records_as_the_backstop(self):
+        """A fortress saved before v4.23 has artifact dicts with no def_id.
+        The legends take the backstop -- a stone gem -- rather than
+        refusing the record; wrong-but-present beats lost."""
+        from ascii_warriors.fortress import legacy as legacy_mod
+
+        fort, _real = self._mood_artifact("artiold")
+        old = dict(fort.artifacts[-1])
+        old.pop("def_id"), old.pop("material")
+        site = fort.world.sites[0]
+        before = len(fort.world.artifacts)
+        legacy_mod._record_artifact(fort, site, old)
+        self.assertEqual(len(fort.world.artifacts), before + 1)
+        self.assertEqual(fort.world.artifacts[-1].item_def, "gem")
+        self.assertEqual(fort.world.artifacts[-1].material, "stone")

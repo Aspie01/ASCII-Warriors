@@ -144,6 +144,10 @@ def _record_artifact(fort, site, art: Dict[str, Any]) -> None:
     from ..world.history import Artifact, HistoricalEvent
 
     world = fort.world
+    # The defaults are a backstop for saves from before v4.23, when the
+    # mood wrote no `def_id` or `material` and everything the fortress made
+    # entered the legends as a stone gem. A fortress played since then
+    # always has both.
     obj = Artifact(world.next_id("artifact"), art.get("name", "?"),
                    art.get("native", ""), art.get("def_id", "gem"),
                    art.get("material", "stone"))

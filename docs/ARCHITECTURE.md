@@ -12147,7 +12147,43 @@ recipes name a skill no founder holds, and `_scan_workshops` already
 answers that with a warning instead of an unworkable job; the first audit
 read a `labor` attribute recipes do not have, and proved nothing.
 
-## 183. Style
+## 183. The artifact the legends misremember (v4.23)
+
+`_finish_mood` builds a real `Item` — a def and a material — and recorded
+`{name, native, maker, item, year}`: the display string, and not the
+item. `legacy._record_artifact` reads `def_id` and `material`, two keys
+the mood never wrote, so its defaults stood in for every artifact any
+fortress has ever made: kind `"gem"`, material `"stone"`.
+
+The legend is load-bearing, which is what makes this a defect rather than
+a bookkeeping wrinkle. `artifacts.make` builds the physical item *from
+the legend* when an adventurer walks into a fallen fortress's site — so
+the player who followed the histories to "The Axe of the Forge, an
+obsidian short sword" picked a stone gem off the floor. Measured end to
+end before the fix: the mood dropped `def_id='short_sword'
+material='obsidian'`; the world's record read `gem` / `stone`.
+
+The fix is two keys in the mood's record. The display string stays — the
+fort screen and the legends prose print it — and `_record_artifact`'s
+defaults stay as an explicit backstop for saves from before this version:
+wrong-but-present beats lost.
+
+Guards, all end to end: the mood's record says what the item is; the
+fallen fortress's legend matches the item the mood dropped; the item
+`artifacts.make` rebuilds from that legend has the same def and material;
+and an old-shape record still lands as the backstop rather than being
+refused. Re-break, 4 cases, 0 misses — including re-keying
+`_record_artifact` to a key the mood does not write, which is the exact
+original shape.
+
+How it was found: §182's function census listed `legacy._record_artifact`
+among functions a played fortress never calls, and reading it against
+`_finish_mood`'s dict showed the two sides of the hand-off had never
+agreed on the keys. The same save-identity family as the bare-`getattr`
+defaults §«the save nobody reloads» hunted: a `.get` default is a contract
+nobody checks until the reader and the writer drift.
+
+## 184. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

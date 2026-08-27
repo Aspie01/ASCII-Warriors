@@ -2381,7 +2381,17 @@ def _finish_mood(fort, dwarf) -> None:
     fort.drop_item(art, *cell)
     fort.artifacts.append({
         "name": translated, "native": native, "maker": dwarf.name,
-        "item": art.name(), "year": fort.time.year,
+        # `item` is the display string the fort screen and the legends
+        # prose print; `def_id` and `material` are the item itself, and
+        # they are what `legacy._record_artifact` writes into the world.
+        # They were missing until v4.23, so every artifact a fortress ever
+        # made entered the legends as `_record_artifact`'s defaults -- a
+        # stone gem -- and the adventurer who later walked into the fallen
+        # fortress found a stone gem where the histories promised an
+        # obsidian short sword, because `artifacts.make` builds the physical
+        # item from the legend and the legend was wrong.
+        "item": art.name(), "def_id": art.def_id, "material": art.material,
+        "year": fort.time.year,
     })
     fort.log.good("%s has created %s, a %s!" % (
         dwarf.name, translated, art.name()))
