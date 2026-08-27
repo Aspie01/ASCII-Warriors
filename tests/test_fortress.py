@@ -10670,6 +10670,82 @@ def _seal_in(fort, d) -> None:
                 fort.dig_out((d.x + dx, d.y + dy, z), "rock_wall")
 
 
+class TestTheLaborNobodyHolds(unittest.TestCase):
+    """v4.19: the fortress posted work no dwarf in it could take.
+
+    `_scan_fishing` exists because somebody noticed the first half of this
+    -- its docstring says the labor "has been in the list since there was
+    a list, the hunter carries it, and `fish_food` is stocked, cooked and
+    eaten -- and no dwarf had ever been given anything to do with any of
+    it" -- and it fixed the half it could see. The work has been posted
+    ever since. Nobody could take it: `fishing` belongs to the `hunter`
+    profession and `STARTING_SEVEN` has never included one, exactly as
+    `medicine` belonged to the never-picked `doctor` in §178. Measured, a
+    single fishing job sat unassigned through **11,514 step-observations**
+    of one week while the scanner kept it dutifully on the board, and
+    across four fortress-weeks the score was 8 posted, 0 finished.
+
+    After: 1,011 posted and 361 finished over the same four weeks, the
+    same 399 designated cells dug, and eight more dwarves alive at the end
+    of it -- a fortress that eats does better than one that does not.
+
+    The general guard is the first one below, and it is the one that
+    matters: it would have caught §178 a milestone earlier.
+    """
+
+    def test_every_labor_the_fortress_asks_for_is_held_by_somebody(self):
+        """The whole family, not this week's instance of it."""
+        import re
+
+        fort = embark("labors")
+        asked = set()
+        for name in ("sim.py", "fortress.py"):
+            src = open("ascii_warriors/fortress/%s" % name).read()
+            asked |= set(re.findall(r'labor="([a-z_]+)"', src))
+        self.assertIn("fishing", asked, "the audit is reading the wrong thing")
+        for labor in sorted(asked):
+            holders = [d for d in fort.dwarves() if d.fort.labors.has(labor)]
+            self.assertTrue(
+                holders,
+                "the fortress posts %r work and not one of the seven can "
+                "take it, so every such job will sit on the board until "
+                "the fortress falls" % labor)
+
+    def test_a_fishing_job_is_worked_and_lands_a_fish(self):
+        """On a seed whose water somebody can stand beside.
+
+        `_fishing_spot` will happily name a pool five levels down that no
+        dwarf can reach, and on such an embark no fish is landed however
+        long the test runs -- which is terrain, not a defect. The first
+        draft of this guard drew one of those and read it as a failure.
+        """
+        fort = embark("fort")
+        caught = None
+        for _ in range(1500):
+            sim.run(fort, 1)
+            if fort.stock_count("fish_food") > 0:
+                caught = fort.stock_count("fish_food")
+                break
+        self.assertIsNotNone(
+            caught,
+            "fifteen hundred steps beside reachable water and nobody "
+            "landed a fish: jobs on the board=%d"
+            % sum(1 for j in fort.jobs.jobs.values() if j.kind == "fish"))
+
+    def test_the_anglers_do_not_take_the_fortress_with_them(self):
+        """Fishing must not become the fortress's whole life: `MAX_ANGLERS`
+        is the cap, and this is what notices if it stops being one."""
+        fort = embark("anglers")
+        worst = 0
+        for _ in range(1500):
+            sim.run(fort, 1)
+            live = sum(1 for j in fort.jobs.jobs.values() if j.kind == "fish")
+            worst = max(worst, live)
+        self.assertLessEqual(worst, sim.MAX_ANGLERS,
+                             "%d fishing jobs at once against a cap of %d"
+                             % (worst, sim.MAX_ANGLERS))
+
+
 class TestTheHospitalNobodyCouldStaff(unittest.TestCase):
     """v4.18: no fortress in this project has ever treated an injury.
 

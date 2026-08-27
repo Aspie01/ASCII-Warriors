@@ -10298,6 +10298,15 @@ Small sealed bubbles in the rock are a fine thing for a cave system to have.
 **This milestone does not close seed `long`.** It closes the four-in-fifteen
 case; what is left of the other one is measured properly in §159.
 
+The suite then caught a fifth instrument, and this one was a test's. The
+manual's promise that "a dwarf eats about one unit a day" was checked by
+watching the *stores* fall, which is the same number as eating for
+exactly as long as the fortress produces nothing. The day anybody could
+fish, dwarves went on eating one a day while the larder fell by 0.41,
+because the difference was coming out of the river. The claim is about
+eating, so it is counted at the mouth now — `Fortress.consume` — and the
+proxy that quietly depended on a starving fortress is gone.
+
 Re-break: three defects put back, three caught, 0 misses.
 
 ## 159. The tree at the top of the slope, and the path behind it (v3.99)
@@ -10769,6 +10778,15 @@ back, so the words and the numbers cannot drift apart in either direction.
 A control case was written into the re-break and then removed: making chitin
 uncrushable *should* leave these guards green, and counting an expected pass
 as a "miss" makes the pass report meaningless. A re-break list is defects.
+
+The suite then caught a fifth instrument, and this one was a test's. The
+manual's promise that "a dwarf eats about one unit a day" was checked by
+watching the *stores* fall, which is the same number as eating for
+exactly as long as the fortress produces nothing. The day anybody could
+fish, dwarves went on eating one a day while the larder fell by 0.41,
+because the difference was coming out of the river. The claim is about
+eating, so it is counted at the mouth now — `Fortress.consume` — and the
+proxy that quietly depended on a starving fortress is gone.
 
 Re-break: three defects put back, three caught, 0 misses.
 
@@ -11752,7 +11770,60 @@ can remove the job.
 
 Re-break: four defects put back, four caught, 0 misses.
 
-## 179. Style
+## 179. The labor nobody holds (v4.19)
+
+§178's defect had a sibling, and the same audit finds both. Of the six
+labors the fortress posts work for, `fishing` was held by nobody:
+it belongs to the `hunter` profession, and `STARTING_SEVEN` has never
+included one — exactly as `medicine` belonged to the never-picked
+`doctor`.
+
+What makes this one worth its own section is `_scan_fishing`'s docstring,
+which records the defect it was written to fix: the labor "has been in
+the list since there was a list, the hunter carries it, and `fish_food`
+is stocked, cooked and eaten — and no dwarf had ever been given anything
+to do with any of it." That fix posted the work. It could not post
+somebody to do it. Measured: a single fishing job sat unassigned through
+**11,514 step-observations** of one week while the scanner kept it
+dutifully on the board; across four fortress-weeks, 8 posted and 0
+finished.
+
+After: **1,011 posted and 361 finished** over the same four weeks. Run
+both ways in one process, one line apart: **14 of 28 dwarves alive
+before, 22 after, with 399 designated cells dug either way.** Eight more
+survivors and not a stone less mined — a fortress that eats does better
+than one that does not, and this one was starving beside a river.
+
+The general guard is the point of the milestone. It reads every
+`labor="..."` the fortress posts work for straight out of the source and
+insists somebody at embark can take it, so the next labor to go
+unstaffed fails a test rather than waiting for a census. Put to the
+question, it turns red for `medicine` too: it would have caught §178 a
+milestone earlier.
+
+Four instruments were wrong before one was right, and the pattern is
+worth naming: **when a census says something obviously happening never
+happens, suspect the probe.** A daily poll missed wounds that arrive and
+clot inside a day (§168's lesson, relearned). The bare `embark()` helper
+never spawns a raid, so three fortress-weeks reported nobody was ever
+hurt. `JobBoard.make` is not the funnel — `post` is — so the first job
+census reported that fortresses never dig, in the same breath as the
+ritual reporting 85 designated cells worked. And a bare embark designates
+nothing, so it cannot answer what work a *played* fortress leaves undone;
+that census has to run through `tools/fort.py`.
+
+The suite then caught a fifth instrument, and this one was a test's. The
+manual's promise that "a dwarf eats about one unit a day" was checked by
+watching the *stores* fall, which is the same number as eating for
+exactly as long as the fortress produces nothing. The day anybody could
+fish, dwarves went on eating one a day while the larder fell by 0.41,
+because the difference was coming out of the river. The claim is about
+eating, so it is counted at the mouth now — `Fortress.consume` — and the
+proxy that quietly depended on a starving fortress is gone.
+
+Re-break: three defects put back, three caught, 0 misses.
+
+## 180. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).

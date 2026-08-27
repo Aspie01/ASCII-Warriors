@@ -70,6 +70,19 @@ CATEGORIES: Tuple[str, ...] = (
 DEFAULT_LABORS: FrozenSet[str] = frozenset({
     "hauling", "building", "farming", "herbalism", "cooking", "brewing",
     "butchery",
+    # Anybody will drop a line in the water, too. `fishing` belongs to the
+    # `hunter` profession, which no embark has ever included -- the same
+    # shape as `medicine` below, and with the same result: measured in
+    # v4.19, every fishing job the fortress has ever posted went unworked.
+    # One sat unassigned for 11,514 step-observations of a single week
+    # while `_scan_fishing` dutifully kept it on the board. That scanner's
+    # own docstring records the defect it was written to fix -- "the labor
+    # has been in the list since there was a list, the hunter carries it,
+    # and `fish_food` is stocked, cooked and eaten -- and no dwarf had ever
+    # been given anything to do with any of it" -- and it fixed the half it
+    # could see: the work is posted now, and until this line nobody could
+    # take it.
+    "fishing",
     # Anybody will bind a wound. `doctor` was the only profession carrying
     # `medicine` and no embark has ever included one, so measured in v4.18
     # the fortress had never treated a single injury in its history: one

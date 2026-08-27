@@ -615,14 +615,31 @@ class TestTheManualIsAPromise(unittest.TestCase):
         world = generate_world(rng.sub("w"), size="small", history_years=25)
         wx, wy = suggest_site(world)
         fort = Fortress.embark(world, wx, wy, rng.sub("f"))
+        # Counted at the mouth, not off the shelf. This used to measure the
+        # *net* change in stores, which was the same number for as long as
+        # the fortress produced nothing -- and stopped being it the day
+        # v4.19 let anybody fish. Dwarves went on eating about one a day
+        # while the stock fell by 0.41, because the difference was being
+        # pulled out of the river. The manual's claim is about eating, so
+        # the test counts what is eaten.
+        eaten = {"food": 0, "drink": 0}
+        real_consume = Fortress.consume
+
+        def counting(self, dwarf, item, *, drink=False):
+            eaten["drink" if drink else "food"] += 1
+            return real_consume(self, dwarf, item, drink=drink)
+
+        Fortress.consume = counting
         days = 8
-        food0, drink0 = fort.food_stock(), fort.stock_count("dwarven_ale")
-        for _ in range(days):
-            fort_steps = TICKS_PER_DAY // sim.STEP_TICKS
-            sim.run(fort, fort_steps)
+        try:
+            for _ in range(days):
+                fort_steps = TICKS_PER_DAY // sim.STEP_TICKS
+                sim.run(fort, fort_steps)
+        finally:
+            Fortress.consume = real_consume
         n = max(1, len(fort.dwarves()))
-        food = (food0 - fort.food_stock()) / float(days) / n
-        drink = (drink0 - fort.stock_count("dwarven_ale")) / float(days) / n
+        food = eaten["food"] / float(days) / n
+        drink = eaten["drink"] / float(days) / n
         self.assertTrue(0.8 <= food <= 1.25,
                         "manual says a dwarf eats about one a day; %.2f" % food)
         self.assertTrue(1.25 <= drink <= 1.9,
