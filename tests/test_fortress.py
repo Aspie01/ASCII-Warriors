@@ -1299,13 +1299,47 @@ class TestTheDead(unittest.TestCase):
     # -- what turns up otherwise --------------------------------------------- #
 
     def test_nothing_rises_before_the_season_is_out(self):
-        """A death is not immediately a haunting."""
+        """A death is not immediately a haunting.
+
+        Counted in days off the calendar, never in `HAUNT_AFTER`. This test
+        used to kill a dwarf and call `haunt` once, having advanced no time
+        at all, and then assert nothing had risen: it passed for every value
+        the constant could hold, including the seven days it was actually
+        holding while its own name promised a season.
+        """
+        from ascii_warriors.data.calendar import TICKS_PER_DAY
         from ascii_warriors.fortress import ghosts as ghost_mod
 
         fort = embark("deadwait")
-        self._kill(fort)
+        victim = self._kill(fort)
+        for days in (1, 7, 30, 83):
+            fort.unburied[victim.id] = fort.ticks - TICKS_PER_DAY * days
+            ghost_mod.haunt(fort, sim.STEP_TICKS)
+            self.assertEqual(fort.ghosts, {},
+                             "%s rose after %d days" % (victim.name, days))
+
+    def test_the_season_the_dead_wait_is_a_season(self):
+        """Eighty-four days, and the calendar is what says so.
+
+        Pinned against the calendar rather than against itself. `HAUNT_AFTER`
+        was 100800 -- eighty-four days at 1200 ticks a day, and a day in this
+        game is 14400 -- so the constant said a season and served a week,
+        with two tests guarding it that were both written as
+        `fort.ticks - HAUNT_AFTER` and so could not tell the difference.
+        """
+        from ascii_warriors.data import calendar
+        from ascii_warriors.fortress import ghosts as ghost_mod
+
+        self.assertEqual(ghost_mod.HAUNT_AFTER, calendar.TICKS_PER_SEASON)
+        self.assertEqual(calendar.TICKS_PER_SEASON // calendar.TICKS_PER_DAY,
+                         84)
+        fort = embark("deadseason")
+        victim = self._kill(fort)
+        fort.unburied[victim.id] = (fort.ticks
+                                    - calendar.TICKS_PER_DAY * 84 - 1)
         ghost_mod.haunt(fort, sim.STEP_TICKS)
-        self.assertEqual(fort.ghosts, {})
+        self.assertIn(victim.id, fort.ghosts,
+                      "a dwarf dead a full season did not rise")
 
     def test_a_dwarf_left_lying_comes_back(self):
         """The whole rule, in one test."""
@@ -11437,3 +11471,171 @@ class TestTheStubThatDriftedTwice(unittest.TestCase):
                              "last and drops the rest" % twice)
             return
         self.fail("could not find the _DRIVER_RUN literal to check")
+
+
+class TestTheDurationsNobodyCouldCheck(unittest.TestCase):
+    """A span written out as a number is a span nothing can check.
+
+    `HAUNT_AFTER = 100800` sat in `ghosts.py` with a comment calling it a
+    season. Eighty-four days at 1200 ticks a day is 100800, and a day in
+    this game is `TICKS_PER_DAY`, 14400 -- so the fortress served a week and
+    said a season, for as long as the constant existed. `ghosts.py` was the
+    one module in the fortress with a duration constant and no calendar
+    import, which is exactly why: there was nothing in the file to compare
+    the number against.
+
+    So the rule is not about that constant. It is about the shape: a
+    module-level duration whose own comment names a unit of the calendar has
+    to be *derived* from the calendar, never spelled out. A hand-written
+    number is allowed only where the comment makes no calendar claim -- the
+    tuned cadences, where the number is the whole of the meaning.
+    """
+
+    #: Words that make a comment a claim about the calendar.
+    UNITS = ("day", "days", "week", "weeks", "fortnight", "season",
+             "seasons", "month", "months", "year", "years")
+
+    #: Everything `data.calendar` publishes that a span could be built from.
+    _CALENDAR_NAMES = frozenset((
+        "SECONDS_PER_TICK", "TICKS_PER_MINUTE", "TICKS_PER_HOUR",
+        "TICKS_PER_DAY", "TICKS_PER_MONTH", "TICKS_PER_SEASON",
+        "TICKS_PER_YEAR", "DAYS_PER_MONTH", "DAYS_PER_SEASON",
+        "DAYS_PER_YEAR", "MONTHS_PER_SEASON", "MONTHS_PER_YEAR",
+    ))
+
+    @classmethod
+    def _fold(cls, node):
+        """The integer an expression of plain numbers comes to, or None.
+
+        Deliberately not `ast.literal_eval`, which refuses `14400 * 20` --
+        and a rule that treats "refused to parse" as "derived from the
+        calendar" is a rule that lets every hand-written product through.
+        That is the whole of the miss this walk was rewritten to close.
+        """
+        import ast
+        import operator
+
+        ops = {ast.Add: operator.add, ast.Sub: operator.sub,
+               ast.Mult: operator.mul, ast.FloorDiv: operator.floordiv}
+        if isinstance(node, ast.Constant):
+            return node.value if isinstance(node.value, int) and not \
+                isinstance(node.value, bool) else None
+        if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
+            inner = cls._fold(node.operand)
+            return None if inner is None else -inner
+        if isinstance(node, ast.BinOp) and type(node.op) in ops:
+            left, right = cls._fold(node.left), cls._fold(node.right)
+            if left is None or right is None:
+                return None
+            return ops[type(node.op)](left, right)
+        return None
+
+    def _duration_constants(self):
+        """Every module-level integer constant that names a span, with its
+        comment and the source of its assignment."""
+        import ast
+        import os
+        import re
+
+        root = os.path.join(os.path.dirname(os.path.dirname(
+            os.path.abspath(__file__))), "ascii_warriors")
+        wanted = re.compile(
+            r"tick|delay|interval|after|cooldown|fade|timeout|_per_", re.I)
+        out = []
+        for dirpath, _dirs, files in os.walk(root):
+            for name in sorted(files):
+                if not name.endswith(".py"):
+                    continue
+                path = os.path.join(dirpath, name)
+                with open(path) as handle:
+                    src = handle.read()
+                lines = src.splitlines()
+                for node in ast.parse(src, path).body:
+                    if not isinstance(node, ast.Assign):
+                        continue
+                    targets = [t.id for t in node.targets
+                               if isinstance(t, ast.Name)]
+                    if len(targets) != 1 or not targets[0].isupper():
+                        continue
+                    if not wanted.search(targets[0]):
+                        continue
+                    value = self._fold(node.value)
+                    names = {n.id for n in ast.walk(node.value)
+                             if isinstance(n, ast.Name)}
+                    # Derived means "the calendar said so", not merely "not a
+                    # bare literal". `14400 * 20` is arithmetic on two numbers
+                    # somebody typed, and `84 * 1200` -- which is where
+                    # `HAUNT_AFTER` came from -- is the same shape with one of
+                    # them wrong. Neither is derived from anything.
+                    derived = bool(names & self._CALENDAR_NAMES)
+                    doc = []
+                    i = node.lineno - 2
+                    while i >= 0 and lines[i].lstrip().startswith("#"):
+                        doc.insert(0, lines[i].strip().lstrip("#:").strip())
+                        i -= 1
+                    out.append((
+                        os.path.relpath(path, os.path.dirname(root)),
+                        targets[0], value, derived, " ".join(doc),
+                        ast.get_source_segment(src, node.value) or ""))
+        return out
+
+    def test_a_duration_that_claims_a_calendar_unit_is_taken_from_the_calendar(self):
+        """The rule `HAUNT_AFTER` broke, applied to everything."""
+        import re
+
+        from ascii_warriors.data.calendar import TICKS_PER_HOUR
+
+        rows = self._duration_constants()
+        claiming = [r for r in rows
+                    if any(re.search(r"\b%s\b" % u, r[4], re.I)
+                           for u in self.UNITS)]
+        self.assertTrue(claiming,
+                        "the audit found no duration constant claiming a "
+                        "calendar unit; it is reading the wrong thing")
+        # An hour is the line. Below it the number *is* the meaning -- how
+        # often the cold looks at the water, how many magma cells get a turn
+        # -- and there is no calendar span for a caller to have got wrong.
+        # At or above it the comment is making a claim the calendar can
+        # settle, so the calendar has to be the one making it.
+        spelled = ["%s: %s = %s -- comment says %r"
+                   % (rel, name, source, doc[:70])
+                   for rel, name, value, derived, doc, source in claiming
+                   if not derived and value >= TICKS_PER_HOUR]
+        self.assertEqual(
+            spelled, [],
+            "a duration written out as a number cannot be checked against "
+            "the sentence beside it, which is how a season came to be "
+            "served as a week: %s" % spelled)
+
+    def test_the_audit_reads_the_constants_it_is_supposed_to(self):
+        """The audit's own instrument, pinned.
+
+        An audit that silently stops finding anything passes for ever. These
+        three are the ones the milestone touched; if the walk stops seeing
+        them it is broken, not the tree.
+        """
+        found = {(rel, name) for rel, name, _v, _d, _doc, _s
+                 in self._duration_constants()}
+        for rel, name in (("ascii_warriors/fortress/ghosts.py", "HAUNT_AFTER"),
+                          ("ascii_warriors/fortress/ghosts.py", "CHILL_TICKS"),
+                          ("ascii_warriors/game/wear.py", "CLOTH_TICKS")):
+            self.assertIn((rel, name), found,
+                          "the audit no longer sees %s" % name)
+
+    def test_the_calendar_agrees_with_itself_about_a_season(self):
+        """Four seasons, three months each, twenty-eight days a month."""
+        from ascii_warriors.data import calendar
+
+        self.assertEqual(len(calendar.SEASONS), 4)
+        self.assertEqual(calendar.MONTHS_PER_SEASON * len(calendar.SEASONS),
+                         calendar.MONTHS_PER_YEAR)
+        self.assertEqual(calendar.TICKS_PER_SEASON * len(calendar.SEASONS),
+                         calendar.TICKS_PER_YEAR)
+        self.assertEqual(calendar.DAYS_PER_SEASON, 84)
+        # Every month in a season maps to that season, and no month escapes.
+        for month in range(1, calendar.MONTHS_PER_YEAR + 1):
+            season = calendar.season_of_month(month)
+            self.assertIn(season, calendar.SEASONS)
+            self.assertEqual(
+                calendar.SEASONS[(month - 1) // calendar.MONTHS_PER_SEASON],
+                season)

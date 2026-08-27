@@ -22,6 +22,8 @@ SEASONS: Tuple[str, ...] = ("Spring", "Summer", "Autumn", "Winter")
 DAYS_PER_MONTH = 28
 MONTHS_PER_YEAR = 12
 DAYS_PER_YEAR = DAYS_PER_MONTH * MONTHS_PER_YEAR  # 336
+MONTHS_PER_SEASON = MONTHS_PER_YEAR // len(SEASONS)  # 3
+DAYS_PER_SEASON = DAYS_PER_MONTH * MONTHS_PER_SEASON  # 84
 
 #: Six seconds per tick. Load-bearing rather than decorative: the minute below
 #: is derived from it, so the "one tick is six seconds" the architecture keeps
@@ -31,6 +33,7 @@ TICKS_PER_MINUTE = 60 // SECONDS_PER_TICK       # 10
 TICKS_PER_HOUR = TICKS_PER_MINUTE * 60          # 600
 TICKS_PER_DAY = TICKS_PER_HOUR * 24             # 14400
 TICKS_PER_MONTH = TICKS_PER_DAY * DAYS_PER_MONTH
+TICKS_PER_SEASON = TICKS_PER_DAY * DAYS_PER_SEASON
 TICKS_PER_YEAR = TICKS_PER_DAY * DAYS_PER_YEAR
 
 #: Default campaign start: the 1st of Granite, year 125, at eight in the morning.

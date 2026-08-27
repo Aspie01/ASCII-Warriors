@@ -21,6 +21,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Mapping, Optional, Tuple
 
+from ..data.calendar import TICKS_PER_HOUR, TICKS_PER_SEASON
 from ..engine import colors
 
 Cell = Tuple[int, int, int]
@@ -28,15 +29,28 @@ Cell = Tuple[int, int, int]
 #: How long a dwarf lies unburied before it stops waiting. A season: long
 #: enough that the first death is not immediately a crisis, short enough that
 #: a fortress which never builds a coffin finds out why it should have.
-HAUNT_AFTER = 100800
+#:
+#: Taken from the calendar rather than written out, because the number that
+#: used to be here was 100800 -- eighty-four days at twelve hundred ticks a
+#: day, which is what a day is worth nowhere in this game. A day is
+#: `TICKS_PER_DAY`, fourteen thousand four hundred, so the season above was
+#: being served as a week. Nothing could see it: this was the one module in
+#: the fortress with a duration constant and no calendar import, and both
+#: tests that guard the window were written in terms of the constant, so
+#: `test_nothing_rises_before_the_season_is_out` would have passed at
+#: `HAUNT_AFTER = 1`. Measured over a played year, the first two dwarves to
+#: die rose seven days later, and the fortress -- which had no coffin, and
+#: had been given no reason yet to think it needed one -- carried them for
+#: the remaining nine months.
+HAUNT_AFTER = TICKS_PER_SEASON
 
 #: How close a ghost has to be to be felt, and how much it costs to feel it.
 HAUNT_RANGE = 6
 HAUNT_STRESS = 3
 
-#: Ticks between one chill and the next, per ghost. Being haunted should be a
-#: slow ruin rather than a fortress-wide panic every step.
-CHILL_TICKS = 1200
+#: Between one chill and the next, per ghost. Being haunted should be a slow
+#: ruin rather than a fortress-wide panic every step.
+CHILL_TICKS = TICKS_PER_HOUR * 2
 
 #: How the dead are drawn.
 GLYPH = "¤"

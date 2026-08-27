@@ -35,11 +35,15 @@ from __future__ import annotations
 
 from typing import Any, List, Optional
 
-#: How often clothing is asked whether it has worn out. `wear_tick` gives
-#: cloth about one chance in eighty, so a garment lasts something over a year
-#: of wearing -- long enough that replacing it is an industry rather than a
-#: chore, short enough that a fortress cannot ignore it for ever.
-CLOTH_TICKS = 14400
+from ..data.calendar import TICKS_PER_DAY
+
+#: How often clothing is asked whether it has worn out: once a day. `wear_tick`
+#: gives cloth about one chance in eighty and `MAX_WEAR` is three, so four
+#: hits finish a garment and it lasts something over a year of wearing -- long
+#: enough that replacing it is an industry rather than a chore, short enough
+#: that a fortress cannot ignore it for ever. From the calendar, so the "year"
+#: in that sentence stays checkable: see `HAUNT_AFTER`.
+CLOTH_TICKS = TICKS_PER_DAY
 
 #: What a whetstone gives back, and how sure it is. Sharpening is a repair,
 #: not a restoration: it takes the edge back a step, and a badly enough abused

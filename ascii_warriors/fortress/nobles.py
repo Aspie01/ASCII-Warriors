@@ -10,6 +10,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, List, Mapping, Optional, Tuple
 
+from ..data.calendar import TICKS_PER_DAY
+
 #: Stress at which a dwarf starts behaving badly, and then very badly.
 STRESS_UNHAPPY = 60
 STRESS_TANTRUM = 110
@@ -61,8 +63,10 @@ MANDATES: Tuple[Tuple[str, str, str], ...] = (
     ("dwarven_ale", "item", "More ale. Always more ale."),
 )
 
-#: Ticks a mandate stands before the noble takes offence.
-MANDATE_TICKS = 14400 * 20
+#: How long a mandate stands before the noble takes offence. Twenty days,
+#: from the calendar rather than from a hand-written 14400: see `HAUNT_AFTER`
+#: for what happens when a duration is spelled out instead of derived.
+MANDATE_TICKS = TICKS_PER_DAY * 20
 
 
 class Noble:

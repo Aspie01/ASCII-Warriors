@@ -11823,7 +11823,127 @@ proxy that quietly depended on a starving fortress is gone.
 
 Re-break: three defects put back, three caught, 0 misses.
 
-## 180. Style
+## 180. The season that was a week (v4.20)
+
+`ghosts.HAUNT_AFTER` was `100800`, with a comment above it reading "A
+season: long enough that the first death is not immediately a crisis,
+short enough that a fortress which never builds a coffin finds out why it
+should have." Four things said a season. The comment above the
+constant; the module docstring — "After a season the dwarf comes back";
+the test, by name — `test_nothing_rises_before_the_season_is_out`; and
+the README, which tells the player "leave one lying for a season and it
+comes back".
+
+A day in this game is `TICKS_PER_DAY`, **14400**. 100800 ticks is
+**seven days**, so all four were wrong together. The number is eighty-four days computed at twelve hundred
+ticks a day, which is what a day is worth nowhere in the code. The
+fortress said a season and served a week, for as long as the constant
+existed.
+
+**Why nothing could see it.** `ghosts.py` was the one module in
+`fortress/` that had a duration constant and no calendar import: there was
+nothing in the file to compare the number against. Both tests guarding the
+window were written as `fort.ticks - HAUNT_AFTER`, so they measured the
+constant against itself —
+`test_nothing_rises_before_the_season_is_out` killed a dwarf, advanced no
+time at all, and asserted nothing had risen. It passes at
+`HAUNT_AFTER = 1`.
+
+**How it was found.** Not by reading. The ritual runs four fortresses for
+seven days each, and the first season boundary is day 85 — the 1st of
+Hematite, twelve weeks after every embark, because `Fortress.embark`
+starts every fortress on the 1st of Granite — so no driver run has ever
+crossed one. `tools/fort.py`'s own note records two seeds taken to a
+hundred days that "were wiped between day fifty-six and day eighty-four":
+even those stopped short. So `_calendar` had never turned in any driver
+run ever made, and neither had anything hanging off it.
+
+A 336-day run was the first fortress in this project's history to cross a
+season. It reported ghosts at day 112 that had not been there at day 84:
+two dwarves died around day 80 and were walking a week later, in a
+fortress that had been given no reason yet to think it needed a coffin.
+It carried them, and two more, for the remaining nine months, and
+finished the year with **4 ghosts, 26 tantrums, 6 dwarves gone berserk,
+13 crimes nobody could try, and two of seven alive.**
+
+Name the instrument, because it is not `tools/fort.py play()`. It is the
+driver's *setup* — `_dig_out_the_fortress`, `_put_up_the_workshops`,
+`_queue_the_orders`, `_stock_the_tavern`, `_raise_the_militia`, and
+`_more_beds` every 28 days — with 336 days of `sim.run` after it and
+**no day-three raid**. That distinction earns its place: run the same
+seed through the whole driver for 150 days and all seven live, nobody
+dies, and no ghost rises at all. A fortress has to lose somebody before
+this constant means anything, and the driver's fortresses are good enough
+at seven days that they mostly do not.
+
+**The fix** is one line — `HAUNT_AFTER = TICKS_PER_SEASON` — plus the
+constant it needs. `data/calendar.py` now publishes `MONTHS_PER_SEASON`,
+`DAYS_PER_SEASON` and `TICKS_PER_SEASON`, derived from `SEASONS` so that
+"four seasons of three months" is a fact about the code rather than only
+about the module docstring. Two more hand-written spans were linked to it
+without changing value: `nobles.MANDATE_TICKS` (`14400 * 20` →
+`TICKS_PER_DAY * 20`) and `wear.CLOTH_TICKS` (`14400` → `TICKS_PER_DAY`).
+`ghosts.CHILL_TICKS` became `TICKS_PER_HOUR * 2`.
+
+**What the week cost.** A survival A/B over the driver cannot see this
+change: the thing it changes only starts once somebody has died unburied,
+and a healthy driver fortress went 150 days without that. A bare
+`embark()` cannot see it either — a bare embark digs nothing and plants
+nothing, and everybody is dead of thirst inside the window with nobody
+left to be haunted. So the death is the controlled variable: the driver's
+own fortress, one dwarf killed on day five, forty days run after it,
+three seeds, one constant apart in one process.
+
+| | week (100800, as shipped) | season (`TICKS_PER_SEASON`) |
+|---|---|---|
+| dwarves alive at day 45 | 12 | **14** |
+| ghost-days | 102 | **0** |
+| chills felt | 128 | **0** |
+| stress from being haunted | 384 | **0** |
+
+Every fortress was haunted for 34 of its 40 days, and `alpha` — which
+finished the week arm with nobody alive at all — finished the season arm
+with two. On the two seeds that survived both, the same fortress ends
+calmer: `fort` −91 → −108 and `gamma` −67 → −107 mean stress. The
+mean-stress *total* is not comparable across the arms and is not quoted
+as a result: a wiped fortress contributes zero to it, so killing everyone
+looks like calm.
+
+**The guard is the general one.**
+`TestTheDurationsNobodyCouldCheck` walks every module under
+`ascii_warriors/`, collects each module-level constant whose name reads
+like a span, folds its assignment expression, and asserts: *a duration
+whose own comment names a unit of the calendar must be derived from the
+calendar.* An hour is the threshold — below it the number is the whole of
+the meaning (how often the cold looks at the water, how many magma cells
+get a turn) and there is no calendar span to have got wrong; at or above
+it the comment is making a claim the calendar can settle, so the calendar
+has to be the one making it.
+
+The audit's first draft had the defect it was written to catch.
+`ast.literal_eval` refuses `14400 * 20`, and the draft read "refused to
+parse" as "derived", so every hand-written *product* walked straight
+through — including `84 * 1200`, which is the exact expression this
+milestone is about. The re-break caught it as a miss on case 4. The walk
+now folds arithmetic itself and scores a constant as derived only when it
+references a name the calendar publishes.
+
+Re-break, 6 cases, 0 misses: `HAUNT_AFTER` back to `100800`; `HAUNT_AFTER`
+spelled out at the *right* value; `HAUNT_AFTER = 84 * 1200`;
+`CLOTH_TICKS = 14400`; `MANDATE_TICKS = 14400 * 20`; and the audit's own
+name filter blinded, which the third test catches by pinning three
+constants the walk has to keep seeing.
+
+Two false positives were run down before the rule settled.
+`wear.CLOTH_TICKS` was flagged for a comment saying a garment "lasts
+something over a year" — that is a claim about the garment, not about the
+constant: four wear hits at 1.2% a day is 333 days, and the sentence is
+honest. `livingworld.SEASONS_PER_YEAR = 4` was flagged by a name filter
+matching `_per_` on something that is a count and not a span. Both are the
+instrument's-grid error in miniature, and both are why the threshold and
+the fold are written the way they are.
+
+## 181. Style
 
 - `snake_case` functions, `PascalCase` classes, `UPPER_CASE` constants.
 - Dataclasses for plain data; `__slots__` where objects are numerous (tiles, cells).
